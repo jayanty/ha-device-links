@@ -132,9 +132,7 @@ def redact(value: Any) -> Any:
     return value
 
 
-def envelope(
-    name: str, data: Any, *, versions: dict[str, str] | None = None
-) -> dict[str, Any]:
+def envelope(name: str, data: Any, *, versions: dict[str, str] | None = None) -> dict[str, Any]:
     """Wrap probe output with provenance so a stale fixture is obvious."""
     return {
         "fixture": name,
@@ -486,11 +484,7 @@ pytestmark = pytest.mark.skipif(not FIXTURE.exists(), reason="Z6 fixture not cap
 
 def _values(node_id: int) -> dict[tuple[int, int | None], dict]:
     data = json.loads(FIXTURE.read_text())["data"]
-    return {
-        (v["property"], v.get("property_key")): v
-        for v in data
-        if v["node_id"] == node_id
-    }
+    return {(v["property"], v.get("property_key")): v for v in data if v["node_id"] == node_id}
 
 
 def test_zen35_mirror_bit_exists() -> None:
@@ -595,11 +589,11 @@ def test_the_approved_write_is_allowed() -> None:
 @pytest.mark.parametrize(
     ("node", "group", "target"),
     [
-        (36, 1, 1),   # lifeline: never
-        (36, 2, 1),   # a group the bedroom design uses
-        (37, 8, 1),   # a different node
+        (36, 1, 1),  # lifeline: never
+        (36, 2, 1),  # a group the bedroom design uses
+        (37, 8, 1),  # a different node
         (36, 8, 37),  # a different target
-        (39, 8, 1),   # Bedside Light R, not approved
+        (39, 8, 1),  # Bedside Light R, not approved
     ],
 )
 def test_everything_else_is_refused(node: int, group: int, target: int) -> None:
@@ -923,7 +917,9 @@ def test_path_traversal_in_the_archive_is_refused(tmp_path: Path) -> None:
     """A zip entry escaping the target directory must never be written."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
-        zf.writestr("root/custom_components/device_links/manifest.json", '{"domain":"device_links"}')
+        zf.writestr(
+            "root/custom_components/device_links/manifest.json", '{"domain":"device_links"}'
+        )
         zf.writestr("root/custom_components/device_links/../../../etc/evil", "pwned")
 
     with pytest.raises(DeployError, match="escapes"):
