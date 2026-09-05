@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import pytest
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.device_links.const import DOMAIN, INTEGRATION_TITLE
