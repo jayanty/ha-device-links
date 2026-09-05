@@ -52,6 +52,11 @@ jobs:
         # and library versions with it.
         run: |
           set -euxo pipefail
+          # pytest-homeassistant-custom-component pins homeassistant exactly, so upgrade
+          # it first. Otherwise the harness itself fails on the newer core and every
+          # nightly run reports a harness break rather than real upstream drift. pip
+          # warns about the leftover conflict after the second install; that is expected.
+          pip install --upgrade pytest-homeassistant-custom-component
           pip install --upgrade ${{ matrix.pip_flags }} homeassistant
           version=$(python -c 'import homeassistant.const as c; print(c.__version__)')
           echo "version=$version" >> "$GITHUB_OUTPUT"
