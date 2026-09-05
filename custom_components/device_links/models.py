@@ -1,0 +1,238 @@
+"""Value types shared by every layer, and the link identity they are built around.
+
+This module is pure: it imports no Home Assistant, does no I/O and reads no clock, so it can
+be exercised by unit tests without the HA harness and reused from `tools/` probe scripts.
+Every type here is frozen, because plans are compared and hashed and a mutable value type
+would corrupt that silently.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass, field, fields
+from enum import StrEnum
+import re
+from typing import Final
+
+
+class Backend(StrEnum):
+    """A link protocol Device Links can drive."""
+
+    ZWAVE = "zwave"
+    ZIGBEE2MQTT = "zigbee2mqtt"
+    MATTER = "matter"
+
+
+class Feature(StrEnum):
+    """What a link carries from a control to a target device."""
+
+    ON_OFF = "on_off"
+    LEVEL_SET = "level_set"
+    LEVEL_HOLD = "level_hold"
+    SCENE = "scene"
+    COLOR = "color"
+    STATUS_REPORT = "status_report"
+
+
+@dataclass(frozen=True, slots=True)
+class ZWaveFingerprint:
+    """What identifies a Z-Wave device model, as the driver reports it."""
+
+    manufacturer_id: int
+    product_type: int
+    product_id: int
+    firmware: str
+
+
+@dataclass(frozen=True, slots=True)
+class ZigbeeFingerprint:
+    """What identifies a Zigbee device model, as Zigbee2MQTT reports it."""
+
+    manufacturer: str
+    model: str
+
+
+@dataclass(frozen=True, slots=True)
+class MatterFingerprint:
+    """What identifies a Matter device model, as the Matter server reports it."""
+
+    vendor: str
+    product: str
+
+
+type DeviceFingerprint = ZWaveFingerprint | ZigbeeFingerprint | MatterFingerprint
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceHandle:
+    """A device as a rule refers to it, stable across renames and area moves.
+
+    `protocol_id` is the network-level address (`<home id>:<node id>` for Z-Wave, the IEEE
+    address for Zigbee, the node id for Matter). `ha_device_id` and `name_at_authoring` are
+    convenience only: neither takes part in identity, so renaming a device or rebuilding the
+    device registry never invalidates a rule.
+    """
+
+    backend: Backend
+    protocol_id: str
+    ha_device_id: str
+    fingerprint: DeviceFingerprint
+    name_at_authoring: str
+
+    @property
+    def identity(self) -> str:
+        """The device's identity: its backend and its protocol address, nothing else."""
+        return f"{self.backend}:{self.protocol_id}"
+
+
+@dataclass(frozen=True, slots=True)
+class LinkTarget:
+    """The receiving end of a link. `endpoint` is None when the target is the whole device."""
+
+    handle: DeviceHandle
+    endpoint: int | None
+
+
+# A per-group emitter is named after the single group it uses ("g7", or a bare "7"). Any
+# other emitter id can span several groups, so its group must be stated rather than guessed.
+_SINGLE_GROUP_EMITTER_ID: Final = re.compile(r"g?(\d+)")
+
+# Fingerprint fields are joined with this separator and escaped, so no field value can
+# impersonate a field boundary and let two different links share one identity.
+_SEPARATOR: Final = "|"
+_ESCAPE: Final = "\\"
+
+
+def _single_group_of(emitter_id: str) -> str | None:
+    """Return the group a per-group emitter id names, or None when it names no single group."""
+    match = _SINGLE_GROUP_EMITTER_ID.fullmatch(emitter_id)
+    return None if match is None else match.group(1)
+
+
+def _escaped(value: str) -> str:
+    """Escape the separator so the joined fingerprint stays unambiguous."""
+    return value.replace(_ESCAPE, _ESCAPE * 2).replace(_SEPARATOR, _ESCAPE + _SEPARATOR)
+
+
+@dataclass(frozen=True, slots=True)
+class Link:
+    """One link Device Links wants on a device: this control, this target, this feature.
+
+    `emitter_id` is the control the user picked. `emitter_group` is the association group
+    that control uses for this feature, which is what actually gets written to the device:
+    one emitter can span several groups (the Inovelli paddle is one paddle writing into
+    groups 2, 3 and 4), so the group, not the emitter, is what makes two links different
+    device writes. Leave `emitter_group` unset only when `emitter_id` names a single group.
+    """
+
+    backend: Backend
+    source: DeviceHandle
+    source_endpoint: int
+    emitter_id: str
+    target: LinkTarget
+    feature: Feature
+    emitter_group: str = ""
+    rule_id: str | None = None
+
+    def __post_init__(self) -> None:
+        """Reject impossible links and resolve the group this link is written to."""
+        if self.source.identity == self.target.handle.identity:
+            raise ValueError(f"{self.source.identity} cannot control itself")
+        if not self.emitter_group:
+            group = _single_group_of(self.emitter_id)
+            if group is None:
+                raise ValueError(
+                    f"emitter {self.emitter_id!r} does not name a single group, "
+                    "so emitter_group must be given"
+                )
+            object.__setattr__(self, "emitter_group", group)
+
+    @property
+    def fingerprint(self) -> str:
+        """The link's identity: exactly what is written to the device, and nothing else.
+
+        Derived from the backend, the source device and endpoint, the association group, the
+        target device and endpoint, and the feature. Renaming a device or moving a link to
+        another rule leaves it unchanged; changing the group, the target or the endpoint
+        changes it. The result is a plain string so it is stable across processes and
+        restarts, and readable in storage and diagnostics.
+        """
+        return _SEPARATOR.join(
+            _escaped(part)
+            for part in (
+                str(self.backend),
+                self.source.identity,
+                str(self.source_endpoint),
+                self.emitter_group,
+                self.target.handle.identity,
+                "" if self.target.endpoint is None else str(self.target.endpoint),
+                str(self.feature),
+            )
+        )
+
+    def as_kwargs(self) -> dict[str, object]:
+        """Return the keyword arguments that reconstruct this link, for copy-with-changes.
+
+        `emitter_group` is omitted when it is only what `emitter_id` already implies, so that
+        a copy which overrides `emitter_id` does not silently keep the old group.
+        """
+        kwargs: dict[str, object] = {f.name: getattr(self, f.name) for f in fields(self)}
+        if kwargs["emitter_group"] == _single_group_of(self.emitter_id):
+            del kwargs["emitter_group"]
+        return kwargs
+
+
+@dataclass(frozen=True, slots=True)
+class ObservedLink(Link):
+    """A link read back from a device, carrying who (if anyone) owns it.
+
+    It shares `Link`'s fingerprint derivation, so a desired link and an observed one that
+    describe the same device state have the same identity. `is_system` marks the links that
+    are never ours to remove (Z-Wave lifelines, Zigbee coordinator bindings, Matter Administer
+    ACL entries) and has no default, because defaulting it would let one pass as removable.
+    """
+
+    is_system: bool = field(kw_only=True)
+    managed_by: str | None = field(default=None, kw_only=True)
+
+
+@dataclass(frozen=True, slots=True)
+class Emitter:
+    """One physical control on a device, with the group each of its features uses.
+
+    `actions` is the bridge to `Link.emitter_group`: the compiler looks up the group that
+    carries the feature it wants and puts that group on the link it produces.
+    """
+
+    emitter_id: str
+    label: str
+    group_ids: tuple[str, ...]
+    actions: Mapping[Feature, str]
+    capacity: int
+    supports_endpoint_targets: bool
+    is_lifeline: bool
+    grouping: str
+
+
+@dataclass(frozen=True, slots=True)
+class SettingsAdapter:
+    """How to reach one named device setting: a parameter, optionally one bit of it."""
+
+    parameter: int
+    bitmask: int | None
+    values: Mapping[str, int]
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceCapabilities:
+    """What a device can do, as the compiler and the planner need to know it.
+
+    `receivable` is what the device can act on when it is a target, so a link that could do
+    nothing is rejected at compile time rather than written and left silently dead.
+    """
+
+    handle: DeviceHandle
+    emitters: tuple[Emitter, ...]
+    receivable: frozenset[Feature]
+    is_long_range: bool
+    settings: Mapping[str, SettingsAdapter] = field(default_factory=dict)
