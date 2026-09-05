@@ -113,11 +113,15 @@
     "actions": {
       "type": "object",
       "minProperties": 1,
-      "description": "Which association group carries which feature. This is the part that reaches the device: a wrong group number here writes an association to the wrong place with complete confidence and no error, so every number must come from a capture of the real hardware. Group ids are decimal strings, matching the link identity, and group 1 is refused because it is the lifeline.",
+      "description": "Which association group carries which feature. This is the part that reaches the device: a wrong group number here writes an association to the wrong place with complete confidence and no error, so every number must come from a capture of the real hardware. Group ids are plain decimal strings with no leading zero, exactly as the driver reports them, and group 1 is refused because it is the lifeline.",
       "propertyNames": {
         "enum": ["color", "level_hold", "level_set", "on_off", "scene", "status_report"]
       },
-      "additionalProperties": { "type": "string", "pattern": "^[0-9]+$" }
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[1-9][0-9]*$",
+        "not": { "const": "1" }
+      }
     },
     "settings_adapter": {
       "type": "object",

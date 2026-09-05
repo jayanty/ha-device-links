@@ -54,6 +54,9 @@ SEMANTICS_MARKERS: Final = frozenset({"unknown"})
 # Group 1 is the lifeline on every Z-Wave device, and is never ours to write.
 _LIFELINE_GROUP: Final = "1"
 
+# Feature names by value, so validation does not depend on how an enum member hashes.
+_FEATURE_NAMES: Final = frozenset(str(feature) for feature in Feature)
+
 
 @dataclass(frozen=True, slots=True)
 class ProfileFingerprint:
@@ -241,8 +244,8 @@ def _actions(where: str, raw: object) -> Mapping[Feature, str]:
         raise ValueError(f"{where}: 'actions' must name at least one feature")
     actions: dict[Feature, str] = {}
     for name, raw_group in mapping.items():
-        if name not in set(Feature):
-            known = ", ".join(sorted(str(feature) for feature in Feature))
+        if name not in _FEATURE_NAMES:
+            known = ", ".join(sorted(_FEATURE_NAMES))
             raise ValueError(f"{where}: {name!r} is not a feature; known features are {known}")
         actions[Feature(name)] = _group_id(f"{where}: '{name}'", raw_group)
     return actions
@@ -251,13 +254,15 @@ def _actions(where: str, raw: object) -> Mapping[Feature, str]:
 def _group_id(where: str, raw: object) -> str:
     """Validate one association group id.
 
-    Group ids are decimal strings, matching `Link.emitter_group`, so an accidental JSON
-    integer is rejected rather than coerced into a value that would never compare equal.
+    Group ids are plain decimal strings, exactly as the driver reports them and as
+    `Link.emitter_group` carries them. An accidental JSON integer is rejected rather than
+    coerced, and so is any spelling that would never compare equal to what the driver says:
+    "07" and a non-ASCII digit both read as a group number but match nothing.
     """
     if not isinstance(raw, str):
         raise _wrong_type(where, "a group id to be a string", raw)
-    if not raw.isdigit():
-        raise ValueError(f"{where}: {raw!r} is not a decimal group id")
+    if not (raw.isascii() and raw.isdecimal() and not raw.startswith("0")):
+        raise ValueError(f"{where}: {raw!r} is not a group id the driver could report")
     if raw == _LIFELINE_GROUP:
         raise ValueError(f"{where}: group 1 is the lifeline, which is never ours to write")
     return raw
