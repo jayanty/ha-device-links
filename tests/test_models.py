@@ -18,49 +18,38 @@ from custom_components.device_links.models import (
     ZigbeeFingerprint,
     ZWaveFingerprint,
 )
-
-
-def _handle(node_id: int = 36, name: str = "Bedroom Scene Controller") -> DeviceHandle:
-    return DeviceHandle(
-        backend=Backend.ZWAVE,
-        protocol_id=f"3538613642:{node_id}",
-        ha_device_id="1f50c99924ffdc3f767cdcdb9f6b6294",
-        fingerprint=ZWaveFingerprint(
-            manufacturer_id=634, product_type=28672, product_id=40984, firmware="1.40.0"
-        ),
-        name_at_authoring=name,
-    )
+from tests.factories import handle
 
 
 def test_a_handle_is_identified_by_protocol_id_not_by_name() -> None:
     """Renames and area moves must never break a rule (FR-S1)."""
-    original = _handle(name="Bedroom Scene Controller")
-    renamed = _handle(name="Master Bedroom Scene Controller")
+    original = handle(name="Bedroom Scene Controller")
+    renamed = handle(name="Master Bedroom Scene Controller")
 
     assert original.identity == renamed.identity
     assert original.identity == "zwave:3538613642:36"
 
 
 def test_handles_for_different_nodes_are_different() -> None:
-    assert _handle(36).identity != _handle(37).identity
+    assert handle(36).identity != handle(37).identity
 
 
 def test_link_fingerprint_is_stable_across_equal_links() -> None:
     """Two links describing the same device state must share a fingerprint."""
     first = Link(
         backend=Backend.ZWAVE,
-        source=_handle(36),
+        source=handle(36),
         source_endpoint=0,
         emitter_id="g7",
-        target=LinkTarget(handle=_handle(38), endpoint=None),
+        target=LinkTarget(handle=handle(38), endpoint=None),
         feature=Feature.ON_OFF,
     )
     second = Link(
         backend=Backend.ZWAVE,
-        source=_handle(36, name="renamed since"),
+        source=handle(36, name="renamed since"),
         source_endpoint=0,
         emitter_id="g7",
-        target=LinkTarget(handle=_handle(38), endpoint=None),
+        target=LinkTarget(handle=handle(38), endpoint=None),
         feature=Feature.ON_OFF,
     )
 
@@ -75,18 +64,18 @@ def test_link_fingerprint_changes_when_the_link_does(change: str) -> None:
     """Anything that changes what is written to the device must change identity."""
     base = Link(
         backend=Backend.ZWAVE,
-        source=_handle(36),
+        source=handle(36),
         source_endpoint=0,
         emitter_id="g7",
-        target=LinkTarget(handle=_handle(38), endpoint=None),
+        target=LinkTarget(handle=handle(38), endpoint=None),
         feature=Feature.ON_OFF,
     )
     variants = {
         "emitter": Link(**{**base.as_kwargs(), "emitter_id": "g9"}),
-        "target": Link(**{**base.as_kwargs(), "target": LinkTarget(_handle(37), None)}),
-        "endpoint": Link(**{**base.as_kwargs(), "target": LinkTarget(_handle(38), 2)}),
+        "target": Link(**{**base.as_kwargs(), "target": LinkTarget(handle(37), None)}),
+        "endpoint": Link(**{**base.as_kwargs(), "target": LinkTarget(handle(38), 2)}),
         "feature": Link(**{**base.as_kwargs(), "feature": Feature.LEVEL_HOLD}),
-        "source": Link(**{**base.as_kwargs(), "source": _handle(39)}),
+        "source": Link(**{**base.as_kwargs(), "source": handle(39)}),
     }
 
     assert variants[change].fingerprint != base.fingerprint
@@ -94,14 +83,14 @@ def test_link_fingerprint_changes_when_the_link_does(change: str) -> None:
 
 def test_a_link_cannot_target_its_own_source() -> None:
     """E7: a node cannot be a member of its own association group."""
-    handle = _handle(36)
+    device = handle(36)
     with pytest.raises(ValueError, match="cannot control itself"):
         Link(
             backend=Backend.ZWAVE,
-            source=handle,
+            source=device,
             source_endpoint=0,
             emitter_id="g7",
-            target=LinkTarget(handle=handle, endpoint=None),
+            target=LinkTarget(handle=device, endpoint=None),
             feature=Feature.ON_OFF,
         )
 
@@ -110,10 +99,10 @@ def test_value_types_are_immutable() -> None:
     """Plans are compared and hashed; mutable value types would corrupt that."""
     link = Link(
         backend=Backend.ZWAVE,
-        source=_handle(36),
+        source=handle(36),
         source_endpoint=0,
         emitter_id="g7",
-        target=LinkTarget(handle=_handle(38), endpoint=None),
+        target=LinkTarget(handle=handle(38), endpoint=None),
         feature=Feature.ON_OFF,
     )
     with pytest.raises(AttributeError):
@@ -126,10 +115,10 @@ def test_value_types_are_immutable() -> None:
 def _link(**overrides: object) -> Link:
     kwargs: dict[str, object] = {
         "backend": Backend.ZWAVE,
-        "source": _handle(36),
+        "source": handle(36),
         "source_endpoint": 0,
         "emitter_id": "g7",
-        "target": LinkTarget(handle=_handle(38), endpoint=None),
+        "target": LinkTarget(handle=handle(38), endpoint=None),
         "feature": Feature.ON_OFF,
     }
     kwargs.update(overrides)
@@ -202,7 +191,7 @@ def test_a_separator_inside_a_field_cannot_forge_another_links_fingerprint() -> 
     [
         _link(),
         _link(emitter_id="paddle", emitter_group="3", rule_id="rule-1"),
-        _link(target=LinkTarget(_handle(38), 2)),
+        _link(target=LinkTarget(handle(38), 2)),
     ],
 )
 def test_as_kwargs_reconstructs_the_same_link(link: Link) -> None:
@@ -216,10 +205,10 @@ def test_as_kwargs_reconstructs_the_same_link(link: Link) -> None:
 def _observed(**overrides: object) -> ObservedLink:
     kwargs: dict[str, object] = {
         "backend": Backend.ZWAVE,
-        "source": _handle(36),
+        "source": handle(36),
         "source_endpoint": 0,
         "emitter_id": "g7",
-        "target": LinkTarget(handle=_handle(38), endpoint=None),
+        "target": LinkTarget(handle=handle(38), endpoint=None),
         "feature": Feature.ON_OFF,
         "is_system": False,
     }
@@ -242,10 +231,10 @@ def test_an_observed_link_must_say_whether_it_is_a_system_link() -> None:
     with pytest.raises(TypeError, match="is_system"):
         ObservedLink(  # type: ignore[call-arg]
             backend=Backend.ZWAVE,
-            source=_handle(36),
+            source=handle(36),
             source_endpoint=0,
             emitter_id="g1",
-            target=LinkTarget(handle=_handle(1), endpoint=None),
+            target=LinkTarget(handle=handle(1), endpoint=None),
             feature=Feature.STATUS_REPORT,
         )
 
@@ -269,7 +258,7 @@ def test_capabilities_carry_the_emitters_a_link_can_be_built_from() -> None:
         grouping="profile_db",
     )
     capabilities = DeviceCapabilities(
-        handle=_handle(37),
+        handle=handle(37),
         emitters=(paddle,),
         receivable=frozenset({Feature.ON_OFF, Feature.LEVEL_SET}),
         is_long_range=False,
@@ -297,7 +286,7 @@ def test_capabilities_carry_the_emitters_a_link_can_be_built_from() -> None:
 def test_capabilities_default_to_no_settings_adapters() -> None:
     """Most devices have none, and the compiler must not have to care."""
     capabilities = DeviceCapabilities(
-        handle=_handle(38),
+        handle=handle(38),
         emitters=(),
         receivable=frozenset({Feature.ON_OFF}),
         is_long_range=False,

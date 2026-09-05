@@ -9,7 +9,7 @@ would corrupt that silently.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, replace
 from enum import StrEnum
 import re
 from typing import Final
@@ -236,3 +236,111 @@ class DeviceCapabilities:
     receivable: frozenset[Feature]
     is_long_range: bool
     settings: Mapping[str, SettingsAdapter] = field(default_factory=dict)
+
+
+class Template(StrEnum):
+    """The intent a rule was authored with, which decides how it compiles."""
+
+    REMOTE = "remote"
+    VIRTUAL_3WAY = "virtual_3way"
+    SCENE_BUTTON = "scene_button"
+    OFF_ALL = "off_all"
+    STATUS_FEEDBACK = "status_feedback"
+    CUSTOM = "custom"
+
+
+class Direction(StrEnum):
+    """Whether a rule also compiles the reverse links."""
+
+    ONE_WAY = "one_way"
+    TWO_WAY = "two_way"
+
+
+class MirrorChoice(StrEnum):
+    """What a rule asks of the source device's "mirror hub commands" setting.
+
+    `LEAVE` is a genuine no-op and the default: the setting is global to the device, so a
+    rule that did not ask about it must not write it back, not even to its current value.
+    """
+
+    ON = "on"
+    OFF = "off"
+    LEAVE = "leave"
+
+
+@dataclass(frozen=True, slots=True)
+class RuleSource:
+    """The control a rule starts from: a device, an endpoint, and one of its emitters."""
+
+    device: DeviceHandle
+    endpoint: int
+    emitter_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class RuleTarget:
+    """A device a rule drives. `endpoint` is None when the target is the whole device."""
+
+    device: DeviceHandle
+    endpoint: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class Rule:
+    """One unit of user intent, and the unit of enable and disable.
+
+    A rule says what should happen, not what to write: the compiler turns it into links and
+    setting writes against a device's real capabilities. It is frozen and validated on
+    construction, so a rule that could never compile into anything cannot be stored.
+    """
+
+    id: str
+    name: str
+    template: Template
+    backend: Backend
+    source: RuleSource
+    targets: tuple[RuleTarget, ...]
+    features: frozenset[Feature]
+    direction: Direction = Direction.ONE_WAY
+    mirror_source: MirrorChoice = MirrorChoice.LEAVE
+    enabled: bool = True
+
+    def __post_init__(self) -> None:
+        """Reject a rule that could not compile into a single link."""
+        if not self.targets:
+            raise ValueError(f"rule {self.id} needs at least one target")
+        if not self.features:
+            raise ValueError(f"rule {self.id} needs at least one feature")
+        seen: set[RuleTarget] = set()
+        for target in self.targets:
+            if target in seen:
+                raise ValueError(
+                    f"rule {self.id} has a duplicate target: "
+                    f"{target.device.identity} endpoint {target.endpoint}"
+                )
+            seen.add(target)
+
+    def with_enabled(self, enabled: bool) -> Rule:
+        """Return a copy of this rule, enabled or disabled.
+
+        Disabling is not deleting (FR-R5): the links a disabled rule owns are planned for
+        removal, but the intent is kept so re-enabling restores it exactly.
+        """
+        return replace(self, enabled=enabled)
+
+
+@dataclass(frozen=True, slots=True)
+class Profile:
+    """A named set of rules, of which one is active at a time (Decision D10)."""
+
+    id: str
+    name: str
+    rules: tuple[Rule, ...]
+
+    def __post_init__(self) -> None:
+        """Reject two rules sharing an id, which would make the rule id ambiguous."""
+        seen: set[str] = set()
+        for rule in self.rules:
+            if rule.id in seen:
+                raise ValueError(f"profile {self.id} has a duplicate rule id: {rule.id}")
+            seen.add(rule.id)
