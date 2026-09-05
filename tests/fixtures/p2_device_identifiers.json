@@ -1,0 +1,112 @@
+{
+ "captured_at": "2026-09-05T21:23:06Z",
+ "data": {
+  "device_counts": {
+   "matter": 19,
+   "mqtt": 35,
+   "zwave_js": 36
+  },
+  "formats": {
+   "matter": {
+    "note": "The node id is zero-padded to 16 hex characters. The compressed fabric id changes if the fabric is re-commissioned, which would orphan every stored device handle, so a Matter handle should key on node id and treat a fabric change the way FR-E21 treats a new Z-Wave home id.",
+    "pattern": [
+     "deviceid_<compressed_fabric_id>-<node_id_hex_16>-MatterNodeDevice"
+    ]
+   },
+   "mqtt": {
+    "note": "Zigbee2MQTT devices are mqtt devices and the identifier is prefixed with the base topic. An instance using a different base topic produces different identifiers, so the backend must not hard-code the zigbee2mqtt prefix.",
+    "pattern": [
+     "<base_topic>_0x<ieee>"
+    ]
+   },
+   "zwave_js": {
+    "note": "Two identifiers per device. The short form is what helpers.get_device_id builds and is the one to match when attaching an entity. The long form comes from get_device_id_ext and additionally pins the fingerprint, so it changes when a node is replaced by a different model, which is exactly the signal FR-S3 uses to detect a swap.",
+    "pattern": [
+     "<home_id>-<node_id>",
+     "<home_id>-<node_id>-<mfr>:<type>:<product>"
+    ]
+   }
+  },
+  "registry_keys": [
+   "area_id",
+   "composite_device_id",
+   "composite_primary_config_entry",
+   "config_entry_id",
+   "config_subentry_id",
+   "configuration_url",
+   "connections",
+   "created_at",
+   "disabled_by",
+   "entry_type",
+   "has_composite_identifiers",
+   "hw_version",
+   "id",
+   "identifiers",
+   "labels",
+   "manufacturer",
+   "model",
+   "model_id",
+   "modified_at",
+   "name",
+   "name_by_user",
+   "primary_config_entry",
+   "serial_number",
+   "split_at",
+   "sw_version",
+   "via_device_id"
+  ],
+  "registry_schema_note": "On Home Assistant 2026.8.3 a device registry record has config_entry_id (singular) and primary_config_entry, not the config_entries list older code expects. It also carries composite_device_id, composite_primary_config_entry, has_composite_identifiers and split_at from the composite-device feature. All sampled devices report has_composite_identifiers false, so composites are not in play here, but code that walks the registry must not assume the old shape.",
+  "samples": {
+   "matter": {
+    "connections": [],
+    "has_composite_identifiers": false,
+    "identifiers": [
+     [
+      "matter",
+      "deviceid_<compressed_fabric_id>-0000000000000005-MatterNodeDevice"
+     ]
+    ],
+    "manufacturer": "Google LLC",
+    "model": "Nest Learning Thermostat 4th gen",
+    "name": "Nest Learning Thermostat 4th gen",
+    "primary_config_entry_domain": "matter"
+   },
+   "mqtt": {
+    "connections": [],
+    "has_composite_identifiers": false,
+    "identifiers": [
+     [
+      "mqtt",
+      "zigbee2mqtt_0x<ieee>"
+     ]
+    ],
+    "manufacturer": "Inovelli",
+    "model": "2-in-1 switch + dimmer",
+    "name": "Entrance Inside Lights Aux",
+    "primary_config_entry_domain": "mqtt"
+   },
+   "zwave_js": {
+    "connections": [],
+    "has_composite_identifiers": false,
+    "identifiers": [
+     [
+      "zwave_js",
+      "<home_id>-36-634:28672:40984"
+     ],
+     [
+      "zwave_js",
+      "<home_id>-36"
+     ]
+    ],
+    "manufacturer": "Zooz",
+    "model": "ZEN35",
+    "name": "Bedroom Scene Controller",
+    "primary_config_entry_domain": "zwave_js"
+   }
+  }
+ },
+ "fixture": "p2_device_identifiers",
+ "versions": {
+  "homeassistant": "2026.8.3"
+ }
+}

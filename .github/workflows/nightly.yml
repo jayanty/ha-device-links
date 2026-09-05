@@ -1,0 +1,150 @@
+name: Nightly upstream check
+
+# PRD Section 16 item 7. requirements_test.txt pins homeassistant, so CI stays green
+# through every Home Assistant release until a human edits that pin, while users upgrade
+# on Home Assistant's schedule. The zwave_accessor guards only earn their keep if
+# something runs them against what is coming, so this job installs Home Assistant
+# unpinned over the pinned requirements and runs the same suite.
+#
+# It is allowed to fail: nothing here blocks a merge or a release. When it does fail it
+# opens (or comments on) one issue labelled `regression` per channel.
+
+on:
+  schedule:
+    # 05:20 UTC daily, offset off the hour to avoid GitHub's scheduling rush.
+    - cron: "20 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  upstream:
+    name: Suite against Home Assistant ${{ matrix.channel }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - channel: latest
+            pip_flags: ""
+          - channel: beta
+            pip_flags: "--pre"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install pinned test requirements
+        run: pip install -r requirements_test.txt
+
+      - name: Install Home Assistant ${{ matrix.channel }} over the pin
+        id: upgrade
+        # requirements_test.txt is left alone on purpose. The unpinned install here is
+        # what makes this job different from CI, and pip resolves the matching frontend
+        # and library versions with it.
+        run: |
+          set -euxo pipefail
+          # pytest-homeassistant-custom-component pins homeassistant exactly, so upgrade
+          # it first. Otherwise the harness itself fails on the newer core and every
+          # nightly run reports a harness break rather than real upstream drift. pip
+          # warns about the leftover conflict after the second install; that is expected.
+          pip install --upgrade pytest-homeassistant-custom-component
+          pip install --upgrade ${{ matrix.pip_flags }} homeassistant
+          version=$(python -c 'import homeassistant.const as c; print(c.__version__)')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Home Assistant $version" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Tests
+        id: tests
+        continue-on-error: true
+        run: |
+          # pipefail matters: without it `tee` masks pytest's exit code, the step
+          # passes, and the issue below never gets opened.
+          set -o pipefail
+          pytest -m "not live" --cov --cov-report=term-missing --cov-fail-under=95 \
+            2>&1 | tee nightly-tests.log
+
+      - name: Type check
+        id: mypy
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          mypy 2>&1 | tee nightly-mypy.log
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-${{ matrix.channel }}-logs
+          path: nightly-*.log
+          if-no-files-found: ignore
+
+      - name: Open or update the regression issue
+        if: steps.tests.outcome == 'failure' || steps.mypy.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHANNEL: ${{ matrix.channel }}
+          HA_VERSION: ${{ steps.upgrade.outputs.version }}
+          TESTS_OUTCOME: ${{ steps.tests.outcome }}
+          MYPY_OUTCOME: ${{ steps.mypy.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="Nightly: suite fails against Home Assistant $CHANNEL"
+
+          {
+            echo "Home Assistant \`$HA_VERSION\` (channel \`$CHANNEL\`), commit \`${GITHUB_SHA:0:12}\`."
+            echo
+            echo "- tests: \`$TESTS_OUTCOME\`"
+            echo "- mypy: \`$MYPY_OUTCOME\`"
+            echo
+            echo "Run: $RUN_URL"
+            echo
+            echo "This is the upstream-drift alarm from PRD Section 16 item 7. If the"
+            echo "failure is in tests/test_zwave_accessor.py, read the assertion message"
+            echo "before changing anything: it says whether the accessor must change or"
+            echo "only the guard needs widening."
+            echo
+            if [ -s nightly-tests.log ]; then
+              echo "<details><summary>pytest tail</summary>"
+              echo
+              echo '```'
+              tail -n 80 nightly-tests.log
+              echo '```'
+              echo
+              echo "</details>"
+            fi
+            if [ -s nightly-mypy.log ]; then
+              echo "<details><summary>mypy tail</summary>"
+              echo
+              echo '```'
+              tail -n 40 nightly-mypy.log
+              echo '```'
+              echo
+              echo "</details>"
+            fi
+          } > issue-body.md
+
+          existing=$(gh issue list \
+            --state open --label regression --limit 50 \
+            --json number,title \
+            --jq "map(select(.title == \"$title\")) | .[0].number // empty")
+
+          if [ -n "$existing" ]; then
+            echo "Commenting on existing issue #$existing"
+            gh issue comment "$existing" --body-file issue-body.md
+          else
+            echo "Opening a new issue"
+            gh issue create \
+              --title "$title" \
+              --label regression \
+              --body-file issue-body.md
+          fi

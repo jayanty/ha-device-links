@@ -2,7 +2,7 @@
 name = "ha-device-links"
 version = "0.0.1"
 description = "Home Assistant integration for Z-Wave associations, Zigbee bindings and Matter bindings"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 license = { text = "MIT" }
 
 [tool.ruff]
@@ -27,7 +27,7 @@ force-sort-within-sections = true
 known-first-party = ["custom_components"]
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.14"
 strict = true
 warn_unreachable = true
 disallow_any_generics = true

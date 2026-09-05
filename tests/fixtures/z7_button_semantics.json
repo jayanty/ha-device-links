@@ -1,0 +1,200 @@
+{
+ "captured_at": "2026-09-05T21:24:45Z",
+ "data": {
+  "ZEN32": {
+   "documented": "Same family as the ZEN35. Group layout was captured live and matches the same Pressed and Held pairing.",
+   "node_id": 29,
+   "observed": "not captured",
+   "observed_groups": {
+    "10": {
+     "issued_commands": {
+      "32": [
+       1
+      ]
+     },
+     "label": "Button 4 - Pressed (Basic Set)"
+    },
+    "11": {
+     "issued_commands": {
+      "38": [
+       4
+      ]
+     },
+     "label": "Button 4 - Held (MultiLevel)"
+    },
+    "2": {
+     "issued_commands": {
+      "32": [
+       1
+      ]
+     },
+     "label": "Main Button - Pressed (Basic Set)"
+    },
+    "3": {
+     "issued_commands": {
+      "38": [
+       4
+      ]
+     },
+     "label": "Main Button - Held (MultiLevel)"
+    },
+    "4": {
+     "issued_commands": {
+      "32": [
+       1
+      ]
+     },
+     "label": "Button 1 - Pressed (Basic Set)"
+    },
+    "5": {
+     "issued_commands": {
+      "38": [
+       4
+      ]
+     },
+     "label": "Button 1 - Held (MultiLevel)"
+    },
+    "6": {
+     "issued_commands": {
+      "32": [
+       1
+      ]
+     },
+     "label": "Button 2 - Pressed (Basic Set)"
+    },
+    "7": {
+     "issued_commands": {
+      "38": [
+       4
+      ]
+     },
+     "label": "Button 2 - Held (MultiLevel)"
+    },
+    "8": {
+     "issued_commands": {
+      "32": [
+       1
+      ]
+     },
+     "label": "Button 3 - Pressed (Basic Set)"
+    },
+    "9": {
+     "issued_commands": {
+      "38": [
+       4
+      ]
+     },
+     "label": "Button 3 - Held (MultiLevel)"
+    }
+   },
+   "semantic": "undetermined"
+  },
+  "ZEN35": {
+   "documented": "Zooz documents the ZEN35 and ZEN32 scene buttons as sending Basic Set to their Pressed group. The device's own Association Group Information confirms the command class (Basic 0x20, command 0x01 = BASIC_SET) but AGI carries no value, so the payload sent on a press is not discoverable by reading.",
+   "node_id": 36,
+   "observed": "not captured",
+   "observed_groups": {
+    "10": {
+     "issued_commands": {
+      "38": [
+       4
+      ]
+     },
+     "label": "Button 3 - Held (MultiLevel)"
+    },
+    "11": {
+     "issued_commands": {
+      "32": [
+       1
+      ]
+     },
+     "label": "Button 4 - Pressed (Basic Set)"
+    },
+    "12": {
+     "issued_commands": {
+      "38": [
+       4
+      ]
+     },
+     "label": "Button 4 - Held (MultiLevel)"
+    },
+    "2": {
+     "issued_commands": {
+      "32": [
+       1
+      ]
+     },
+     "label": "Main Button - Pressed (Basic Set)"
+    },
+    "3": {
+     "issued_commands": {
+      "38": [
+       1
+      ]
+     },
+     "label": "Main Button - Held (MultiLevel)"
+    },
+    "4": {
+     "issued_commands": {
+      "38": [
+       4
+      ]
+     },
+     "label": "Main Button - Start / Stop (MultiLevel)"
+    },
+    "5": {
+     "issued_commands": {
+      "32": [
+       1
+      ]
+     },
+     "label": "Button 1 - Pressed (Basic Set)"
+    },
+    "6": {
+     "issued_commands": {
+      "38": [
+       4
+      ]
+     },
+     "label": "Button 1 - Held (MultiLevel)"
+    },
+    "7": {
+     "issued_commands": {
+      "32": [
+       1
+      ]
+     },
+     "label": "Button 2 - Pressed (Basic Set)"
+    },
+    "8": {
+     "issued_commands": {
+      "38": [
+       4
+      ]
+     },
+     "label": "Button 2 - Held (MultiLevel)"
+    },
+    "9": {
+     "issued_commands": {
+      "32": [
+       1
+      ]
+     },
+     "label": "Button 3 - Pressed (Basic Set)"
+    }
+   },
+   "semantic": "undetermined"
+  },
+  "how_to_resolve": [
+   "Ask Jayant to approve adding node 1 to node 36 group 7 temporarily.",
+   "Add it, have Jayant press small button 2 twice, capture the two zwave_js_value_notification events for command class 32, remove node 1, verify.",
+   "Record whether the two presses carried the same value or alternating values."
+  ],
+  "impact": "This blocks safe compilation of the Off-all template (UC4) for Zooz scene buttons. If a press toggles rather than always sending OFF, an 'off all' button turns the lights on again every second press, which is the opposite of the stated intent. Until it is resolved the compiler must either refuse to compile Off-all onto a Zooz small button, or compile it and warn the user explicitly that the button toggles. It does not affect the Remote or Scene button templates, where a toggle is acceptable or even wanted.",
+  "why_not_captured": "Determining the Basic Set value requires the controller to be a member of a button's Pressed group while Jayant presses that button. The only approved Z-Wave write sandbox is node 36 group 8, which is 'Button 2 - Held' and carries Multilevel Switch, not Basic Set, so reusing it cannot answer this. Answering it needs a new, specific approval for node 36 group 7 ('Button 2 - Pressed') plus a physical button press. Neither was in scope, and guessing was not acceptable."
+ },
+ "fixture": "z7_button_semantics",
+ "versions": {
+  "zwave_js_driver": "15.28.0"
+ }
+}

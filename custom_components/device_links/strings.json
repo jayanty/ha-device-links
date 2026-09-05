@@ -1,6 +1,14 @@
 {
   "config": {
-    "step": {},
-    "abort": {}
+    "step": {
+      "user": {
+        "title": "Device Links",
+        "description": "Device Links reads and manages Z-Wave associations, Zigbee bindings, and Matter bindings through the integrations you already have. It adds no network access of its own and writes to a device only after you confirm a plan."
+      }
+    },
+    "abort": {
+      "already_configured": "Device Links is already set up. Only one instance is supported.",
+      "no_backend": "None of the supported protocol integrations is loaded. Set up Z-Wave JS, MQTT (for Zigbee2MQTT), or Matter first, then add Device Links."
+    }
   }
 }

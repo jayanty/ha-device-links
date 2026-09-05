@@ -1,0 +1,85 @@
+{
+ "captured_at": "2026-09-05T21:29:48Z",
+ "data": {
+  "detection_method": "tag name as a string literal (see module docstring)",
+  "distinct_ha_tags_seen": 680,
+  "files_mentioning_tag": {
+   "ha-alert": 202,
+   "ha-assist-chip": 72,
+   "ha-button": 30,
+   "ha-card": 133,
+   "ha-checkbox": 108,
+   "ha-chip-set": 118,
+   "ha-data-table": 8,
+   "ha-dialog": 65,
+   "ha-expansion-panel": 50,
+   "ha-fab": 0,
+   "ha-form": 78,
+   "ha-icon": 110,
+   "ha-icon-button": 262,
+   "ha-list-item": 85,
+   "ha-markdown": 14,
+   "ha-menu-button": 120,
+   "ha-select": 84,
+   "ha-spinner": 122,
+   "ha-svg-icon": 215,
+   "ha-switch": 56,
+   "ha-tab-group": 16,
+   "ha-tabs": 0,
+   "ha-textfield": 0,
+   "ha-tooltip": 213,
+   "ha-top-app-bar-fixed": 65
+  },
+  "frontend_root": "/usr/local/lib/python3.14/site-packages/hass_frontend",
+  "js_files_scanned": 2271,
+  "missing": [
+   "ha-fab",
+   "ha-tabs",
+   "ha-textfield"
+  ],
+  "present": {
+   "ha-alert": true,
+   "ha-assist-chip": true,
+   "ha-button": true,
+   "ha-card": true,
+   "ha-checkbox": true,
+   "ha-chip-set": true,
+   "ha-data-table": true,
+   "ha-dialog": true,
+   "ha-expansion-panel": true,
+   "ha-fab": false,
+   "ha-form": true,
+   "ha-icon": true,
+   "ha-icon-button": true,
+   "ha-list-item": true,
+   "ha-markdown": true,
+   "ha-menu-button": true,
+   "ha-select": true,
+   "ha-spinner": true,
+   "ha-svg-icon": true,
+   "ha-switch": true,
+   "ha-tab-group": true,
+   "ha-tabs": false,
+   "ha-textfield": false,
+   "ha-tooltip": true,
+   "ha-top-app-bar-fixed": true
+  },
+  "runtime_confirmation": "pending: needs a Home Assistant restart and a loaded panel",
+  "verdict": {
+   "absent": [
+    "ha-fab",
+    "ha-tabs",
+    "ha-textfield"
+   ],
+   "absent_note": "ha-fab and ha-textfield are not required by the PRD's UI spec; they were probed speculatively. Their absence only means the panel must not reach for them.",
+   "runtime_spike_status": "The static half of P1 is done and is the half that answers 'does this component exist on this version'. The runtime half, registering a panel and confirming each element resolves through customElements.whenDefined after the card-helpers force-load, needs a Home Assistant restart and is therefore queued behind Jayant's restart rather than blocking Phase 1 planning.",
+   "tab_component": "ha-tab-group",
+   "tab_note": "PRD Section 7.1 says to use ha-tabs or ha-tab-group, whichever exists, detected at runtime. On 2026.8.3 ha-tabs is gone and ha-tab-group is present, so the runtime detection the PRD asked for is still the right shape but has a known answer on this version."
+  }
+ },
+ "fixture": "p1_frontend_components",
+ "versions": {
+  "home_assistant_frontend": "20260729.7",
+  "homeassistant": "2026.8.3"
+ }
+}

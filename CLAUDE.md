@@ -165,7 +165,7 @@ python3 -m compileall`), not the SSH add-on's, so the check matches the runtime.
   branches on backend id; new protocols arrive as new adapters. Nothing in core may assume
   MQTT, or assume Z-Wave semantics.
 - **The Z-Wave driver is reached through the `zwave_js` config entry's `runtime_data`**
-  (Decision D2 (a)), isolated in one version-guarded accessor in `backends/zwave.py`. Never
+  (Decision D2 (a)), isolated in one version-guarded accessor, `backends/zwave_accessor.py`. Never
   open a second WebSocket to zwave-js-server from the integration. The accessor has an
   automated test against a faked `zwave_js` entry so upstream refactors break CI, not users.
 - **Storage schema changes require a migration and a migration test** from every prior
@@ -205,15 +205,18 @@ scripts/lint && scripts/test
 # 2. commit and push to dev
 git commit -m "feat(zwave): ..." && git push origin dev
 
-# 3. trigger the pull on the HA side
-ssh root@10.10.1.11 'python3 /config/tools/ha_deploy.py deploy \
+# 3. trigger the pull on the HA side.
+# Note the docker exec: the tool must run under HA Core's interpreter, because it
+# compileall-checks the downloaded code before swapping it in. Running it directly in
+# the SSH add-on container would validate against that container's Python instead.
+ssh root@10.10.1.11 'docker exec homeassistant python3 /config/tools/ha_deploy.py deploy \
   --repo jayanty/ha-device-links --branch dev --domain device_links'
 # or, once shell_command is loaded, over MCP:
 #   ha_call_service(domain="shell_command", service="deploy_device_links", return_response=True)
 
 # rollback and status use the same shapes
-ssh root@10.10.1.11 'python3 /config/tools/ha_deploy.py rollback --domain device_links'
-ssh root@10.10.1.11 'python3 /config/tools/ha_deploy.py status --domain device_links'
+ssh root@10.10.1.11 'docker exec homeassistant python3 /config/tools/ha_deploy.py rollback --domain device_links'
+ssh root@10.10.1.11 'docker exec homeassistant python3 /config/tools/ha_deploy.py status --domain device_links'
 ```
 
 The tool prints one JSON object: `{ok, commit, previous_commit, changed_files,

@@ -1,0 +1,54 @@
+{
+ "captured_at": "2026-09-05T21:07:15Z",
+ "data": {
+  "after_add_cached": [
+   {
+    "endpoint": null,
+    "node_id": 1
+   }
+  ],
+  "after_add_refreshed": [
+   {
+    "endpoint": null,
+    "node_id": 1
+   }
+  ],
+  "after_remove": [],
+  "before": [],
+  "cache_updated_without_refresh": true,
+  "check_result": {
+   "name": "OK",
+   "value": 1
+  },
+  "deep_verify_finding": {
+   "conclusion": "Fire and forget. The call returns before the device has been re-read, so a read issued immediately afterwards still returns the driver's previous cache. FR-B4 deep verify cannot be 'refresh then read' as the PRD describes it: it must refresh, then wait for the resulting value-updated events (or poll with a bounded timeout) before comparing.",
+   "measured_ms": 0,
+   "method": "Node.async_refresh_cc_values",
+   "sends": "refresh_cc_values with wait_for_result=False"
+  },
+  "lifeline_after": [
+   {
+    "endpoint": null,
+    "node_id": 1
+   }
+  ],
+  "node": {
+   "label": "ZEN35",
+   "node_id": 36,
+   "ready": true,
+   "status": 4
+  },
+  "restored": true,
+  "timing_ms": {
+   "add": 67,
+   "refresh_cc_values": 0,
+   "remove": 253
+  }
+ },
+ "fixture": "z3_write_roundtrip",
+ "versions": {
+  "homeassistant": "2026.8.3",
+  "zwave-js-server-python": "0.73.0",
+  "zwave_js_driver": "15.28.0"
+ }
+}

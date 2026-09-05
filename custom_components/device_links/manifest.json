@@ -1,10 +1,10 @@
 {
   "domain": "device_links",
   "name": "Device Links",
+  "after_dependencies": ["zwave_js", "mqtt", "matter"],
   "codeowners": ["@jayanty"],
   "config_flow": true,
   "dependencies": ["http", "frontend", "panel_custom", "websocket_api"],
-  "after_dependencies": ["zwave_js", "mqtt", "matter"],
   "documentation": "https://github.com/jayanty/ha-device-links",
   "integration_type": "service",
   "iot_class": "local_push",

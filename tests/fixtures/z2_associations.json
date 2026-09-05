@@ -1,0 +1,5675 @@
+{
+ "captured_at": "2026-09-05T21:01:55Z",
+ "data": {
+  "nodes": [
+   {
+    "association_groups": {
+     "0": {
+      "1": {
+       "is_lifeline": true,
+       "issued_commands": {
+        "113": [
+         5
+        ],
+        "117": [
+         3
+        ],
+        "135": [
+         3
+        ],
+        "38": [
+         3
+        ],
+        "49": [
+         5
+        ],
+        "50": [
+         2
+        ],
+        "90": [
+         1
+        ],
+        "91": [
+         3,
+         6
+        ]
+       },
+       "label": "Lifeline",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 1
+      },
+      "2": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Basic Set",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8193
+      },
+      "3": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         1
+        ]
+       },
+       "label": "Multilevel Switch Set",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8194
+      },
+      "4": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4,
+         5
+        ]
+       },
+       "label": "Multilevel Switch Start/Stop",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8195
+      },
+      "5": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Basic Set Double-tap",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8196
+      },
+      "6": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Basic Set Triple-tap",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8197
+      },
+      "7": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Multilevel Switch Set (Config Button)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8198
+      }
+     }
+    },
+    "associations": {
+     "0": {
+      "1": [
+       {
+        "endpoint": null,
+        "node_id": 1
+       }
+      ],
+      "2": [],
+      "3": [],
+      "4": [],
+      "5": [],
+      "6": [],
+      "7": []
+     }
+    },
+    "endpoint_indices": [
+     0
+    ],
+    "fingerprint": {
+     "firmware_version": "2.2.0",
+     "manufacturer_id": 798,
+     "product_id": 1,
+     "product_type": 23
+    },
+    "highest_security_class": 1,
+    "is_listening": true,
+    "label": "VZW32-SN",
+    "manufacturer": "Inovelli",
+    "name": "Bath Light",
+    "node_id": 21,
+    "present": true,
+    "protocol": 0,
+    "ready": true,
+    "status": 4,
+    "supported_command_classes": {
+     "0": [
+      {
+       "id": 85,
+       "name": "Association",
+       "version": 2
+      },
+      {
+       "id": 135,
+       "name": "Indicator",
+       "version": 3
+      },
+      {
+       "id": 112,
+       "name": "Configuration",
+       "version": 4
+      },
+      {
+       "id": 91,
+       "name": "Central Scene",
+       "version": 3
+      },
+      {
+       "id": 89,
+       "name": "Association Group Information",
+       "version": 3
+      },
+      {
+       "id": 142,
+       "name": "Multi Channel Association",
+       "version": 3
+      }
+     ]
+    }
+   },
+   {
+    "association_groups": {
+     "0": {
+      "1": {
+       "is_lifeline": true,
+       "issued_commands": {
+        "135": [
+         3
+        ],
+        "37": [
+         3
+        ],
+        "90": [
+         1
+        ],
+        "91": [
+         3,
+         6
+        ]
+       },
+       "label": "Lifeline",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 1
+      },
+      "10": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Button 4 - Pressed (Basic Set)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8197
+      },
+      "11": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4
+        ]
+       },
+       "label": "Button 4 - Held (MultiLevel)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8197
+      },
+      "2": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Main Button - Pressed (Basic Set)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8193
+      },
+      "3": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4
+        ]
+       },
+       "label": "Main Button - Held (MultiLevel)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8193
+      },
+      "4": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Button 1 - Pressed (Basic Set)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8194
+      },
+      "5": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4
+        ]
+       },
+       "label": "Button 1 - Held (MultiLevel)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": null
+      },
+      "6": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Button 2 - Pressed (Basic Set)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8195
+      },
+      "7": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4
+        ]
+       },
+       "label": "Button 2 - Held (MultiLevel)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8195
+      },
+      "8": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Button 3 - Pressed (Basic Set)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8196
+      },
+      "9": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4
+        ]
+       },
+       "label": "Button 3 - Held (MultiLevel)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8196
+      }
+     }
+    },
+    "associations": {
+     "0": {
+      "1": [
+       {
+        "endpoint": null,
+        "node_id": 1
+       }
+      ],
+      "10": [],
+      "11": [],
+      "2": [],
+      "3": [],
+      "4": [],
+      "5": [],
+      "6": [],
+      "7": [],
+      "8": [],
+      "9": []
+     }
+    },
+    "endpoint_indices": [
+     0
+    ],
+    "fingerprint": {
+     "firmware_version": "2.40.0",
+     "manufacturer_id": 634,
+     "product_id": 40968,
+     "product_type": 28672
+    },
+    "highest_security_class": -1,
+    "is_listening": true,
+    "label": "ZEN32",
+    "manufacturer": "Zooz",
+    "name": "Mud Room Scene",
+    "node_id": 29,
+    "present": true,
+    "protocol": 0,
+    "ready": true,
+    "status": 4,
+    "supported_command_classes": {
+     "0": [
+      {
+       "id": 85,
+       "name": "Association",
+       "version": 2
+      },
+      {
+       "id": 112,
+       "name": "Configuration",
+       "version": 4
+      },
+      {
+       "id": 91,
+       "name": "Central Scene",
+       "version": 3
+      },
+      {
+       "id": 142,
+       "name": "Multi Channel Association",
+       "version": 3
+      },
+      {
+       "id": 89,
+       "name": "Association Group Information",
+       "version": 3
+      },
+      {
+       "id": 135,
+       "name": "Indicator",
+       "version": 3
+      }
+     ]
+    }
+   },
+   {
+    "association_groups": {
+     "0": {
+      "1": {
+       "is_lifeline": true,
+       "issued_commands": {
+        "135": [
+         3
+        ],
+        "38": [
+         3
+        ],
+        "90": [
+         1
+        ],
+        "91": [
+         3,
+         6
+        ]
+       },
+       "label": "Lifeline",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 1
+      },
+      "10": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4
+        ]
+       },
+       "label": "Button 3 - Held (MultiLevel)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8196
+      },
+      "11": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Button 4 - Pressed (Basic Set)",
+       "max_nodes": 1,
+       "multi_channel": true,
+       "profile": 8197
+      },
+      "12": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4
+        ]
+       },
+       "label": "Button 4 - Held (MultiLevel)",
+       "max_nodes": 1,
+       "multi_channel": true,
+       "profile": 8197
+      },
+      "2": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Main Button - Pressed (Basic Set)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8193
+      },
+      "3": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         1
+        ]
+       },
+       "label": "Main Button - Held (MultiLevel)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8193
+      },
+      "4": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4
+        ]
+       },
+       "label": "Main Button - Start / Stop (MultiLevel)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8193
+      },
+      "5": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Button 1 - Pressed (Basic Set)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8194
+      },
+      "6": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4
+        ]
+       },
+       "label": "Button 1 - Held (MultiLevel)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8194
+      },
+      "7": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Button 2 - Pressed (Basic Set)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8195
+      },
+      "8": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4
+        ]
+       },
+       "label": "Button 2 - Held (MultiLevel)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8195
+      },
+      "9": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Button 3 - Pressed (Basic Set)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8196
+      }
+     }
+    },
+    "associations": {
+     "0": {
+      "1": [
+       {
+        "endpoint": null,
+        "node_id": 1
+       }
+      ],
+      "10": [],
+      "11": [],
+      "12": [],
+      "2": [],
+      "3": [],
+      "4": [],
+      "5": [],
+      "6": [],
+      "7": [],
+      "8": [],
+      "9": []
+     }
+    },
+    "endpoint_indices": [
+     0
+    ],
+    "fingerprint": {
+     "firmware_version": "1.40.0",
+     "manufacturer_id": 634,
+     "product_id": 40984,
+     "product_type": 28672
+    },
+    "highest_security_class": -1,
+    "is_listening": true,
+    "label": "ZEN35",
+    "manufacturer": "Zooz",
+    "name": "Hallway Scene",
+    "node_id": 30,
+    "present": true,
+    "protocol": 0,
+    "ready": true,
+    "status": 4,
+    "supported_command_classes": {
+     "0": [
+      {
+       "id": 85,
+       "name": "Association",
+       "version": 2
+      },
+      {
+       "id": 135,
+       "name": "Indicator",
+       "version": 3
+      },
+      {
+       "id": 112,
+       "name": "Configuration",
+       "version": 4
+      },
+      {
+       "id": 91,
+       "name": "Central Scene",
+       "version": 3
+      },
+      {
+       "id": 142,
+       "name": "Multi Channel Association",
+       "version": 3
+      },
+      {
+       "id": 89,
+       "name": "Association Group Information",
+       "version": 3
+      }
+     ]
+    }
+   },
+   {
+    "association_groups": {
+     "0": {
+      "1": {
+       "is_lifeline": true,
+       "issued_commands": {
+        "113": [
+         5
+        ],
+        "117": [
+         3
+        ],
+        "135": [
+         3
+        ],
+        "38": [
+         3
+        ],
+        "49": [
+         5
+        ],
+        "50": [
+         2
+        ],
+        "90": [
+         1
+        ],
+        "91": [
+         3,
+         6
+        ]
+       },
+       "label": "Lifeline",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 1
+      },
+      "2": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Basic Set",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8193
+      },
+      "3": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         1
+        ]
+       },
+       "label": "Multilevel Switch Set",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8194
+      },
+      "4": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4,
+         5
+        ]
+       },
+       "label": "Multilevel Switch Start/Stop",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8195
+      },
+      "5": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Basic Set Double-tap",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8196
+      },
+      "6": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Basic Set Triple-tap",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8197
+      },
+      "7": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Multilevel Switch Set (Config Button)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8198
+      }
+     }
+    },
+    "associations": {
+     "0": {
+      "1": [
+       {
+        "endpoint": null,
+        "node_id": 1
+       }
+      ],
+      "2": [],
+      "3": [],
+      "4": [],
+      "5": [],
+      "6": [],
+      "7": []
+     }
+    },
+    "endpoint_indices": [
+     0
+    ],
+    "fingerprint": {
+     "firmware_version": "2.2.0",
+     "manufacturer_id": 798,
+     "product_id": 1,
+     "product_type": 23
+    },
+    "highest_security_class": -1,
+    "is_listening": true,
+    "label": "VZW32-SN",
+    "manufacturer": "Inovelli",
+    "name": "Entrance Lobby Light",
+    "node_id": 35,
+    "present": true,
+    "protocol": 0,
+    "ready": true,
+    "status": 4,
+    "supported_command_classes": {
+     "0": [
+      {
+       "id": 85,
+       "name": "Association",
+       "version": 2
+      },
+      {
+       "id": 135,
+       "name": "Indicator",
+       "version": 3
+      },
+      {
+       "id": 112,
+       "name": "Configuration",
+       "version": 4
+      },
+      {
+       "id": 91,
+       "name": "Central Scene",
+       "version": 3
+      },
+      {
+       "id": 89,
+       "name": "Association Group Information",
+       "version": 3
+      },
+      {
+       "id": 142,
+       "name": "Multi Channel Association",
+       "version": 3
+      }
+     ]
+    }
+   },
+   {
+    "association_groups": {
+     "0": {
+      "1": {
+       "is_lifeline": true,
+       "issued_commands": {
+        "135": [
+         3
+        ],
+        "38": [
+         3
+        ],
+        "90": [
+         1
+        ],
+        "91": [
+         3,
+         6
+        ]
+       },
+       "label": "Lifeline",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 1
+      },
+      "10": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4
+        ]
+       },
+       "label": "Button 3 - Held (MultiLevel)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8196
+      },
+      "11": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Button 4 - Pressed (Basic Set)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8197
+      },
+      "12": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4
+        ]
+       },
+       "label": "Button 4 - Held (MultiLevel)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8197
+      },
+      "2": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Main Button - Pressed (Basic Set)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8193
+      },
+      "3": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         1
+        ]
+       },
+       "label": "Main Button - Held (MultiLevel)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8193
+      },
+      "4": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4
+        ]
+       },
+       "label": "Main Button - Start / Stop (MultiLevel)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8193
+      },
+      "5": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Button 1 - Pressed (Basic Set)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8194
+      },
+      "6": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4
+        ]
+       },
+       "label": "Button 1 - Held (MultiLevel)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8194
+      },
+      "7": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Button 2 - Pressed (Basic Set)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8195
+      },
+      "8": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4
+        ]
+       },
+       "label": "Button 2 - Held (MultiLevel)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8195
+      },
+      "9": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Button 3 - Pressed (Basic Set)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8196
+      }
+     }
+    },
+    "associations": {
+     "0": {
+      "1": [
+       {
+        "endpoint": null,
+        "node_id": 1
+       }
+      ],
+      "10": [],
+      "11": [],
+      "12": [],
+      "2": [],
+      "3": [],
+      "4": [],
+      "5": [],
+      "6": [],
+      "7": [],
+      "8": [],
+      "9": []
+     }
+    },
+    "config_values": [
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator (Dimmer)",
+       "max": 3,
+       "min": 0,
+       "states": {
+        "0": "On when load is off",
+        "1": "On when load is on",
+        "2": "Always off",
+        "3": "Always on"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 1,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator (Button 1)",
+       "max": 3,
+       "min": 0,
+       "states": {
+        "0": "On when load is off",
+        "1": "On when load is on",
+        "2": "Always off",
+        "3": "Always on"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 2,
+      "property_key": null,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator (Button 2)",
+       "max": 3,
+       "min": 0,
+       "states": {
+        "0": "On when load is off",
+        "1": "On when load is on",
+        "2": "Always off",
+        "3": "Always on"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 3,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator (Button 3)",
+       "max": 3,
+       "min": 0,
+       "states": {
+        "0": "On when load is off",
+        "1": "On when load is on",
+        "2": "Always off",
+        "3": "Always on"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 4,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator (Button 4)",
+       "max": 3,
+       "min": 0,
+       "states": {
+        "0": "On when load is off",
+        "1": "On when load is on",
+        "2": "Always off",
+        "3": "Always on"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 5,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator Color (Dimmer)",
+       "max": 6,
+       "min": 0,
+       "states": {
+        "0": "White",
+        "1": "Blue",
+        "2": "Green",
+        "3": "Red",
+        "4": "Magenta",
+        "5": "Yellow",
+        "6": "Cyan"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 6,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator Color (Button 1)",
+       "max": 6,
+       "min": 0,
+       "states": {
+        "0": "White",
+        "1": "Blue",
+        "2": "Green",
+        "3": "Red",
+        "4": "Magenta",
+        "5": "Yellow",
+        "6": "Cyan"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 7,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator Color (Button 2)",
+       "max": 6,
+       "min": 0,
+       "states": {
+        "0": "White",
+        "1": "Blue",
+        "2": "Green",
+        "3": "Red",
+        "4": "Magenta",
+        "5": "Yellow",
+        "6": "Cyan"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 8,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator Color (Button 3)",
+       "max": 6,
+       "min": 0,
+       "states": {
+        "0": "White",
+        "1": "Blue",
+        "2": "Green",
+        "3": "Red",
+        "4": "Magenta",
+        "5": "Yellow",
+        "6": "Cyan"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 9,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator Color (Button 4)",
+       "max": 6,
+       "min": 0,
+       "states": {
+        "0": "White",
+        "1": "Blue",
+        "2": "Green",
+        "3": "Red",
+        "4": "Magenta",
+        "5": "Yellow",
+        "6": "Cyan"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 10,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator Brightness (Dimmer)",
+       "max": 10,
+       "min": 1,
+       "states": {
+        "1": "10%",
+        "10": "100%",
+        "2": "20%",
+        "3": "30%",
+        "4": "40%",
+        "5": "50%",
+        "6": "60%",
+        "7": "70%",
+        "8": "80%",
+        "9": "90%"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 11,
+      "property_key": null,
+      "value": 5
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator Brightness (Button 1)",
+       "max": 10,
+       "min": 1,
+       "states": {
+        "1": "10%",
+        "10": "100%",
+        "2": "20%",
+        "3": "30%",
+        "4": "40%",
+        "5": "50%",
+        "6": "60%",
+        "7": "70%",
+        "8": "80%",
+        "9": "90%"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 12,
+      "property_key": null,
+      "value": 5
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator Brightness (Button 2)",
+       "max": 10,
+       "min": 1,
+       "states": {
+        "1": "10%",
+        "10": "100%",
+        "2": "20%",
+        "3": "30%",
+        "4": "40%",
+        "5": "50%",
+        "6": "60%",
+        "7": "70%",
+        "8": "80%",
+        "9": "90%"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 13,
+      "property_key": null,
+      "value": 5
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator Brightness (Button 3)",
+       "max": 10,
+       "min": 1,
+       "states": {
+        "1": "10%",
+        "10": "100%",
+        "2": "20%",
+        "3": "30%",
+        "4": "40%",
+        "5": "50%",
+        "6": "60%",
+        "7": "70%",
+        "8": "80%",
+        "9": "90%"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 14,
+      "property_key": null,
+      "value": 5
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator Brightness (Button 4)",
+       "max": 10,
+       "min": 1,
+       "states": {
+        "1": "10%",
+        "10": "100%",
+        "2": "20%",
+        "3": "30%",
+        "4": "40%",
+        "5": "50%",
+        "6": "60%",
+        "7": "70%",
+        "8": "80%",
+        "9": "90%"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 15,
+      "property_key": null,
+      "value": 5
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Auto-Off Timer (Dimmer)",
+       "max": 65535,
+       "min": 0,
+       "states": {
+        "0": "Disable"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 16,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Auto-On Timer (Dimmer)",
+       "max": 65535,
+       "min": 0,
+       "states": {
+        "0": "Disable"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 17,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "State After Power Failure",
+       "max": 2,
+       "min": 0,
+       "states": {
+        "0": "Always off",
+        "1": "Always on",
+        "2": "Previous state"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 18,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Load Control (Smart Bulb Mode)",
+       "max": 2,
+       "min": 0,
+       "states": {
+        "0": "Local control disabled",
+        "1": "Local and Z-Wave control enabled",
+        "2": "Local and Z-Wave control disabled"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 19,
+      "property_key": null,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Send Report and Toggle LED on Button Press If Dimmer Disabled",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Enable",
+        "1": "Disable"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 20,
+      "property_key": null,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Ramp Rate On (Manual Control)",
+       "max": 99,
+       "min": 0,
+       "states": {
+        "0": "Instant on"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 21,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Ramp Rate Off (Manual Control)",
+       "max": 99,
+       "min": 0,
+       "states": {
+        "0": "Instant off"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 22,
+      "property_key": null,
+      "value": 2
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Local Dimming Speed",
+       "max": 99,
+       "min": 1,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 23,
+      "property_key": null,
+      "value": 5
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Ramp Rate On (Z-Wave)",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Instant on",
+        "255": "Match ramp rate for manual control"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 24,
+      "property_key": null,
+      "value": 255
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Ramp Rate Off (Z-Wave)",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Instant off",
+        "255": "Match ramp rate for manual control"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 25,
+      "property_key": null,
+      "value": 255
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Local Dimming Speed (Dimmer and Group 3 and 4)",
+       "max": 99,
+       "min": 1,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 26,
+      "property_key": null,
+      "value": 5
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Minimum Brightness",
+       "max": 99,
+       "min": 1,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 27,
+      "property_key": null,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Maximum Brightness",
+       "max": 99,
+       "min": 1,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 28,
+      "property_key": null,
+      "value": 99
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Dimmer Button Double Tap",
+       "max": 3,
+       "min": 0,
+       "states": {
+        "0": "Full brightness",
+        "1": "Configured custom brightness (Parameter 31)",
+        "2": "Configured maximum brightness  (Parameter 28)",
+        "3": "Double tap disabled"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 29,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Dimmer Button Single Tap",
+       "max": 3,
+       "min": 0,
+       "states": {
+        "0": "Last brightness level",
+        "1": "Configured custom brightness (Parameter 31)",
+        "2": "Configured maximum brightness (Parameter 28)",
+        "3": "Full brightness"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 30,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Custom Brightness Level (Manual Control)",
+       "max": 99,
+       "min": 0,
+       "states": {
+        "0": "Previous brightness"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 31,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "3-Way Switch Type",
+       "max": 3,
+       "min": 0,
+       "states": {
+        "0": "Toggle switch",
+        "1": "Toggle switch (with dimming control)",
+        "2": "Momentary switch (with dimming control)",
+        "3": "Momentary switch (with dimming control, but reduce after double click)"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 32,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Smart Bulb Mode: Dimming Reporting Behavior",
+       "max": 2,
+       "min": 0,
+       "states": {
+        "0": "Each brightness level / Final level (Basic Set)",
+        "1": "Final brightness level only for local dimming, regardless of control setting",
+        "2": "Each brightness level / Final level (Multilevel Switch)"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 33,
+      "property_key": null,
+      "value": 2
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Local Programming",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Enable",
+        "1": "Disable"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 34,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Send Status Change Report: Local Control",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 35,
+      "property_key": 1,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Send Status Change Report: 3-Way",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 35,
+      "property_key": 2,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Send Status Change Report: Z-Wave",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 35,
+      "property_key": 4,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Send Status Change Report: Timer",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 35,
+      "property_key": 8,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Scene Control",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 36,
+      "property_key": null,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Scene Control: Remote 3-Way Switch",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 37,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator: Confirm Configuration Change",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Enable",
+        "1": "Disable"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 38,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator: Button Press",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Enable",
+        "1": "Disable"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 39,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "On/Off Switch Mode",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 40,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Custom Brightness Level (Z-Wave Control)",
+       "max": 99,
+       "min": 0,
+       "states": {
+        "0": "Previous brightness"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 41,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Scene Control Multi-Tap",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Enable",
+        "1": "Disable"
+       },
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 42,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Gamma Factor",
+       "max": 50,
+       "min": 10,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 36,
+      "property": 43,
+      "property_key": null,
+      "value": 10
+     }
+    ],
+    "endpoint_indices": [
+     0
+    ],
+    "fingerprint": {
+     "firmware_version": "1.40.0",
+     "manufacturer_id": 634,
+     "product_id": 40984,
+     "product_type": 28672
+    },
+    "highest_security_class": -1,
+    "is_listening": true,
+    "label": "ZEN35",
+    "manufacturer": "Zooz",
+    "name": "Bedroom Scene Controller",
+    "node_id": 36,
+    "present": true,
+    "protocol": 0,
+    "ready": true,
+    "status": 4,
+    "supported_command_classes": {
+     "0": [
+      {
+       "id": 85,
+       "name": "Association",
+       "version": 2
+      },
+      {
+       "id": 135,
+       "name": "Indicator",
+       "version": 3
+      },
+      {
+       "id": 112,
+       "name": "Configuration",
+       "version": 4
+      },
+      {
+       "id": 91,
+       "name": "Central Scene",
+       "version": 3
+      },
+      {
+       "id": 142,
+       "name": "Multi Channel Association",
+       "version": 3
+      },
+      {
+       "id": 89,
+       "name": "Association Group Information",
+       "version": 3
+      }
+     ]
+    }
+   },
+   {
+    "association_groups": {
+     "0": {
+      "1": {
+       "is_lifeline": true,
+       "issued_commands": {
+        "113": [
+         5
+        ],
+        "117": [
+         3
+        ],
+        "135": [
+         3
+        ],
+        "38": [
+         3
+        ],
+        "49": [
+         5
+        ],
+        "50": [
+         2
+        ],
+        "90": [
+         1
+        ],
+        "91": [
+         3,
+         6
+        ]
+       },
+       "label": "Lifeline",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 1
+      },
+      "2": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Basic Set",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8193
+      },
+      "3": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         1
+        ]
+       },
+       "label": "Multilevel Switch Set",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8194
+      },
+      "4": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4,
+         5
+        ]
+       },
+       "label": "Multilevel Switch Start/Stop",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8195
+      },
+      "5": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Basic Set Double-tap",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8196
+      },
+      "6": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Basic Set Triple-tap",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8197
+      },
+      "7": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Multilevel Switch Set (Config Button)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8198
+      }
+     }
+    },
+    "associations": {
+     "0": {
+      "1": [
+       {
+        "endpoint": null,
+        "node_id": 1
+       }
+      ],
+      "2": [],
+      "3": [],
+      "4": [],
+      "5": [],
+      "6": [],
+      "7": []
+     }
+    },
+    "config_values": [
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": null,
+       "max": null,
+       "min": null,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 116,
+      "property_key": null,
+      "value": 16777216
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "mmWave Person in the Reporting Area (Read Only)",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Empty",
+        "1": "Occupied"
+       },
+       "writeable": false
+      },
+      "node_id": 37,
+      "property": 116,
+      "property_key": 4278190080,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Dimming Speed - Up (Remote)",
+       "max": 254,
+       "min": 0,
+       "states": {
+        "0": "Immediate",
+        "10": "1 second",
+        "20": "2 seconds",
+        "25": "2.5 seconds",
+        "30": "3 seconds",
+        "5": "500 ms"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 1,
+      "property_key": null,
+      "value": 25
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Dimming Speed - Up (Local)",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Immediate",
+        "10": "1 second",
+        "20": "2 seconds",
+        "255": "Sync with Parameter 1",
+        "30": "3 seconds",
+        "5": "500 ms"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 2,
+      "property_key": null,
+      "value": 255
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Ramp Rate - Off to On (Remote)",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Immediate",
+        "10": "1 second",
+        "20": "2 seconds",
+        "255": "Sync with Parameter 1",
+        "30": "3 seconds",
+        "5": "500 ms"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 3,
+      "property_key": null,
+      "value": 255
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Ramp Rate - Off to On (Local)",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Immediate",
+        "10": "1 second",
+        "20": "2 seconds",
+        "255": "Sync with Parameter 3",
+        "30": "3 seconds",
+        "5": "500 ms"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 4,
+      "property_key": null,
+      "value": 255
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Dimming Speed - Down (Remote)",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Immediate",
+        "10": "1 second",
+        "20": "2 seconds",
+        "255": "Sync with Parameter 1",
+        "30": "3 seconds",
+        "5": "500 ms"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 5,
+      "property_key": null,
+      "value": 255
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Dimming Speed - Down (Local)",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Immediate",
+        "10": "1 second",
+        "20": "2 seconds",
+        "255": "Sync with Parameter 2",
+        "30": "3 seconds",
+        "5": "500 ms"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 6,
+      "property_key": null,
+      "value": 255
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Ramp Rate - On to Off (Remote)",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Immediate",
+        "10": "1 second",
+        "20": "2 seconds",
+        "255": "Sync with Parameter 3",
+        "30": "3 seconds",
+        "5": "500 ms"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 7,
+      "property_key": null,
+      "value": 255
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Ramp Rate - On to Off (Local)",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Immediate",
+        "10": "1 second",
+        "20": "2 seconds",
+        "255": "Sync with Parameter 4",
+        "30": "3 seconds",
+        "5": "500 ms"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 8,
+      "property_key": null,
+      "value": 255
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Minimum Level",
+       "max": 54,
+       "min": 1,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 9,
+      "property_key": null,
+      "value": 20
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Maximum Level",
+       "max": 99,
+       "min": 55,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 10,
+      "property_key": null,
+      "value": 99
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Invert Switch",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 11,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Auto Off Timer",
+       "max": 32767,
+       "min": 0,
+       "states": {
+        "0": "Disabled"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 12,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Default Level (Local)",
+       "max": 99,
+       "min": 0,
+       "states": {
+        "0": "Previous state"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 13,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Default Level (Remote)",
+       "max": 99,
+       "min": 0,
+       "states": {
+        "0": "Previous state"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 14,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Level After Power Restored",
+       "max": 100,
+       "min": 0,
+       "states": {
+        "100": "Previous state"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 15,
+      "property_key": null,
+      "value": 100
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Load Level Indicator Timeout",
+       "max": 11,
+       "min": 0,
+       "states": {
+        "0": "Always off",
+        "11": "Always on"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 17,
+      "property_key": null,
+      "value": 11
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Power Change Report Threshold",
+       "max": 100,
+       "min": 0,
+       "states": {
+        "0": "Disabled"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 18,
+      "property_key": null,
+      "value": 10
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Power & Energy Report Interval",
+       "max": 32767,
+       "min": 0,
+       "states": {
+        "0": "Disabled"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 19,
+      "property_key": null,
+      "value": 3600
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Energy Change Report Threshold",
+       "max": 32767,
+       "min": 0,
+       "states": {
+        "0": "Disabled"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 20,
+      "property_key": null,
+      "value": 10
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Power Type",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Non-Neutral",
+        "1": "Neutral"
+       },
+       "writeable": false
+      },
+      "node_id": 37,
+      "property": 21,
+      "property_key": null,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Switch Type",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Single pole",
+        "1": "Multi-Way with aux switch"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 22,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Quick Start Time",
+       "max": 60,
+       "min": 0,
+       "states": {
+        "0": "Disable"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 23,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Quick Start Level",
+       "max": 99,
+       "min": 1,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 24,
+      "property_key": null,
+      "value": 99
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Increase Output Power (Non-Neutral)",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 25,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Dimming Mode",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Leading edge",
+        "1": "Trailing edge"
+       },
+       "writeable": false
+      },
+      "node_id": 37,
+      "property": 26,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Internal Temperature",
+       "max": 127,
+       "min": 0,
+       "states": null,
+       "writeable": false
+      },
+      "node_id": 37,
+      "property": 32,
+      "property_key": null,
+      "value": 48
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Overheat Detected",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "False",
+        "1": "True"
+       },
+       "writeable": false
+      },
+      "node_id": 37,
+      "property": 33,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Button Delay Time",
+       "max": 9,
+       "min": 0,
+       "states": {
+        "0": "No delay (Config button still has 500 ms delay)",
+        "3": "300 ms",
+        "4": "400 ms",
+        "5": "500 ms",
+        "6": "600 ms",
+        "7": "700 ms",
+        "8": "800 ms",
+        "9": "900 ms"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 50,
+      "property_key": null,
+      "value": 5
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Smart Bulb Mode",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 52,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Double Up Level Enable",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 53,
+      "property_key": null,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Double Down Level Enable",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 54,
+      "property_key": null,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Double Up Level",
+       "max": 99,
+       "min": 1,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 55,
+      "property_key": null,
+      "value": 99
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Double Down Level",
+       "max": 99,
+       "min": 0,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 56,
+      "property_key": null,
+      "value": 20
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Exclusion Behavior",
+       "max": 2,
+       "min": 0,
+       "states": {
+        "0": "Light does not pulse",
+        "1": "Light pulses blue",
+        "2": "Exclusion disabled (Must factory reset to exclude, or change this parameter)"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 58,
+      "property_key": null,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Send Local Commands to Associated Devices",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 59,
+      "property_key": 1,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Forward Z-Wave Commands to Associated Devices",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 59,
+      "property_key": 2,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED1 Strip Effect - Duration",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "255": "Indefinitely"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 64,
+      "property_key": 255,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED1 Strip Effect - Level",
+       "max": 100,
+       "min": 0,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 64,
+      "property_key": 65280,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED1 Strip Effect - Color",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Red",
+        "106": "Teal",
+        "127": "Cyan",
+        "148": "Aqua",
+        "170": "Blue",
+        "190": "Violet",
+        "212": "Magenta",
+        "234": "Pink",
+        "255": "White",
+        "28": "Lemon",
+        "64": "Lime",
+        "7": "Orange",
+        "85": "Green"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 64,
+      "property_key": 16711680,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED1 Strip Effect - Effect",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Off",
+        "1": "Solid",
+        "2": "Fast blink",
+        "255": "Clear",
+        "3": "Slow blink",
+        "4": "Pulse",
+        "5": "Chase",
+        "6": "Falling",
+        "7": "Rising",
+        "8": "Aurora"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 64,
+      "property_key": 4278190080,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED2 Strip Effect - Duration",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "255": "Indefinitely"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 69,
+      "property_key": 255,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED2 Strip Effect - Level",
+       "max": 100,
+       "min": 0,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 69,
+      "property_key": 65280,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED2 Strip Effect - Color",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Red",
+        "106": "Teal",
+        "127": "Cyan",
+        "148": "Aqua",
+        "170": "Blue",
+        "190": "Violet",
+        "212": "Magenta",
+        "234": "Pink",
+        "255": "White",
+        "28": "Lemon",
+        "64": "Lime",
+        "7": "Orange",
+        "85": "Green"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 69,
+      "property_key": 16711680,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED2 Strip Effect - Effect",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Off",
+        "1": "Solid",
+        "2": "Fast blink",
+        "255": "Clear",
+        "3": "Slow blink",
+        "4": "Pulse",
+        "5": "Chase",
+        "6": "Falling",
+        "7": "Rising",
+        "8": "Aurora"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 69,
+      "property_key": 4278190080,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED3 Strip Effect - Duration",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "255": "Indefinitely"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 74,
+      "property_key": 255,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED3 Strip Effect - Level",
+       "max": 100,
+       "min": 0,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 74,
+      "property_key": 65280,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED3 Strip Effect - Color",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Red",
+        "106": "Teal",
+        "127": "Cyan",
+        "148": "Aqua",
+        "170": "Blue",
+        "190": "Violet",
+        "212": "Magenta",
+        "234": "Pink",
+        "255": "White",
+        "28": "Lemon",
+        "64": "Lime",
+        "7": "Orange",
+        "85": "Green"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 74,
+      "property_key": 16711680,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED3 Strip Effect - Effect",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Off",
+        "1": "Solid",
+        "2": "Fast blink",
+        "255": "Clear",
+        "3": "Slow blink",
+        "4": "Pulse",
+        "5": "Chase",
+        "6": "Falling",
+        "7": "Rising",
+        "8": "Aurora"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 74,
+      "property_key": 4278190080,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED4 Strip Effect - Duration",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "255": "Indefinitely"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 79,
+      "property_key": 255,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED4 Strip Effect - Level",
+       "max": 100,
+       "min": 0,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 79,
+      "property_key": 65280,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED4 Strip Effect - Color",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Red",
+        "106": "Teal",
+        "127": "Cyan",
+        "148": "Aqua",
+        "170": "Blue",
+        "190": "Violet",
+        "212": "Magenta",
+        "234": "Pink",
+        "255": "White",
+        "28": "Lemon",
+        "64": "Lime",
+        "7": "Orange",
+        "85": "Green"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 79,
+      "property_key": 16711680,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED4 Strip Effect - Effect",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Off",
+        "1": "Solid",
+        "2": "Fast blink",
+        "255": "Clear",
+        "3": "Slow blink",
+        "4": "Pulse",
+        "5": "Chase",
+        "6": "Falling",
+        "7": "Rising",
+        "8": "Aurora"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 79,
+      "property_key": 4278190080,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED5 Strip Effect - Duration",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "255": "Indefinitely"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 84,
+      "property_key": 255,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED5 Strip Effect - Level",
+       "max": 100,
+       "min": 0,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 84,
+      "property_key": 65280,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED5 Strip Effect - Color",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Red",
+        "106": "Teal",
+        "127": "Cyan",
+        "148": "Aqua",
+        "170": "Blue",
+        "190": "Violet",
+        "212": "Magenta",
+        "234": "Pink",
+        "255": "White",
+        "28": "Lemon",
+        "64": "Lime",
+        "7": "Orange",
+        "85": "Green"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 84,
+      "property_key": 16711680,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED5 Strip Effect - Effect",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Off",
+        "1": "Solid",
+        "2": "Fast blink",
+        "255": "Clear",
+        "3": "Slow blink",
+        "4": "Pulse",
+        "5": "Chase",
+        "6": "Falling",
+        "7": "Rising",
+        "8": "Aurora"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 84,
+      "property_key": 4278190080,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED6 Strip Effect - Duration",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "255": "Indefinitely"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 89,
+      "property_key": 255,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED6 Strip Effect - Level",
+       "max": 100,
+       "min": 0,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 89,
+      "property_key": 65280,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED6 Strip Effect - Color",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Red",
+        "106": "Teal",
+        "127": "Cyan",
+        "148": "Aqua",
+        "170": "Blue",
+        "190": "Violet",
+        "212": "Magenta",
+        "234": "Pink",
+        "255": "White",
+        "28": "Lemon",
+        "64": "Lime",
+        "7": "Orange",
+        "85": "Green"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 89,
+      "property_key": 16711680,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED6 Strip Effect - Effect",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Off",
+        "1": "Solid",
+        "2": "Fast blink",
+        "255": "Clear",
+        "3": "Slow blink",
+        "4": "Pulse",
+        "5": "Chase",
+        "6": "Falling",
+        "7": "Rising",
+        "8": "Aurora"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 89,
+      "property_key": 4278190080,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED7 Strip Effect - Duration",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "255": "Indefinitely"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 94,
+      "property_key": 255,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED7 Strip Effect - Level",
+       "max": 100,
+       "min": 0,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 94,
+      "property_key": 65280,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED7 Strip Effect - Color",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Red",
+        "106": "Teal",
+        "127": "Cyan",
+        "148": "Aqua",
+        "170": "Blue",
+        "190": "Violet",
+        "212": "Magenta",
+        "234": "Pink",
+        "255": "White",
+        "28": "Lemon",
+        "64": "Lime",
+        "7": "Orange",
+        "85": "Green"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 94,
+      "property_key": 16711680,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED7 Strip Effect - Effect",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Off",
+        "1": "Solid",
+        "2": "Fast blink",
+        "255": "Clear",
+        "3": "Slow blink",
+        "4": "Pulse",
+        "5": "Chase",
+        "6": "Falling",
+        "7": "Rising",
+        "8": "Aurora"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 94,
+      "property_key": 4278190080,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Default All LED Strip Color When On",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Red",
+        "106": "Teal",
+        "127": "Cyan",
+        "148": "Aqua",
+        "170": "Blue",
+        "190": "Violet",
+        "212": "Magenta",
+        "234": "Pink",
+        "255": "White",
+        "28": "Lemon",
+        "64": "Lime",
+        "7": "Orange",
+        "85": "Green"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 95,
+      "property_key": null,
+      "value": 170
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Default All LED Strip Color When Off",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Red",
+        "106": "Teal",
+        "127": "Cyan",
+        "148": "Aqua",
+        "170": "Blue",
+        "190": "Violet",
+        "212": "Magenta",
+        "234": "Pink",
+        "255": "White",
+        "28": "Lemon",
+        "64": "Lime",
+        "7": "Orange",
+        "85": "Green"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 96,
+      "property_key": null,
+      "value": 170
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Default All LED Strip Brightness When On",
+       "max": 100,
+       "min": 0,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 97,
+      "property_key": null,
+      "value": 33
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Default All LED Strip Brightness When Off",
+       "max": 100,
+       "min": 0,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 98,
+      "property_key": null,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "All LED Strip Effect - Duration",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "255": "Indefinitely"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 99,
+      "property_key": 255,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "All LED Strip Effect - Level",
+       "max": 100,
+       "min": 0,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 99,
+      "property_key": 65280,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "All LED Strip Effect - Color",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Red",
+        "106": "Teal",
+        "127": "Cyan",
+        "148": "Aqua",
+        "170": "Blue",
+        "190": "Violet",
+        "212": "Magenta",
+        "234": "Pink",
+        "255": "White",
+        "28": "Lemon",
+        "64": "Lime",
+        "7": "Orange",
+        "85": "Green"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 99,
+      "property_key": 16711680,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "All LED Strip Effect - Effect",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Off",
+        "1": "Solid",
+        "10": "Medium fall",
+        "11": "Fast fall",
+        "12": "Slow rise",
+        "13": "Medium rise",
+        "14": "Fast rise",
+        "15": "Medium blink",
+        "16": "Slow chase",
+        "17": "Fast chase",
+        "18": "Fast siren",
+        "19": "Slow siren",
+        "2": "Fast blink",
+        "255": "Clear",
+        "3": "Slow blink",
+        "4": "Pulse",
+        "5": "Chase",
+        "6": "Open/close",
+        "7": "Small to big",
+        "8": "Aurora",
+        "9": "Slow fall"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 99,
+      "property_key": 4278190080,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Brightness Scaling",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Match VZM31 (Blue series)",
+        "1": "Match LZW31 (Red series)"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 100,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "mmWave Height Minimum (Floor)",
+       "max": 599,
+       "min": -600,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 101,
+      "property_key": null,
+      "value": -75
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "mmWave Height Maximum (Ceiling)",
+       "max": 600,
+       "min": -599,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 102,
+      "property_key": null,
+      "value": 75
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "mmWave Width Minimum (Left)",
+       "max": 599,
+       "min": -600,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 103,
+      "property_key": null,
+      "value": -310
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "mmWave Width Maximum (Right)",
+       "max": 600,
+       "min": -599,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 104,
+      "property_key": null,
+      "value": 310
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "mmWave Depth Minimum (Near)",
+       "max": 599,
+       "min": 0,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 105,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "mmWave Depth Maximum (Far)",
+       "max": 600,
+       "min": 1,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 106,
+      "property_key": null,
+      "value": 460
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "mmWave Target Info Report",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 107,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "mmWave Stay Life",
+       "max": 4294967295,
+       "min": 0,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 108,
+      "property_key": null,
+      "value": 300
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Light On Presence Behavior",
+       "max": 6,
+       "min": 0,
+       "states": {
+        "0": "Disabled. Light does not turn on or off with presence",
+        "1": "Auto on/off when occupied: Light is on when room is occupied, off when unoccupied",
+        "2": "Auto off when vacant: Light turns off when room becomes vacant, never automatically turns on",
+        "3": "Auto on when occupied: Light turns on when room becomes occupied, never automatically turns off",
+        "4": "Auto on/off when vacant: Light is on when room is vacant, off when occupied",
+        "5": "Auto on when vacant: Light turns on when room becomes vacant, never automatically turns off",
+        "6": "Auto off when occupied: Light turns off when room becomes occupied, never automatically turns on"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 110,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "mmWave Module Commands (See Documentation)",
+       "max": 5,
+       "min": 0,
+       "states": {
+        "0": "Restore the mmwave module factory configuration",
+        "1": "The interference area is automatically generated",
+        "2": "Obtains the interference region and detection region",
+        "3": "Clears the interference area",
+        "4": "Resets the detection area",
+        "5": "Clears the stay area"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 111,
+      "property_key": null,
+      "value": 2
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "mmWave Sensitivity",
+       "max": 2,
+       "min": 0,
+       "states": {
+        "0": "Low",
+        "1": "Medium",
+        "2": "High"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 112,
+      "property_key": null,
+      "value": 2
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "mmWave Target Speed",
+       "max": 2,
+       "min": 0,
+       "states": {
+        "0": "Slow (5s)",
+        "1": "Medium (1s)",
+        "2": "Fast (0.2s)"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 113,
+      "property_key": null,
+      "value": 2
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "mmWave Detection Timeout",
+       "max": 4294967295,
+       "min": 0,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 114,
+      "property_key": null,
+      "value": 30
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "mmWave Firmware Version (Read Only)",
+       "max": 4294967295,
+       "min": 0,
+       "states": null,
+       "writeable": false
+      },
+      "node_id": 37,
+      "property": 115,
+      "property_key": null,
+      "value": 100863491
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Room Size",
+       "max": 5,
+       "min": 0,
+       "states": {
+        "0": "Custom (User-Defined)",
+        "1": "X-Small (X: \u2212100 to 100, Y: 0 to 200, Z: \u2212100 to 100)",
+        "2": "Small (X: \u2212160 to 160, Y: 0 to 280, Z: \u2212100 to 100)",
+        "3": "Medium (X: \u2212210 to 210, Y: 0 to 360, Z: \u2212100 to 100)",
+        "4": "Large (X: \u2212260 to 260, Y: 0 to 400, Z: \u2212100 to 100)",
+        "5": "X-Large (X: \u2212310 to 310, Y: 0 to 460, Z: \u2212100 to 100)"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 117,
+      "property_key": null,
+      "value": 5
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Lux Threshold",
+       "max": 32767,
+       "min": 0,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 118,
+      "property_key": null,
+      "value": 20
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Lux Interval",
+       "max": 32767,
+       "min": 0,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 119,
+      "property_key": null,
+      "value": 600
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Single-Tap Behavior",
+       "max": 2,
+       "min": 0,
+       "states": {
+        "0": "Up - On, down - Off",
+        "1": "Up - Increment level up (Off > low > medium > high), down - Increment level down (High > medium > low > off)",
+        "2": "Up - Increment level up (Off > low > medium > high > low > ...), down - Off"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 120,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Aux Switch Scenes",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 123,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Group 7: Enable",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 130,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Group 7: Level 1",
+       "max": 99,
+       "min": 1,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 131,
+      "property_key": null,
+      "value": 25
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Group 7: Level 2",
+       "max": 99,
+       "min": 1,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 132,
+      "property_key": null,
+      "value": 50
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Group 7: Level 3",
+       "max": 99,
+       "min": 1,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 133,
+      "property_key": null,
+      "value": 99
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Group 7: LED Color",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Red",
+        "106": "Teal",
+        "127": "Cyan",
+        "148": "Aqua",
+        "170": "Blue",
+        "190": "Violet",
+        "212": "Magenta",
+        "234": "Pink",
+        "255": "White",
+        "28": "Lemon",
+        "64": "Lime",
+        "7": "Orange",
+        "85": "Green"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 134,
+      "property_key": null,
+      "value": 255
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Dimmer Mode",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Dimmer mode",
+        "1": "On/Off mode"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 158,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Bar in On/Off Mode",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Full LED bar",
+        "1": "Just one LED"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 159,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Firmware Progress LED",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 160,
+      "property_key": null,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Double-Tap Config to Clear Notification",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Enable",
+        "1": "Disable"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 162,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "SPI Flash Status",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Fail",
+        "1": "Success"
+       },
+       "writeable": false
+      },
+      "node_id": 37,
+      "property": 239,
+      "property_key": null,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Factory Reset",
+       "max": 120935937,
+       "min": 0,
+       "states": {
+        "0": "Default",
+        "120935937": "Perform a factory reset"
+       },
+       "writeable": true
+      },
+      "node_id": 37,
+      "property": 240,
+      "property_key": null,
+      "value": 83886080
+     }
+    ],
+    "endpoint_indices": [
+     0
+    ],
+    "fingerprint": {
+     "firmware_version": "2.2.0",
+     "manufacturer_id": 798,
+     "product_id": 1,
+     "product_type": 23
+    },
+    "highest_security_class": -1,
+    "is_listening": true,
+    "label": "VZW32-SN",
+    "manufacturer": "Inovelli",
+    "name": "Master Bedroom Lights",
+    "node_id": 37,
+    "present": true,
+    "protocol": 0,
+    "ready": true,
+    "status": 4,
+    "supported_command_classes": {
+     "0": [
+      {
+       "id": 85,
+       "name": "Association",
+       "version": 2
+      },
+      {
+       "id": 135,
+       "name": "Indicator",
+       "version": 3
+      },
+      {
+       "id": 112,
+       "name": "Configuration",
+       "version": 4
+      },
+      {
+       "id": 91,
+       "name": "Central Scene",
+       "version": 3
+      },
+      {
+       "id": 89,
+       "name": "Association Group Information",
+       "version": 3
+      },
+      {
+       "id": 142,
+       "name": "Multi Channel Association",
+       "version": 3
+      }
+     ]
+    }
+   },
+   {
+    "association_groups": {
+     "0": {
+      "1": {
+       "is_lifeline": true,
+       "issued_commands": {
+        "113": [
+         5
+        ],
+        "117": [
+         3
+        ],
+        "135": [
+         3
+        ],
+        "38": [
+         3
+        ],
+        "49": [
+         5
+        ],
+        "50": [
+         2
+        ],
+        "90": [
+         1
+        ],
+        "91": [
+         3,
+         6
+        ]
+       },
+       "label": "Lifeline",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 1
+      },
+      "2": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Basic Set",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8193
+      },
+      "3": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         1
+        ]
+       },
+       "label": "Multilevel Switch Set",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8194
+      },
+      "4": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4,
+         5
+        ]
+       },
+       "label": "Multilevel Switch Start/Stop",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8195
+      },
+      "5": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Basic Set Double-tap",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8196
+      },
+      "6": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Basic Set Triple-tap",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8197
+      },
+      "7": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Multilevel Switch Set (Config Button)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8198
+      }
+     }
+    },
+    "associations": {
+     "0": {
+      "1": [
+       {
+        "endpoint": null,
+        "node_id": 1
+       }
+      ],
+      "2": [],
+      "3": [],
+      "4": [],
+      "5": [],
+      "6": [],
+      "7": []
+     }
+    },
+    "endpoint_indices": [
+     0
+    ],
+    "fingerprint": {
+     "firmware_version": "2.2.0",
+     "manufacturer_id": 798,
+     "product_id": 1,
+     "product_type": 23
+    },
+    "highest_security_class": -1,
+    "is_listening": true,
+    "label": "VZW32-SN",
+    "manufacturer": "Inovelli",
+    "name": "Bedside Light L",
+    "node_id": 38,
+    "present": true,
+    "protocol": 0,
+    "ready": true,
+    "status": 4,
+    "supported_command_classes": {
+     "0": [
+      {
+       "id": 85,
+       "name": "Association",
+       "version": 2
+      },
+      {
+       "id": 135,
+       "name": "Indicator",
+       "version": 3
+      },
+      {
+       "id": 112,
+       "name": "Configuration",
+       "version": 4
+      },
+      {
+       "id": 91,
+       "name": "Central Scene",
+       "version": 3
+      },
+      {
+       "id": 89,
+       "name": "Association Group Information",
+       "version": 3
+      },
+      {
+       "id": 142,
+       "name": "Multi Channel Association",
+       "version": 3
+      }
+     ]
+    }
+   },
+   {
+    "association_groups": {
+     "0": {
+      "1": {
+       "is_lifeline": true,
+       "issued_commands": {
+        "135": [
+         3
+        ],
+        "38": [
+         3
+        ],
+        "90": [
+         1
+        ],
+        "91": [
+         3,
+         6
+        ]
+       },
+       "label": "Lifeline",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 1
+      },
+      "10": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4
+        ]
+       },
+       "label": "Button 3 - Held (MultiLevel)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8196
+      },
+      "11": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Button 4 - Pressed (Basic Set)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8197
+      },
+      "12": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4
+        ]
+       },
+       "label": "Button 4 - Held (MultiLevel)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8197
+      },
+      "2": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Main Button - Pressed (Basic Set)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8193
+      },
+      "3": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         1
+        ]
+       },
+       "label": "Main Button - Held (MultiLevel)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8193
+      },
+      "4": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4
+        ]
+       },
+       "label": "Main Button - Start / Stop (MultiLevel)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8193
+      },
+      "5": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Button 1 - Pressed (Basic Set)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8194
+      },
+      "6": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4
+        ]
+       },
+       "label": "Button 1 - Held (MultiLevel)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8194
+      },
+      "7": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Button 2 - Pressed (Basic Set)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8195
+      },
+      "8": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4
+        ]
+       },
+       "label": "Button 2 - Held (MultiLevel)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8195
+      },
+      "9": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Button 3 - Pressed (Basic Set)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8196
+      }
+     }
+    },
+    "associations": {
+     "0": {
+      "1": [
+       {
+        "endpoint": null,
+        "node_id": 1
+       }
+      ],
+      "10": [],
+      "11": [],
+      "12": [],
+      "2": [],
+      "3": [],
+      "4": [],
+      "5": [],
+      "6": [],
+      "7": [],
+      "8": [],
+      "9": []
+     }
+    },
+    "config_values": [
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator (Dimmer)",
+       "max": 3,
+       "min": 0,
+       "states": {
+        "0": "On when load is off",
+        "1": "On when load is on",
+        "2": "Always off",
+        "3": "Always on"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 1,
+      "property_key": null,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator (Button 1)",
+       "max": 3,
+       "min": 0,
+       "states": {
+        "0": "On when load is off",
+        "1": "On when load is on",
+        "2": "Always off",
+        "3": "Always on"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 2,
+      "property_key": null,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator (Button 2)",
+       "max": 3,
+       "min": 0,
+       "states": {
+        "0": "On when load is off",
+        "1": "On when load is on",
+        "2": "Always off",
+        "3": "Always on"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 3,
+      "property_key": null,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator (Button 3)",
+       "max": 3,
+       "min": 0,
+       "states": {
+        "0": "On when load is off",
+        "1": "On when load is on",
+        "2": "Always off",
+        "3": "Always on"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 4,
+      "property_key": null,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator (Button 4)",
+       "max": 3,
+       "min": 0,
+       "states": {
+        "0": "On when load is off",
+        "1": "On when load is on",
+        "2": "Always off",
+        "3": "Always on"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 5,
+      "property_key": null,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator Color (Dimmer)",
+       "max": 6,
+       "min": 0,
+       "states": {
+        "0": "White",
+        "1": "Blue",
+        "2": "Green",
+        "3": "Red",
+        "4": "Magenta",
+        "5": "Yellow",
+        "6": "Cyan"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 6,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator Color (Button 1)",
+       "max": 6,
+       "min": 0,
+       "states": {
+        "0": "White",
+        "1": "Blue",
+        "2": "Green",
+        "3": "Red",
+        "4": "Magenta",
+        "5": "Yellow",
+        "6": "Cyan"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 7,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator Color (Button 2)",
+       "max": 6,
+       "min": 0,
+       "states": {
+        "0": "White",
+        "1": "Blue",
+        "2": "Green",
+        "3": "Red",
+        "4": "Magenta",
+        "5": "Yellow",
+        "6": "Cyan"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 8,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator Color (Button 3)",
+       "max": 6,
+       "min": 0,
+       "states": {
+        "0": "White",
+        "1": "Blue",
+        "2": "Green",
+        "3": "Red",
+        "4": "Magenta",
+        "5": "Yellow",
+        "6": "Cyan"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 9,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator Color (Button 4)",
+       "max": 6,
+       "min": 0,
+       "states": {
+        "0": "White",
+        "1": "Blue",
+        "2": "Green",
+        "3": "Red",
+        "4": "Magenta",
+        "5": "Yellow",
+        "6": "Cyan"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 10,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator Brightness (Dimmer)",
+       "max": 10,
+       "min": 1,
+       "states": {
+        "1": "10%",
+        "10": "100%",
+        "2": "20%",
+        "3": "30%",
+        "4": "40%",
+        "5": "50%",
+        "6": "60%",
+        "7": "70%",
+        "8": "80%",
+        "9": "90%"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 11,
+      "property_key": null,
+      "value": 5
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator Brightness (Button 1)",
+       "max": 10,
+       "min": 1,
+       "states": {
+        "1": "10%",
+        "10": "100%",
+        "2": "20%",
+        "3": "30%",
+        "4": "40%",
+        "5": "50%",
+        "6": "60%",
+        "7": "70%",
+        "8": "80%",
+        "9": "90%"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 12,
+      "property_key": null,
+      "value": 5
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator Brightness (Button 2)",
+       "max": 10,
+       "min": 1,
+       "states": {
+        "1": "10%",
+        "10": "100%",
+        "2": "20%",
+        "3": "30%",
+        "4": "40%",
+        "5": "50%",
+        "6": "60%",
+        "7": "70%",
+        "8": "80%",
+        "9": "90%"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 13,
+      "property_key": null,
+      "value": 5
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator Brightness (Button 3)",
+       "max": 10,
+       "min": 1,
+       "states": {
+        "1": "10%",
+        "10": "100%",
+        "2": "20%",
+        "3": "30%",
+        "4": "40%",
+        "5": "50%",
+        "6": "60%",
+        "7": "70%",
+        "8": "80%",
+        "9": "90%"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 14,
+      "property_key": null,
+      "value": 5
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator Brightness (Button 4)",
+       "max": 10,
+       "min": 1,
+       "states": {
+        "1": "10%",
+        "10": "100%",
+        "2": "20%",
+        "3": "30%",
+        "4": "40%",
+        "5": "50%",
+        "6": "60%",
+        "7": "70%",
+        "8": "80%",
+        "9": "90%"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 15,
+      "property_key": null,
+      "value": 5
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Auto-Off Timer (Dimmer)",
+       "max": 65535,
+       "min": 0,
+       "states": {
+        "0": "Disable"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 16,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Auto-On Timer (Dimmer)",
+       "max": 65535,
+       "min": 0,
+       "states": {
+        "0": "Disable"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 17,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "State After Power Failure",
+       "max": 2,
+       "min": 0,
+       "states": {
+        "0": "Always off",
+        "1": "Always on",
+        "2": "Previous state"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 18,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Load Control (Smart Bulb Mode)",
+       "max": 2,
+       "min": 0,
+       "states": {
+        "0": "Local control disabled",
+        "1": "Local and Z-Wave control enabled",
+        "2": "Local and Z-Wave control disabled"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 19,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Send Report and Toggle LED on Button Press If Dimmer Disabled",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Enable",
+        "1": "Disable"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 20,
+      "property_key": null,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Ramp Rate On (Manual Control)",
+       "max": 99,
+       "min": 0,
+       "states": {
+        "0": "Instant on"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 21,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Ramp Rate Off (Manual Control)",
+       "max": 99,
+       "min": 0,
+       "states": {
+        "0": "Instant off"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 22,
+      "property_key": null,
+      "value": 2
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Local Dimming Speed",
+       "max": 99,
+       "min": 1,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 23,
+      "property_key": null,
+      "value": 5
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Ramp Rate On (Z-Wave)",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Instant on",
+        "255": "Match ramp rate for manual control"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 24,
+      "property_key": null,
+      "value": 255
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Ramp Rate Off (Z-Wave)",
+       "max": 255,
+       "min": 0,
+       "states": {
+        "0": "Instant off",
+        "255": "Match ramp rate for manual control"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 25,
+      "property_key": null,
+      "value": 255
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Local Dimming Speed (Dimmer and Group 3 and 4)",
+       "max": 99,
+       "min": 1,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 26,
+      "property_key": null,
+      "value": 5
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Minimum Brightness",
+       "max": 99,
+       "min": 1,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 27,
+      "property_key": null,
+      "value": 20
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Maximum Brightness",
+       "max": 99,
+       "min": 1,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 28,
+      "property_key": null,
+      "value": 99
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Dimmer Button Double Tap",
+       "max": 3,
+       "min": 0,
+       "states": {
+        "0": "Full brightness",
+        "1": "Configured custom brightness (Parameter 31)",
+        "2": "Configured maximum brightness  (Parameter 28)",
+        "3": "Double tap disabled"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 29,
+      "property_key": null,
+      "value": 3
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Dimmer Button Single Tap",
+       "max": 3,
+       "min": 0,
+       "states": {
+        "0": "Last brightness level",
+        "1": "Configured custom brightness (Parameter 31)",
+        "2": "Configured maximum brightness (Parameter 28)",
+        "3": "Full brightness"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 30,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Custom Brightness Level (Manual Control)",
+       "max": 99,
+       "min": 0,
+       "states": {
+        "0": "Previous brightness"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 31,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "3-Way Switch Type",
+       "max": 3,
+       "min": 0,
+       "states": {
+        "0": "Toggle switch",
+        "1": "Toggle switch (with dimming control)",
+        "2": "Momentary switch (with dimming control)",
+        "3": "Momentary switch (with dimming control, but reduce after double click)"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 32,
+      "property_key": null,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Smart Bulb Mode: Dimming Reporting Behavior",
+       "max": 2,
+       "min": 0,
+       "states": {
+        "0": "Each brightness level / Final level (Basic Set)",
+        "1": "Final brightness level only for local dimming, regardless of control setting",
+        "2": "Each brightness level / Final level (Multilevel Switch)"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 33,
+      "property_key": null,
+      "value": 2
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Local Programming",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Enable",
+        "1": "Disable"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 34,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Send Status Change Report: Local Control",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 35,
+      "property_key": 1,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Send Status Change Report: 3-Way",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 35,
+      "property_key": 2,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Send Status Change Report: Z-Wave",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 35,
+      "property_key": 4,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Send Status Change Report: Timer",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 35,
+      "property_key": 8,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Scene Control",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 36,
+      "property_key": null,
+      "value": 1
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Scene Control: Remote 3-Way Switch",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 37,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator: Confirm Configuration Change",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Enable",
+        "1": "Disable"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 38,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "LED Indicator: Button Press",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Enable",
+        "1": "Disable"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 39,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "On/Off Switch Mode",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Disable",
+        "1": "Enable"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 40,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Custom Brightness Level (Z-Wave Control)",
+       "max": 99,
+       "min": 0,
+       "states": {
+        "0": "Previous brightness"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 41,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Scene Control Multi-Tap",
+       "max": 1,
+       "min": 0,
+       "states": {
+        "0": "Enable",
+        "1": "Disable"
+       },
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 42,
+      "property_key": null,
+      "value": 0
+     },
+     {
+      "endpoint": 0,
+      "metadata": {
+       "label": "Gamma Factor",
+       "max": 50,
+       "min": 10,
+       "states": null,
+       "writeable": true
+      },
+      "node_id": 39,
+      "property": 43,
+      "property_key": null,
+      "value": 10
+     }
+    ],
+    "endpoint_indices": [
+     0
+    ],
+    "fingerprint": {
+     "firmware_version": "1.40.0",
+     "manufacturer_id": 634,
+     "product_id": 40984,
+     "product_type": 28672
+    },
+    "highest_security_class": -1,
+    "is_listening": true,
+    "label": "ZEN35",
+    "manufacturer": "Zooz",
+    "name": "Bedside Light R",
+    "node_id": 39,
+    "present": true,
+    "protocol": 0,
+    "ready": true,
+    "status": 4,
+    "supported_command_classes": {
+     "0": [
+      {
+       "id": 85,
+       "name": "Association",
+       "version": 2
+      },
+      {
+       "id": 135,
+       "name": "Indicator",
+       "version": 3
+      },
+      {
+       "id": 112,
+       "name": "Configuration",
+       "version": 4
+      },
+      {
+       "id": 91,
+       "name": "Central Scene",
+       "version": 3
+      },
+      {
+       "id": 142,
+       "name": "Multi Channel Association",
+       "version": 3
+      },
+      {
+       "id": 89,
+       "name": "Association Group Information",
+       "version": 3
+      }
+     ]
+    }
+   },
+   {
+    "association_groups": {
+     "0": {
+      "1": {
+       "is_lifeline": true,
+       "issued_commands": {
+        "113": [
+         5
+        ],
+        "128": [
+         3
+        ],
+        "135": [
+         3
+        ],
+        "90": [
+         1
+        ],
+        "91": [
+         3,
+         6
+        ]
+       },
+       "label": "Lifeline",
+       "max_nodes": 5,
+       "multi_channel": true,
+       "profile": 1
+      },
+      "2": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "On/Off Control (Button 1 & 2)",
+       "max_nodes": 5,
+       "multi_channel": true,
+       "profile": 8193
+      },
+      "3": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "On/Off Control (Button 3 & 4)",
+       "max_nodes": 5,
+       "multi_channel": true,
+       "profile": 8194
+      },
+      "4": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4
+        ]
+       },
+       "label": "Dimmer Control (Button 1 & 2)",
+       "max_nodes": 5,
+       "multi_channel": true,
+       "profile": 8193
+      },
+      "5": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4
+        ]
+       },
+       "label": "Dimmer Control (Button 3 & 4)",
+       "max_nodes": 5,
+       "multi_channel": true,
+       "profile": 8194
+      },
+      "6": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Toggle Control (Button 1)",
+       "max_nodes": 5,
+       "multi_channel": true,
+       "profile": 8195
+      },
+      "7": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Toggle Control (Button 2)",
+       "max_nodes": 5,
+       "multi_channel": true,
+       "profile": null
+      },
+      "8": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Toggle Control (Button 3)",
+       "max_nodes": 5,
+       "multi_channel": true,
+       "profile": 8197
+      },
+      "9": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Toggle Control (Button 4)",
+       "max_nodes": 5,
+       "multi_channel": true,
+       "profile": 8198
+      }
+     }
+    },
+    "associations": {
+     "0": {
+      "1": [
+       {
+        "endpoint": null,
+        "node_id": 1
+       }
+      ],
+      "2": [],
+      "3": [],
+      "4": [],
+      "5": [],
+      "6": [],
+      "7": [],
+      "8": [],
+      "9": []
+     }
+    },
+    "endpoint_indices": [
+     0
+    ],
+    "fingerprint": {
+     "firmware_version": "1.0.0",
+     "manufacturer_id": 634,
+     "product_id": 61443,
+     "product_type": 28672
+    },
+    "highest_security_class": -1,
+    "is_listening": false,
+    "label": "ZEN37 800LR",
+    "manufacturer": "Zooz",
+    "name": "Master Bedroom Remote",
+    "node_id": 40,
+    "present": true,
+    "protocol": 0,
+    "ready": true,
+    "status": 1,
+    "supported_command_classes": {
+     "0": [
+      {
+       "id": 85,
+       "name": "Association",
+       "version": 2
+      },
+      {
+       "id": 112,
+       "name": "Configuration",
+       "version": 4
+      },
+      {
+       "id": 91,
+       "name": "Central Scene",
+       "version": 3
+      },
+      {
+       "id": 142,
+       "name": "Multi Channel Association",
+       "version": 3
+      },
+      {
+       "id": 89,
+       "name": "Association Group Information",
+       "version": 3
+      },
+      {
+       "id": 135,
+       "name": "Indicator",
+       "version": 3
+      }
+     ]
+    }
+   },
+   {
+    "association_groups": {
+     "0": {
+      "1": {
+       "is_lifeline": true,
+       "issued_commands": {
+        "113": [
+         5
+        ],
+        "117": [
+         3
+        ],
+        "135": [
+         3
+        ],
+        "38": [
+         3
+        ],
+        "49": [
+         5
+        ],
+        "50": [
+         2
+        ],
+        "90": [
+         1
+        ],
+        "91": [
+         3,
+         6
+        ]
+       },
+       "label": "Lifeline",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 1
+      },
+      "2": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Basic Set",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8193
+      },
+      "3": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         1
+        ]
+       },
+       "label": "Multilevel Switch Set",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8194
+      },
+      "4": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "38": [
+         4,
+         5
+        ]
+       },
+       "label": "Multilevel Switch Start/Stop",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8195
+      },
+      "5": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Basic Set Double-tap",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8196
+      },
+      "6": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Basic Set Triple-tap",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8197
+      },
+      "7": {
+       "is_lifeline": false,
+       "issued_commands": {
+        "32": [
+         1
+        ]
+       },
+       "label": "Multilevel Switch Set (Config Button)",
+       "max_nodes": 10,
+       "multi_channel": true,
+       "profile": 8198
+      }
+     }
+    },
+    "associations": {
+     "0": {
+      "1": [
+       {
+        "endpoint": null,
+        "node_id": 1
+       }
+      ],
+      "2": [],
+      "3": [],
+      "4": [],
+      "5": [],
+      "6": [],
+      "7": []
+     }
+    },
+    "endpoint_indices": [
+     0
+    ],
+    "fingerprint": {
+     "firmware_version": "2.2.0",
+     "manufacturer_id": 798,
+     "product_id": 1,
+     "product_type": 23
+    },
+    "highest_security_class": -1,
+    "is_listening": true,
+    "label": "VZW32-SN",
+    "manufacturer": "Inovelli",
+    "name": "Ceiling Lights",
+    "node_id": 42,
+    "present": true,
+    "protocol": 0,
+    "ready": true,
+    "status": 4,
+    "supported_command_classes": {
+     "0": [
+      {
+       "id": 85,
+       "name": "Association",
+       "version": 2
+      },
+      {
+       "id": 135,
+       "name": "Indicator",
+       "version": 3
+      },
+      {
+       "id": 112,
+       "name": "Configuration",
+       "version": 4
+      },
+      {
+       "id": 91,
+       "name": "Central Scene",
+       "version": 3
+      },
+      {
+       "id": 89,
+       "name": "Association Group Information",
+       "version": 3
+      },
+      {
+       "id": 142,
+       "name": "Multi Channel Association",
+       "version": 3
+      }
+     ]
+    }
+   }
+  ],
+  "server": {
+   "driver_version": "15.28.0",
+   "home_id": "<redacted>",
+   "schema_version": 50,
+   "server_version": "3.10.1"
+  }
+ },
+ "fixture": "z2_associations",
+ "versions": {
+  "homeassistant": "2026.8.3",
+  "schema_version": "50",
+  "zwave_js_driver": "15.28.0",
+  "zwave_js_server": "3.10.1",
+  "zwave_js_ui_addon": "7.6.0"
+ }
+}

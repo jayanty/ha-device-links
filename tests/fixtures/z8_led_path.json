@@ -1,0 +1,78 @@
+{
+ "captured_at": "2026-09-05T21:11:16Z",
+ "data": {
+  "d6_verdict": {
+   "amends_prd": "PRD Section 3.2 states there is no path that makes a small button's LED follow a remote device. That is true of the LED-mode parameters, which only track the device's own load, but Indicator CC provides exactly the per-button addressing the PRD assumed was missing. Hybrid leg kind (c) uses Indicator CC on this model.",
+   "hygiene_still_required": "Deduplicate and rate limit anyway: each set is a radio frame, and a leg that mirrors a dimming light would otherwise emit one frame per level change.",
+   "mechanism": "indicator_cc",
+   "reason": "Node 36 exposes one writeable Indicator CC value per button (indicator ids 67 to 71, property 2). Setting one lights that button's LED and does not write device NVM, and it measured the same latency as the configuration parameter (33 ms each). The LED-mode parameter path works too but costs a flash write every time the LED changes, which for a leg that mirrors a light's state would be constant NVM churn."
+  },
+  "indicator_after_restore": false,
+  "indicator_after_write": true,
+  "indicator_before": false,
+  "indicator_cc_supported": true,
+  "indicator_ids": [
+   {
+    "indicator_id": 67,
+    "label": "Button 1 indication",
+    "property_key": 2,
+    "value": false,
+    "writeable": true
+   },
+   {
+    "indicator_id": 68,
+    "label": "Button 2 indication",
+    "property_key": 2,
+    "value": false,
+    "writeable": true
+   },
+   {
+    "indicator_id": 69,
+    "label": "Button 3 indication",
+    "property_key": 2,
+    "value": false,
+    "writeable": true
+   },
+   {
+    "indicator_id": 70,
+    "label": "Button 4 indication",
+    "property_key": 2,
+    "value": false,
+    "writeable": true
+   },
+   {
+    "indicator_id": 71,
+    "label": "Button 5 indication",
+    "property_key": 2,
+    "value": false,
+    "writeable": true
+   }
+  ],
+  "indicator_restored": true,
+  "param_after_restore": 0,
+  "param_after_write": 3,
+  "param_before": 0,
+  "param_metadata": {
+   "label": "LED Indicator (Button 2)",
+   "states": {
+    "0": "On when load is off",
+    "1": "On when load is on",
+    "2": "Always off",
+    "3": "Always on"
+   },
+   "writeable": true
+  },
+  "param_restored": true,
+  "timing_ms": {
+   "indicator_restore": 32,
+   "indicator_write": 33,
+   "param_restore": 32,
+   "param_write": 33
+  }
+ },
+ "fixture": "z8_led_path",
+ "versions": {
+  "homeassistant": "2026.8.3",
+  "zwave_js_driver": "15.28.0"
+ }
+}
