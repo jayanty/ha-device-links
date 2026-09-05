@@ -114,7 +114,7 @@ def derive_emitters(
         emitters = [_profile_emitter(members) for members in by_profile.values()]
     else:
         emitters = [
-            _emitter([member], member.group["label"], GROUPING_PER_GROUP) for member in usable
+            _build_emitter([member], member.group["label"], GROUPING_PER_GROUP) for member in usable
         ]
     return sorted(emitters, key=lambda emitter: int(emitter.group_ids[0]))
 
@@ -180,10 +180,10 @@ def _profile_emitter(members: Sequence[_UsableGroup]) -> Emitter:
     """Build one emitter from the several groups a single profile covers."""
     ordered = sorted(members, key=lambda member: int(member.group_id))
     shared = _shared_label([member.group["label"] for member in ordered])
-    return _emitter(ordered, shared or ordered[0].group["label"], GROUPING_PROFILE)
+    return _build_emitter(ordered, shared or ordered[0].group["label"], GROUPING_PROFILE)
 
 
-def _emitter(ordered: Sequence[_UsableGroup], label: str, grouping: str) -> Emitter:
+def _build_emitter(ordered: Sequence[_UsableGroup], label: str, grouping: str) -> Emitter:
     """Assemble an emitter from its groups, lowest group id first.
 
     Capacity and endpoint support are the worst case across the groups, because a rule using
