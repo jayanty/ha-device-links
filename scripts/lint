@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Lint, format check, and strict type check.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+PY=${PY:-.venv/bin/python}
+
+"$PY" -m ruff check .
+"$PY" -m ruff format --check .
+"$PY" -m mypy

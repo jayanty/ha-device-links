@@ -1,0 +1,45 @@
+name: Bug report
+description: Something in Device Links does not behave as documented.
+labels: [bug, needs-diagnostics]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please attach the diagnostics download from
+        Settings > Devices & Services > Device Links > ... > Download diagnostics.
+        It is redacted (no home id, IEEE addresses, or Matter node ids).
+  - type: input
+    id: version
+    attributes:
+      label: Device Links version
+    validations:
+      required: true
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+    validations:
+      required: true
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Backend
+      options: [Z-Wave, Zigbee2MQTT, Matter, Not backend specific]
+    validations:
+      required: true
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened, and what did you expect instead
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics and relevant log lines

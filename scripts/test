@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Run the test suite. Pass --live to include the opt-in live suite.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+PY=${PY:-.venv/bin/python}
+
+if [ "${1:-}" = "--live" ]; then
+  : "${HA_URL:?set HA_URL, for example http://10.10.1.11:8123}"
+  : "${HA_TOKEN:?set HA_TOKEN to a long-lived access token}"
+  exec "$PY" -m pytest -m live "${@:2}"
+fi
+
+"$PY" -m pytest -m "not live" \
+  --cov --cov-report=term-missing --cov-fail-under=95 "$@"

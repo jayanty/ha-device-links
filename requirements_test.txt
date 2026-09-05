@@ -1,0 +1,9 @@
+homeassistant==2026.8.3
+pytest-homeassistant-custom-component
+pytest
+pytest-asyncio
+pytest-cov
+hypothesis
+mypy
+ruff
+voluptuous-stubs

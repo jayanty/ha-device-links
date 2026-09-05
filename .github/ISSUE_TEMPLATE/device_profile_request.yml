@@ -1,0 +1,28 @@
+name: Device profile request
+description: Ask for settings support for a device model that already works for links.
+labels: [device-profile]
+body:
+  - type: input
+    id: model
+    attributes:
+      label: Manufacturer and model
+    validations:
+      required: true
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Backend
+      options: [Z-Wave, Zigbee2MQTT, Matter]
+    validations:
+      required: true
+  - type: textarea
+    id: fingerprint
+    attributes:
+      label: Fingerprint
+      description: Z-Wave manufacturer/product ids, Zigbee model, or Matter vendor/product ids.
+    validations:
+      required: true
+  - type: textarea
+    id: parameters
+    attributes:
+      label: Relevant parameters or clusters, with the manual link
