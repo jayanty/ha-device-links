@@ -7,6 +7,11 @@ They need no radio and no network.
 from __future__ import annotations
 
 import pytest
+from tools.probe_zwave_led import SandboxViolationError as LedSandboxViolationError
+from tools.probe_zwave_led import (
+    assert_indicator_target_in_sandbox,
+    assert_led_target_in_sandbox,
+)
 from tools.probe_zwave_write import (
     SandboxViolationError,
     assert_group_was_empty,
@@ -44,3 +49,35 @@ def test_a_group_someone_else_is_using_is_refused() -> None:
     """Restoration is only provable when we know the group started empty."""
     with pytest.raises(SandboxViolationError, match="not empty"):
         assert_group_was_empty([{"node_id": 42, "endpoint": None}])
+
+
+class TestZ8LedSandbox:
+    """Z8 writes to node 36 button 2 only, by either LED mechanism."""
+
+    def test_the_approved_parameter_write_is_allowed(self) -> None:
+        assert_led_target_in_sandbox(36, 3)
+
+    @pytest.mark.parametrize(
+        ("node", "parameter", "why"),
+        [
+            (36, 2, "button 1's LED, not approved"),
+            (36, 4, "button 3's LED, not approved"),
+            (36, 19, "load control, which Decision D4 says never to touch"),
+            (39, 3, "Bedside Light R, never approved"),
+            (30, 3, "the hallway ZEN35, never approved"),
+        ],
+    )
+    def test_other_parameter_writes_are_refused(self, node: int, parameter: int, why: str) -> None:
+        with pytest.raises(LedSandboxViolationError, match="REFUSED"):
+            assert_led_target_in_sandbox(node, parameter)
+
+    def test_the_approved_indicator_write_is_allowed(self) -> None:
+        assert_indicator_target_in_sandbox(36, 68)
+
+    @pytest.mark.parametrize(
+        ("node", "indicator"),
+        [(36, 67), (36, 69), (36, 70), (36, 71), (39, 68)],
+    )
+    def test_other_indicator_writes_are_refused(self, node: int, indicator: int) -> None:
+        with pytest.raises(LedSandboxViolationError, match="REFUSED"):
+            assert_indicator_target_in_sandbox(node, indicator)

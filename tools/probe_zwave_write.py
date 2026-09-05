@@ -38,7 +38,18 @@ WS_URL = "ws://a0d7b954-zwavejs2mqtt:3000"
 
 
 class SandboxViolationError(Exception):
-    """Raised when a write outside the approved Stage 0 sandbox is attempted."""
+    """Raised when a write outside the approved Stage 0 sandbox is attempted.
+
+    Deliberately defined per probe rather than shared from probe_common. Probe scripts
+    are piped straight into a container as a single file:
+
+        ssh root@<ha> 'docker exec -i homeassistant python3 -' < tools/<probe>.py
+
+    so nothing else in tools/ is importable at runtime. A shared import would make the
+    guard unrunnable exactly where it is needed. The cost is that the two probes raise
+    unrelated classes, which is harmless because each runs standalone; the tests import
+    each module's own class rather than assuming they are interchangeable.
+    """
 
 
 def assert_in_sandbox(source_node: int, group: int, target_node: int) -> None:
