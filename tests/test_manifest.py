@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from custom_components.device_links import DOMAIN, const
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 COMPONENT = REPO_ROOT / "custom_components" / "device_links"
 
@@ -73,3 +75,14 @@ def test_no_em_dash_in_tracked_text() -> None:
         if "—" in path.read_text(errors="ignore"):
             offenders.append(str(path.relative_to(REPO_ROOT)))
     assert not offenders, f"em dash found in: {offenders}"
+
+
+def test_package_imports_and_domain_matches_manifest() -> None:
+    """The package must import cleanly and agree with its own manifest."""
+
+    manifest = json.loads((COMPONENT / "manifest.json").read_text())
+    assert manifest["domain"] == DOMAIN
+    assert const.PANEL_URL_PATH == DOMAIN
+    assert f"{DOMAIN}.profiles" == const.STORAGE_KEY
+    assert const.STORAGE_VERSION >= 1
+    assert const.STATIC_URL_BASE.startswith("/")
