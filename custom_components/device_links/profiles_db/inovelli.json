@@ -1,0 +1,62 @@
+{
+  "$schema": "./schema.json",
+  "notes": "Inovelli models. Every group number here comes from tests/fixtures/z2_associations.json, captured live, and the test suite cross-checks each one against that fixture.",
+  "devices": [
+    {
+      "model": "VZW32-SN",
+      "manufacturer": "Inovelli",
+      "notes": "This entry is the reason the profile database exists. Association Group Information gives groups 2, 3 and 4 three distinct profiles (8193, 8194, 8195) even though all three belong to the one paddle, so the generic derivation splits the paddle into three emitters and 'paddle controls light, with dimming' stops being one rule. Group 7 is a second correction: the device labels it 'Multilevel Switch Set (Config Button)' but its issued commands are Basic Set (CC 32 command 1), so it carries on/off and not level. The label lies; the issued commands do not. Group 7 only emits when parameter 130 is enabled, which is the 'group_7_enable' adapter below.",
+      "fingerprints": [
+        { "manufacturer_id": 798, "product_type": 23, "product_id": 1 }
+      ],
+      "emitters": [
+        {
+          "emitter_id": "paddle",
+          "label": "Paddle",
+          "kind": "paddle",
+          "actions": { "on_off": "2", "level_set": "3", "level_hold": "4" }
+        },
+        {
+          "emitter_id": "double_tap",
+          "label": "Paddle double tap",
+          "kind": "gesture",
+          "actions": { "on_off": "5" }
+        },
+        {
+          "emitter_id": "triple_tap",
+          "label": "Paddle triple tap",
+          "kind": "gesture",
+          "actions": { "on_off": "6" }
+        },
+        {
+          "emitter_id": "config_button",
+          "label": "Config Button (on and off only)",
+          "kind": "config_button",
+          "actions": { "on_off": "7" }
+        }
+      ],
+      "settings": {
+        "mirror_hub_commands": {
+          "parameter": 59,
+          "bitmask": 2,
+          "values": { "off": 0, "on": 1 }
+        },
+        "send_local_to_associations": {
+          "parameter": 59,
+          "bitmask": 1,
+          "values": { "off": 0, "on": 1 }
+        },
+        "smart_bulb_mode": {
+          "parameter": 52,
+          "bitmask": null,
+          "values": { "off": 0, "on": 1 }
+        },
+        "group_7_enable": {
+          "parameter": 130,
+          "bitmask": null,
+          "values": { "off": 0, "on": 1 }
+        }
+      }
+    }
+  ]
+}

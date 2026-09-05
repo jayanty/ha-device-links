@@ -1,0 +1,126 @@
+{
+  "$schema": "./schema.json",
+  "notes": "Zooz models. Every group number here comes from tests/fixtures/z2_associations.json, captured live from Jayant's network, and the test suite cross-checks each one against that fixture. The 'semantics': 'unknown' markers exist because of Stage 0 item Z7, which is still open: nobody has observed what value a Zooz small button sends to its Pressed group, so it may be a fixed OFF or it may toggle. Until Z7 is closed, the compiler must warn before putting the Off-all template on one of these emitters, because a toggle turns the lights back on every second press. Do not delete these markers as noise. Closing Z7 needs the controller inside a small button's Pressed group while Jayant physically presses it twice; see docs/stage0-report.md.",
+  "devices": [
+    {
+      "model": "ZEN35",
+      "manufacturer": "Zooz",
+      "notes": "One main paddle plus four small scene buttons. Group layout captured from nodes 36 and 39. The main paddle has a real off press, so it carries no semantics marker; the four small buttons are the ones Z7 is about.",
+      "fingerprints": [
+        { "manufacturer_id": 634, "product_type": 28672, "product_id": 40984 }
+      ],
+      "emitters": [
+        {
+          "emitter_id": "main_button",
+          "label": "Main Button",
+          "kind": "paddle",
+          "actions": { "on_off": "2", "level_set": "3", "level_hold": "4" }
+        },
+        {
+          "emitter_id": "button_1",
+          "label": "Button 1",
+          "kind": "button",
+          "semantics": "unknown",
+          "actions": { "on_off": "5", "level_hold": "6" }
+        },
+        {
+          "emitter_id": "button_2",
+          "label": "Button 2",
+          "kind": "button",
+          "semantics": "unknown",
+          "actions": { "on_off": "7", "level_hold": "8" }
+        },
+        {
+          "emitter_id": "button_3",
+          "label": "Button 3",
+          "kind": "button",
+          "semantics": "unknown",
+          "actions": { "on_off": "9", "level_hold": "10" }
+        },
+        {
+          "emitter_id": "button_4",
+          "label": "Button 4",
+          "kind": "button",
+          "semantics": "unknown",
+          "actions": { "on_off": "11", "level_hold": "12" }
+        }
+      ],
+      "settings": {
+        "mirror_hub_commands": {
+          "parameter": 35,
+          "bitmask": 4,
+          "values": { "off": 0, "on": 1 }
+        },
+        "send_local_to_associations": {
+          "parameter": 35,
+          "bitmask": 1,
+          "values": { "off": 0, "on": 1 }
+        },
+        "report_command_class": {
+          "parameter": 33,
+          "bitmask": null,
+          "values": { "basic": 0, "final_level_only": 1, "multilevel": 2 }
+        },
+        "local_control": {
+          "parameter": 19,
+          "bitmask": null,
+          "values": {
+            "local_disabled": 0,
+            "local_and_zwave_enabled": 1,
+            "local_and_zwave_disabled": 2
+          }
+        }
+      }
+    },
+    {
+      "model": "ZEN37",
+      "manufacturer": "Zooz",
+      "notes": "800LR wall remote, four buttons, group capacity 5 rather than 10. Buttons 1 and 2 act as one on/off pair and buttons 3 and 4 as another, each pair with its own dimming group. Groups 6 to 9 are the vendor's per-button Toggle Control groups, and they carry the semantics marker because a group the vendor itself calls Toggle is the exact case Off-all cannot use. This node is battery powered, so writes stay pending until it wakes; no wake_instruction is recorded because Stage 0 item Z4 was never approved and the wake sequence was never observed. No settings adapters: node 40's config values were not captured, so there is nothing to validate them against.",
+      "fingerprints": [
+        { "manufacturer_id": 634, "product_type": 28672, "product_id": 61443 }
+      ],
+      "emitters": [
+        {
+          "emitter_id": "buttons_1_2",
+          "label": "Buttons 1 and 2 (on and off)",
+          "kind": "paddle",
+          "actions": { "on_off": "2", "level_hold": "4" }
+        },
+        {
+          "emitter_id": "buttons_3_4",
+          "label": "Buttons 3 and 4 (on and off)",
+          "kind": "paddle",
+          "actions": { "on_off": "3", "level_hold": "5" }
+        },
+        {
+          "emitter_id": "toggle_1",
+          "label": "Button 1 (toggle)",
+          "kind": "button",
+          "semantics": "unknown",
+          "actions": { "on_off": "6" }
+        },
+        {
+          "emitter_id": "toggle_2",
+          "label": "Button 2 (toggle)",
+          "kind": "button",
+          "semantics": "unknown",
+          "actions": { "on_off": "7" }
+        },
+        {
+          "emitter_id": "toggle_3",
+          "label": "Button 3 (toggle)",
+          "kind": "button",
+          "semantics": "unknown",
+          "actions": { "on_off": "8" }
+        },
+        {
+          "emitter_id": "toggle_4",
+          "label": "Button 4 (toggle)",
+          "kind": "button",
+          "semantics": "unknown",
+          "actions": { "on_off": "9" }
+        }
+      ]
+    }
+  ]
+}
