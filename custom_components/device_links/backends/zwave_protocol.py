@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from enum import IntEnum
 from typing import Final, TypedDict
 
 from custom_components.device_links.models import Emitter, Feature
@@ -209,3 +210,63 @@ def _shared_label(labels: Sequence[str]) -> str:
         while not label.startswith(prefix):
             prefix = prefix[:-1]
     return prefix.rstrip(_LABEL_TRAILING)
+
+
+class CheckResult(IntEnum):
+    """What the driver answers when asked whether an association may be written.
+
+    The values are pinned by Stage 0 item Z3 against the live driver, not by the
+    documentation. `OK` is 1, so a truthiness test would read every refusal as success and
+    every success as failure.
+    """
+
+    OK = 1
+    FORBIDDEN_DESTINATION_IS_LONG_RANGE = 2
+    FORBIDDEN_SOURCE_IS_LONG_RANGE = 3
+    FORBIDDEN_SELF_ASSOCIATION = 4
+    FORBIDDEN_SECURITY_CLASS_MISMATCH = 5
+    FORBIDDEN_DESTINATION_SECURITY_CLASS_NOT_GRANTED = 6
+    FORBIDDEN_NO_SUPPORTED_CCS = 7
+
+
+@dataclass(frozen=True, slots=True)
+class BlockedReason:
+    """Why a link cannot be written, as something the user can act on.
+
+    `translation_key` names the message in `strings.json`; `placeholders` fills it in.
+    """
+
+    translation_key: str
+    placeholders: Mapping[str, str]
+
+
+_BLOCKED_REASONS: Final[Mapping[int, BlockedReason]] = {
+    CheckResult.FORBIDDEN_DESTINATION_IS_LONG_RANGE: BlockedReason("target_is_long_range", {}),
+    CheckResult.FORBIDDEN_SOURCE_IS_LONG_RANGE: BlockedReason("source_is_long_range", {}),
+    CheckResult.FORBIDDEN_SELF_ASSOCIATION: BlockedReason("self_association", {}),
+    CheckResult.FORBIDDEN_SECURITY_CLASS_MISMATCH: BlockedReason("security_class_mismatch", {}),
+    CheckResult.FORBIDDEN_DESTINATION_SECURITY_CLASS_NOT_GRANTED: BlockedReason(
+        "target_security_class_not_granted", {}
+    ),
+    CheckResult.FORBIDDEN_NO_SUPPORTED_CCS: BlockedReason("no_supported_commands", {}),
+}
+
+
+def is_ok(value: int) -> bool:
+    """Say whether the driver allowed the association, comparing to OK explicitly."""
+    return value == CheckResult.OK
+
+
+def blocked_reason_for(value: int) -> BlockedReason | None:
+    """Return why the driver refused this association, or None when it allowed it.
+
+    Only the pinned OK value returns None. Anything the enum does not know, including a
+    value a future driver invents, returns the unknown reason, so an unrecognised answer
+    fails closed and nothing is written on it.
+    """
+    if is_ok(value):
+        return None
+    reason = _BLOCKED_REASONS.get(value)
+    if reason is None:
+        return BlockedReason("unknown_check_result", {"value": str(value)})
+    return reason
