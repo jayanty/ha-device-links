@@ -201,7 +201,9 @@ class Emitter:
     """One physical control on a device, with the group each of its features uses.
 
     `actions` is the bridge to `Link.emitter_group`: the compiler looks up the group that
-    carries the feature it wants and puts that group on the link it produces.
+    carries the feature it wants and puts that group on the link it produces. `semantics` is
+    set when something about what this control sends is not established, which the compiler
+    has to be careful about; see `profile_db.SEMANTICS_MARKERS`.
     """
 
     emitter_id: str
@@ -212,6 +214,7 @@ class Emitter:
     supports_endpoint_targets: bool
     is_lifeline: bool
     grouping: str
+    semantics: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -344,3 +347,111 @@ class Profile:
             if rule.id in seen:
                 raise ValueError(f"profile {self.id} has a duplicate rule id: {rule.id}")
             seen.add(rule.id)
+
+
+@dataclass(frozen=True, slots=True)
+class Diagnostic:
+    """Something the user has to be told, as a key rather than a sentence.
+
+    `translation_key` names the message in `strings.json` and `placeholders` fills it in, so
+    every warning, error and blocked reason this core produces is translatable (CLAUDE.md
+    Section 7). Nothing in here is ever an English sentence.
+    """
+
+    translation_key: str
+    placeholders: Mapping[str, str] = field(default_factory=dict)
+
+    @property
+    def identity(self) -> tuple[str, tuple[tuple[str, str], ...]]:
+        """A hashable form of this diagnostic, for reporting one exactly once."""
+        return (self.translation_key, tuple(sorted(self.placeholders.items())))
+
+
+@dataclass(frozen=True, slots=True)
+class SettingWrite:
+    """One device setting a rule needs, resolved to the parameter that carries it.
+
+    `capability` is the name the profile database gives the setting; `parameter`, `bitmask`
+    and `value` are what actually reaches the device. `bitmask` is None when the setting owns
+    the whole parameter.
+    """
+
+    device: DeviceHandle
+    capability: str
+    parameter: int
+    bitmask: int | None
+    value: int
+
+
+@dataclass(frozen=True, slots=True)
+class HybridLeg:
+    """A leg of a rule no link can express, which an automation has to carry instead.
+
+    Decision D3 puts hybrid legs in Phase 2, so nothing compiles one yet. The type exists
+    because `CompiledRule` reports them, and a rule that needs one has to be able to say so
+    without the result type changing shape later.
+    """
+
+    rule_id: str
+    source: DeviceHandle
+    emitter_id: str
+    feature: Feature
+    target: LinkTarget
+
+
+class PlanOp(StrEnum):
+    """What one step of a plan does to a device."""
+
+    ADD = "add"
+    REMOVE = "remove"
+    SET_PARAM = "set_param"
+    BLOCKED = "blocked"
+    PENDING = "pending"
+
+
+@dataclass(frozen=True, slots=True)
+class PlanItem:
+    """One step of a plan, against one device.
+
+    A `REMOVE` always carries the link as it was observed, never a rebuilt desired one, so
+    that whoever applies it can see `is_system` and `managed_by` for the entry it is about
+    to take off the device.
+    """
+
+    op: PlanOp
+    device_identity: str
+    link: Link | ObservedLink | None = None
+    setting: SettingWrite | None = None
+    reason: Diagnostic | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Plan:
+    """Everything that would happen if this plan were applied, and nothing that would not.
+
+    `token` identifies the inputs the plan was built from, so applying a plan built against
+    a device state that has since changed is refused rather than performed (FR-A3).
+    `unmanaged` reports links Device Links did not create: they are never in `items` unless
+    the user selected them by fingerprint (Decision D9).
+    """
+
+    token: str
+    items: tuple[PlanItem, ...]
+    unmanaged: tuple[ObservedLink, ...]
+    unchanged_count: int
+
+    @property
+    def is_empty(self) -> bool:
+        """Say whether applying this plan would do nothing at all."""
+        return not self.items
+
+    def by_device(self) -> Mapping[str, tuple[PlanItem, ...]]:
+        """Group the items by the device they are written to, in plan order.
+
+        The apply dialog and the executor both work a device at a time: one device is one
+        radio conversation, and one device is what a user decides about.
+        """
+        grouped: dict[str, list[PlanItem]] = {}
+        for item in self.items:
+            grouped.setdefault(item.device_identity, []).append(item)
+        return {identity: tuple(items) for identity, items in grouped.items()}

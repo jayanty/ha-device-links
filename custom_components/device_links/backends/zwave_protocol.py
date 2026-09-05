@@ -18,6 +18,7 @@ from enum import IntEnum
 from typing import Final, TypedDict
 
 from custom_components.device_links.models import Emitter, Feature
+from custom_components.device_links.profile_db import ProfileEmitter, ProfileEntry
 
 # Command class ids exactly as they appear in a group's `issued_commands`.
 BASIC_CC: Final = 32
@@ -70,6 +71,7 @@ def features_of_group(issued: IssuedCommands | None) -> frozenset[Feature]:
 # diagnostics can say how much of the grouping was inferred.
 GROUPING_PROFILE: Final = "profile"
 GROUPING_PER_GROUP: Final = "per_group"
+GROUPING_PROFILE_DB: Final = "profile_db"
 
 # Trailing separators vendors put between a control's name and the action it performs, so
 # that the shared part of "Main Button - Pressed" and "Main Button - Held" reads as
@@ -210,6 +212,91 @@ def _shared_label(labels: Sequence[str]) -> str:
         while not label.startswith(prefix):
             prefix = prefix[:-1]
     return prefix.rstrip(_LABEL_TRAILING)
+
+
+def resolve_emitters(
+    groups: Mapping[str, AssociationGroup],
+    entry: ProfileEntry | None = None,
+    *,
+    warnings: list[str] | None = None,
+) -> list[Emitter]:
+    """Return a device's controls, preferring a curated entry over the generic derivation.
+
+    This is the top of the three tiers: a curated entry keyed by fingerprint, then AGI
+    profile when it partitions cleanly, then one emitter per group. The curated entry decides
+    the grouping, because that is the whole reason it exists, but it never restates the facts
+    the hardware already reports: capacity and endpoint support are read off the groups the
+    entry names, so a firmware with a smaller group capacity is honoured rather than
+    overridden by a number somebody typed once.
+
+    An entry that contradicts the device is not partially believed. If any group it names is
+    missing, is the lifeline, or does not issue the command the entry claims for it, the
+    whole entry is set aside and the generic derivation stands, with the contradiction
+    appended to `warnings`. An entry that does not describe this device has already been
+    shown to be wrong about it, so trusting the rest of its group numbers would be trusting a
+    coincidence, and its group numbers are what reach the radio.
+    """
+    derived = derive_emitters(groups, warnings=warnings)
+    if entry is None:
+        return derived
+    conflicts = _entry_conflicts(entry, groups)
+    if conflicts:
+        if warnings is not None:
+            warnings.extend(conflicts)
+        return derived
+    derived_ids = {frozenset(emitter.group_ids): emitter.emitter_id for emitter in derived}
+    curated = [_curated_emitter(emitter, groups, derived_ids) for emitter in entry.emitters]
+    return sorted(curated, key=lambda emitter: int(emitter.group_ids[0]))
+
+
+def _entry_conflicts(entry: ProfileEntry, groups: Mapping[str, AssociationGroup]) -> list[str]:
+    """Return every way this entry disagrees with what the device reports about itself."""
+    conflicts: list[str] = []
+    for emitter in entry.emitters:
+        for feature, group_id in sorted(emitter.actions.items()):
+            named = f"profile entry maps {emitter.emitter_id}.{feature} to group {group_id}"
+            group = groups.get(group_id)
+            if group is None:
+                conflicts.append(f"{named}, which this device does not report")
+            elif group["is_lifeline"]:
+                conflicts.append(f"{named}, which this device reports as its lifeline")
+            elif feature not in features_of_group(group["issued_commands"]):
+                conflicts.append(
+                    f"{named}, which issues {group['issued_commands']} and so cannot carry it"
+                )
+    return conflicts
+
+
+def _curated_emitter(
+    emitter: ProfileEmitter,
+    groups: Mapping[str, AssociationGroup],
+    derived_ids: Mapping[frozenset[str], str],
+) -> Emitter:
+    """Build one emitter from a curated entry, over the groups the device reports.
+
+    A curated emitter that covers exactly the groups one derived emitter covers is the same
+    control described twice, so it keeps the derived id: adding a curated entry for a model
+    whose grouping was already right must not rename controls out from under the rules
+    already written against them. A curated emitter that regroups is a control the derivation
+    never offered, so it is named by the entry.
+    """
+    group_ids = tuple(sorted(set(emitter.actions.values()), key=int))
+    members = [groups[group_id] for group_id in group_ids]
+    return Emitter(
+        emitter_id=derived_ids.get(frozenset(group_ids), emitter.emitter_id),
+        label=emitter.label,
+        group_ids=group_ids,
+        actions=dict(emitter.actions),
+        capacity=(
+            min(member["max_nodes"] for member in members)
+            if emitter.capacity_override is None
+            else emitter.capacity_override
+        ),
+        supports_endpoint_targets=all(member["multi_channel"] for member in members),
+        is_lifeline=False,
+        grouping=GROUPING_PROFILE_DB,
+        semantics=emitter.semantics,
+    )
 
 
 class CheckResult(IntEnum):

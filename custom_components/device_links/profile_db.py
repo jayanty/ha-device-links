@@ -49,7 +49,8 @@ EMITTER_KINDS: Final = frozenset({"paddle", "button", "gesture", "config_button"
 # `unknown`: what this control sends on a press is not established as a fixed OFF, so the
 # Off-all template cannot be compiled onto it safely. See Stage 0 item Z7. A new marker here
 # needs matching compiler support, which is why the set is closed.
-SEMANTICS_MARKERS: Final = frozenset({"unknown"})
+SEMANTICS_UNKNOWN: Final = "unknown"
+SEMANTICS_MARKERS: Final = frozenset({SEMANTICS_UNKNOWN})
 
 # Group 1 is the lifeline on every Z-Wave device, and is never ours to write.
 _LIFELINE_GROUP: Final = "1"
