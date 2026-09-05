@@ -409,9 +409,7 @@ def test_every_non_lifeline_group_on_real_hardware_classifies(node_id: int) -> N
         if not features_of_group(group["issued_commands"]):
             unclassified.append(f"g{group_id} {group['label']!r} {group['issued_commands']}")
 
-    assert not unclassified, (
-        f"node {node_id} has groups the classifier cannot use: {unclassified}"
-    )
+    assert not unclassified, f"node {node_id} has groups the classifier cannot use: {unclassified}"
 
 
 def test_the_lifeline_classifies_as_report_only() -> None:
@@ -732,8 +730,11 @@ FIXTURE = Path(__file__).parent / "fixtures" / "z2_associations.json"
 @pytest.fixture
 def database() -> ProfileDatabase:
     return load_profiles(
-        {path.name: path.read_text() for path in PROFILES_DIR.glob("*.json")
-         if path.name != "schema.json"}
+        {
+            path.name: path.read_text()
+            for path in PROFILES_DIR.glob("*.json")
+            if path.name != "schema.json"
+        }
     )
 
 
@@ -829,9 +830,7 @@ def test_settings_adapters_point_at_parameters_that_exist(database: ProfileDatab
         entry = database.lookup(_fingerprint(node_id))
         if entry is None:
             continue
-        real = {
-            (v["property"], v["property_key"]) for v in _node(node_id).get("config_values", [])
-        }
+        real = {(v["property"], v["property_key"]) for v in _node(node_id).get("config_values", [])}
         for name, adapter in entry.settings.items():
             assert (adapter.parameter, adapter.bitmask) in real, (
                 f"node {node_id} adapter {name!r} points at parameter "
@@ -845,18 +844,20 @@ def test_mirror_hub_commands_is_defined_for_both_families(database: ProfileDatab
     inovelli = database.lookup(_fingerprint(37))
 
     assert zooz is not None and inovelli is not None
-    assert (zooz.settings["mirror_hub_commands"].parameter,
-            zooz.settings["mirror_hub_commands"].bitmask) == (35, 4)
-    assert (inovelli.settings["mirror_hub_commands"].parameter,
-            inovelli.settings["mirror_hub_commands"].bitmask) == (59, 2)
+    assert (
+        zooz.settings["mirror_hub_commands"].parameter,
+        zooz.settings["mirror_hub_commands"].bitmask,
+    ) == (35, 4)
+    assert (
+        inovelli.settings["mirror_hub_commands"].parameter,
+        inovelli.settings["mirror_hub_commands"].bitmask,
+    ) == (59, 2)
 
 
 def test_an_unknown_fingerprint_returns_none_rather_than_guessing(
     database: ProfileDatabase,
 ) -> None:
-    unknown = ZWaveFingerprint(
-        manufacturer_id=1, product_type=1, product_id=1, firmware="0.0.0"
-    )
+    unknown = ZWaveFingerprint(manufacturer_id=1, product_type=1, product_id=1, firmware="0.0.0")
     assert database.lookup(unknown) is None
 
 
@@ -1122,16 +1123,12 @@ def test_compilation_is_deterministic() -> None:
     first = compile_rule(rule, caps)
     second = compile_rule(rule, caps)
 
-    assert [link.fingerprint for link in first.links] == [
-        link.fingerprint for link in second.links
-    ]
+    assert [link.fingerprint for link in first.links] == [link.fingerprint for link in second.links]
 
 
 def test_a_feature_the_emitter_cannot_carry_is_an_error_not_a_silent_drop() -> None:
     """ZEN35 button 3 has no Multilevel Set group, so level_set cannot be honoured."""
-    result = compile_rule(
-        _rule(features=frozenset({Feature.LEVEL_SET})), capabilities_for(36, 38)
-    )
+    result = compile_rule(_rule(features=frozenset({Feature.LEVEL_SET})), capabilities_for(36, 38))
 
     assert result.errors, "a rule that can produce no link must error"
     assert any("level_set" in error.translation_key for error in result.errors)
@@ -1192,12 +1189,8 @@ def test_a_two_way_rule_compiles_the_reverse_links() -> None:
     )
     result = compile_rule(rule, capabilities_for(37, 35))
 
-    forward = [
-        link for link in result.links if link.source.identity == handle(37).identity
-    ]
-    reverse = [
-        link for link in result.links if link.source.identity == handle(35).identity
-    ]
+    forward = [link for link in result.links if link.source.identity == handle(37).identity]
+    reverse = [link for link in result.links if link.source.identity == handle(35).identity]
     assert forward and reverse, "a two-way rule needs a link in each direction"
 
 
