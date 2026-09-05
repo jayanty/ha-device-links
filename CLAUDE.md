@@ -165,7 +165,7 @@ python3 -m compileall`), not the SSH add-on's, so the check matches the runtime.
   branches on backend id; new protocols arrive as new adapters. Nothing in core may assume
   MQTT, or assume Z-Wave semantics.
 - **The Z-Wave driver is reached through the `zwave_js` config entry's `runtime_data`**
-  (Decision D2 (a)), isolated in one version-guarded accessor in `backends/zwave.py`. Never
+  (Decision D2 (a)), isolated in one version-guarded accessor, `backends/zwave_accessor.py`. Never
   open a second WebSocket to zwave-js-server from the integration. The accessor has an
   automated test against a faked `zwave_js` entry so upstream refactors break CI, not users.
 - **Storage schema changes require a migration and a migration test** from every prior

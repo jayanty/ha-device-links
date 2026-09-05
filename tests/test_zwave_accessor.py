@@ -68,7 +68,7 @@ def test_get_driver_raises_a_typed_error_when_the_client_has_no_driver() -> None
 async def test_async_get_node_returns_the_upstream_node(
     hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The happy path hands back exactly what zwave_js resolved."""
+    """Pin the success path so a refactor cannot make the wrapper return None."""
     node = object()
 
     def fake(*args: object, **kwargs: object) -> object:
@@ -99,3 +99,25 @@ async def test_async_get_node_wraps_upstream_failures(
 
     with pytest.raises(ZWaveAccessorError, match="not a Z-Wave device"):
         async_get_node(hass, "missing-device-id")
+
+
+async def test_upstream_still_signals_a_missing_device_with_value_error(
+    hass: HomeAssistant,
+) -> None:
+    """Pin the exception contract that zwave_accessor.async_get_node catches.
+
+    Every other node test replaces the upstream helper with a fake that raises
+    ValueError by construction, so those tests only prove our except clause works
+    against our own fake. This one calls the real helper against a real, empty device
+    registry. If Home Assistant ever changes this to a different exception type, the
+    except clause in zwave_accessor.async_get_node stops catching it and users see an
+    unwrapped upstream error, so that change must fail here first.
+    """
+    with pytest.raises(ValueError, match="is not valid"):
+        helpers.async_get_node_from_device_id(hass, "device-id-that-does-not-exist")
+
+
+async def test_async_get_node_wraps_the_real_upstream_helper(hass: HomeAssistant) -> None:
+    """End-to-end proof of the wrap, with nothing monkeypatched."""
+    with pytest.raises(ZWaveAccessorError, match="not a Z-Wave device"):
+        async_get_node(hass, "device-id-that-does-not-exist")
