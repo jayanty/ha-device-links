@@ -1,7 +1,9 @@
 homeassistant==2026.8.3
 home-assistant-frontend==20260729.7
-# Test-only: matches the zwave_js manifest pin so the accessor guard test can import
-# homeassistant.components.zwave_js. The integration itself ships no requirements.
+# Test-only: must match the pin in the installed zwave_js manifest, so the accessor
+# guards validate against the library the real Home Assistant loads. Bump this whenever
+# the homeassistant pin above moves; test_zwave_accessor.py fails if the two drift.
+# The integration itself ships no requirements.
 zwave-js-server-python==0.73.0
 pytest-homeassistant-custom-component
 pytest
