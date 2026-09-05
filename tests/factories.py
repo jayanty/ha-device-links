@@ -240,3 +240,13 @@ def observed(desired: Link, *, rule_id: str | None, system: bool = False) -> Obs
     kwargs: dict[str, Any] = desired.as_kwargs()
     kwargs["rule_id"] = rule_id
     return ObservedLink(**kwargs, is_system=system, managed_by=rule_id)
+
+
+def group_capacities(node_id: int) -> dict[str, int]:
+    """Return how many entries each association group of a node holds, group 1 included.
+
+    The emitter model leaves the lifeline group out on purpose, because no control claims it.
+    A radio does not: it knows how big group 1 is. A fake that simulates a device therefore
+    needs the raw numbers rather than the capabilities view of them.
+    """
+    return {group_id: group["max_nodes"] for group_id, group in _spec(node_id).groups.items()}
