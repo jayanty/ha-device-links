@@ -15,6 +15,9 @@ Two of them are absolute:
   somebody made by hand, possibly years ago, in Z-Wave JS UI or with a scene controller's own
   buttons. They are reported and offered for removal one at a time, and nothing else.
 
+Blocked items carry a `Diagnostic`: a translation key and placeholders, never a sentence.
+The keys reach `strings.json` when the Home Assistant layer surfaces them.
+
 It is pure: no Home Assistant import, no I/O and no clock. `Plan.token` is a hash over the
 sorted inputs, so two identical inputs produce the same token in a different process, and a
 plan built against a state that has since changed is detectable rather than silently applied.
@@ -75,7 +78,7 @@ def build_plan(
     return Plan(
         token=_token(wanted, present, remove_unmanaged, capabilities),
         items=tuple(items),
-        unmanaged=tuple(state.unmanaged),
+        unmanaged=tuple(sorted(state.unmanaged, key=lambda entry: entry.fingerprint)),
         unchanged_count=state.unchanged,
     )
 
@@ -102,6 +105,8 @@ def _classify(
     selection of it. Then a link a rule wants, which is accounted for and so is neither
     foreign nor removable. Only then ownership, which is what makes a link ours to take back
     off, and finally everything else, which is somebody's own work and is reported untouched.
+    A selected unmanaged link is still reported: it is a foreign link that was found, and the
+    report is what the user is deciding about.
     """
     state = _Classification()
     for entry in present.values():

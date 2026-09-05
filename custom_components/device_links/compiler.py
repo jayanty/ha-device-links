@@ -15,6 +15,8 @@ Three rules of the design are worth stating where they cannot be missed:
 - A refusal is as narrow as it can honestly be. A rule with three targets, one of them
   impossible, compiles the two that work and reports the one that does not (FR-R2).
 - Every message is a translation key with placeholders, never a sentence (CLAUDE.md 7).
+  The keys have no `strings.json` entries yet, because nothing surfaces them until the
+  Home Assistant layer does, and inventing the copy now would be inventing the UI too.
 """
 
 from __future__ import annotations
@@ -125,7 +127,7 @@ class _Compilation:
             )
             self._compile_reverse(source, target_capabilities, actions)
 
-        self._check_semantics(emitter)
+        self._check_semantics(source, emitter)
         self._compile_mirror(source)
         self.links.sort(
             key=lambda link: (link.target.handle.identity, link.feature, link.fingerprint)
@@ -194,7 +196,7 @@ class _Compilation:
             else:
                 resolved[feature] = group
         (self.warnings if resolved else self.errors).extend(unavailable)
-        if Feature.LEVEL_HOLD in resolved and Feature.ON_OFF not in self.rule.features:
+        if Feature.LEVEL_HOLD in resolved and Feature.ON_OFF not in resolved:
             self.warnings.append(
                 Diagnostic("level_hold_without_on_off", {"emitter": emitter.label})
             )
@@ -314,7 +316,7 @@ class _Compilation:
             actions,
         )
 
-    def _check_semantics(self, emitter: Emitter) -> None:
+    def _check_semantics(self, source: DeviceCapabilities, emitter: Emitter) -> None:
         """Warn when Off-all is asked of a control whose press is not an established OFF.
 
         Stage 0 item Z7 is open: nobody has observed whether a Zooz small button sends a
@@ -326,7 +328,7 @@ class _Compilation:
             self.warnings.append(
                 Diagnostic(
                     "button_semantics_unknown",
-                    {"emitter": emitter.label, "device": self.rule.source.device.name_at_authoring},
+                    {"emitter": emitter.label, "device": source.handle.name_at_authoring},
                 )
             )
 
