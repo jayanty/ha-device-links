@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jayanty/ha-device-links/profiles_db/schema.json",
+  "title": "Device Links curated device profile",
+  "description": "Documentation for contributors, and the schema an editor validates a profile file against while it is being written. It is NOT executed at runtime: the integration ships no JSON Schema validator, and profile_db.py must not import one, so profile_db.py enforces these rules with hand written checks instead. The two cannot drift apart silently: tests/test_profile_db.py compares this document's key sets and enums against the constants profile_db.py validates with, and fails when they disagree.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["devices"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Points an editor at this file. Ignored by the loader."
+    },
+    "notes": {
+      "type": "string",
+      "description": "Why this file's entries say what they say. Documentation for the next contributor, ignored by the loader; JSON has no comments, so this is where the reasoning goes."
+    },
+    "devices": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/device" }
+    }
+  },
+  "$defs": {
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "manufacturer", "fingerprints", "emitters"],
+      "properties": {
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The vendor's model name, used in validation error messages and when reading the file. Not carried into the loaded entry."
+        },
+        "manufacturer": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The vendor's name, for the same reason as model."
+        },
+        "fingerprints": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Every model identity this entry describes. Two entries may not claim the same identity: the loader refuses it, so at most one entry can ever match a device.",
+          "items": { "$ref": "#/$defs/fingerprint" }
+        },
+        "emitters": {
+          "type": "array",
+          "minItems": 1,
+          "description": "The physical controls on the device. A curated entry overrides the generic derivation from Association Group Information, so this list must describe every control a user should be offered.",
+          "items": { "$ref": "#/$defs/emitter" }
+        },
+        "settings": {
+          "type": "object",
+          "description": "Named device settings the compiler can write, keyed by the capability name it asks for (for example mirror_hub_commands).",
+          "additionalProperties": { "$ref": "#/$defs/settings_adapter" }
+        },
+        "wake_instruction": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "description": "How a user wakes this device so a pending write completes, for battery powered models. Plain English, like the group labels the device itself reports, because a contributor extensible database cannot ship translations for every device. Record only a sequence that has actually been observed."
+        },
+        "notes": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "description": "Why this entry says what it says: which fixture the group numbers came from, and which vendor label is wrong."
+        }
+      }
+    },
+    "fingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manufacturer_id", "product_type", "product_id"],
+      "description": "One exact model identity. Firmware is deliberately absent, so an entry covers every firmware of a model. There are no wildcards and no ranges: an entry overrides what the hardware reports about itself, so a wildcard would spread one mistake across a whole catalogue.",
+      "properties": {
+        "manufacturer_id": { "type": "integer", "minimum": 0 },
+        "product_type": { "type": "integer", "minimum": 0 },
+        "product_id": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "emitter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["emitter_id", "label", "kind", "actions"],
+      "properties": {
+        "emitter_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable id a rule refers to this control by. Unique within the entry, and never changed once shipped: a rule stores it."
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the user sees. Prefer an honest label over the vendor's when the vendor's is misleading."
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["button", "config_button", "gesture", "paddle"],
+          "description": "What sort of control this is, for icons and wording."
+        },
+        "actions": { "$ref": "#/$defs/actions" },
+        "capacity_override": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "How many targets this control accepts, when the device reports a max_nodes its association groups cannot really honour. Leave it out unless a device has been observed failing below its reported capacity."
+        },
+        "semantics": {
+          "type": ["string", "null"],
+          "enum": ["unknown", null],
+          "description": "Set to 'unknown' when what this control sends on a press is not established as a fixed OFF, which makes the Off-all template unsafe on it. See Stage 0 item Z7. This set is closed because each marker needs matching compiler support."
+        }
+      }
+    },
+    "actions": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "Which association group carries which feature. This is the part that reaches the device: a wrong group number here writes an association to the wrong place with complete confidence and no error, so every number must come from a capture of the real hardware. Group ids are plain decimal strings with no leading zero, exactly as the driver reports them, and group 1 is refused because it is the lifeline.",
+      "propertyNames": {
+        "enum": ["color", "level_hold", "level_set", "on_off", "scene", "status_report"]
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[1-9][0-9]*$",
+        "not": { "const": "1" }
+      }
+    },
+    "settings_adapter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parameter", "bitmask", "values"],
+      "description": "How to reach one named setting on this model: a configuration parameter, optionally one bit of it.",
+      "properties": {
+        "parameter": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The configuration parameter number, as the driver reports it in a value's property."
+        },
+        "bitmask": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "The parameter's property_key when the setting is one bit of a bit field, or null for the whole parameter. Required and nullable rather than optional, because a missing bitmask silently meaning 'the whole parameter' is exactly the ambiguity this database exists to remove."
+        },
+        "values": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "The values the compiler may write, by the name it asks for them by.",
+          "additionalProperties": { "type": "integer" }
+        }
+      }
+    }
+  }
+}

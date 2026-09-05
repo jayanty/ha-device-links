@@ -20,6 +20,7 @@ PURE_MODULES = (
     "compiler.py",
     "planner.py",
     "yaml_io.py",
+    "profile_db.py",
     "backends/zwave_protocol.py",
     "backends/zigbee_protocol.py",
     "backends/matter_protocol.py",

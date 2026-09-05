@@ -261,6 +261,10 @@ Debug bundles land in `/config/device_links/debug/<timestamp>.json` and never le
   `icons.json`. Exceptions use `translation_key` so errors are translated too.
 - Conventional commits (`feat:`, `fix:`, `test:`, `docs:`, `chore:`, `refactor:`), scoped by
   area where useful (`feat(zwave):`).
+- **Ruff formats Python code blocks inside Markdown**, so plan and design documents are
+  linted like source. Run `ruff format` on any document containing Python snippets before
+  committing it. This matters beyond tidiness: agents copy those snippets verbatim into
+  test files, so an unformatted snippet produces source that fails `ruff format --check`.
 - Tests are part of the change, not a follow-up. A feature without tests is not done.
 - Logging: `_LOGGER` per module, INFO for lifecycle and job summaries, wire-level payloads
   only at DEBUG, never raw payloads above DEBUG.
