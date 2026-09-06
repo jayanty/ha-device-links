@@ -220,19 +220,26 @@ class ZigbeeBackend:
         startup: a broker delivers them on subscribe and the backend knows the network
         without asking anything. The response topics are subscribed to first, so a response
         can never arrive before there is something listening for it.
+
+        **Nothing is left subscribed by a start that did not finish.** A broker that accepts
+        two subscriptions and refuses the third leaves the two behind for the life of the
+        process otherwise, and a caller that treats a failed start as "no backend" has no
+        object left to stop.
         """
         loop = asyncio.get_running_loop()
         arrived: asyncio.Future[None] = loop.create_future()
         self._awaiting_devices.append(arrived)
-        for topic in (
-            f"{self._base}/bridge/response/#",
-            f"{self._base}/{zp.STATE_TOPIC}",
-            f"{self._base}/{zp.INFO_TOPIC}",
-            f"{self._base}/{zp.GROUPS_TOPIC}",
-            f"{self._base}/{zp.DEVICES_TOPIC}",
-        ):
-            self._unsubscribes.append(await self._client.async_subscribe(topic, self._on_message))
         try:
+            for topic in (
+                f"{self._base}/bridge/response/#",
+                f"{self._base}/{zp.STATE_TOPIC}",
+                f"{self._base}/{zp.INFO_TOPIC}",
+                f"{self._base}/{zp.GROUPS_TOPIC}",
+                f"{self._base}/{zp.DEVICES_TOPIC}",
+            ):
+                self._unsubscribes.append(
+                    await self._client.async_subscribe(topic, self._on_message)
+                )
             async with asyncio.timeout(self._startup_timeout):
                 await arrived
         except TimeoutError as err:
@@ -242,6 +249,12 @@ class ZigbeeBackend:
                 f"{self._startup_timeout}s, so this bridge has never published its devices "
                 "or the topic is not retained"
             ) from err
+        except BaseException:
+            # Whatever an MQTT client raises when it will not take a subscription, plus a
+            # cancellation from a config entry setup being abandoned. Re-raised rather than
+            # translated: the caller decides what a broker that would not answer means.
+            self.async_stop()
+            raise
 
     def async_stop(self) -> None:
         """Drop every subscription, and fail whatever was waiting on a response.

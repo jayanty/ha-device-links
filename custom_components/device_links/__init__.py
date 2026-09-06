@@ -49,7 +49,7 @@ from homeassistant.loader import async_get_integration
 
 from .backends.base import Backend
 from .backends.mqtt_client import HomeAssistantMqttClient, async_mqtt_is_available
-from .backends.zigbee2mqtt import ZigbeeBackend, ZigbeeBackendError
+from .backends.zigbee2mqtt import ZigbeeBackend
 from .backends.zwave import ZWaveBackend
 from .backends.zwave_accessor import (
     ZWaveAccessorError,
@@ -406,9 +406,13 @@ async def _async_build_zigbee(
     )
     try:
         await backend.async_start()
-    except ZigbeeBackendError as error:
-        # `async_start` has already dropped its own subscriptions on the way out, so there
-        # is nothing here to tear down and nothing to register.
+    # `mqtt` being a loaded component does not mean its broker is connected, and an MQTT
+    # client refuses a subscription by raising whatever its broker raised. Caught broadly
+    # for that reason: a broker that will not answer must cost the Zigbee half of a house,
+    # not the whole integration, and the Z-Wave half of a mixed house least of all.
+    # `async_start` has dropped its own subscriptions on the way out either way, so there is
+    # nothing here to tear down and nothing to register.
+    except Exception as error:
         _LOGGER.warning(
             "no Zigbee2MQTT bridge answered on the base topic %r, so Zigbee links are not "
             "available: %s. Set the base topic in the Device Links options if this instance "

@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
     from homeassistant.components.mqtt.models import ReceiveMessage
 
-__all__ = ["HomeAssistantMqttClient", "async_mqtt_is_available"]
+__all__ = ["HomeAssistantMqttClient", "async_mqtt_is_available", "deliver_text"]
 
 
 def async_mqtt_is_available(hass: HomeAssistant) -> bool:

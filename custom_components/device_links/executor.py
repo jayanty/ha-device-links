@@ -639,12 +639,13 @@ class JobRunner:
         wrong as an invariant: the next backend that forgets its guard would get nothing
         from the layer that calls itself the last one before a write.
 
-        So an addition is answered from what the device itself reported: a group holding an
-        entry the backend marked `is_system` is a system group, whatever we are trying to
-        put in it. Every Z-Wave lifeline holds the controller, so the group answers even
-        though the new entry does not exist. A device this coordinator has never read
-        answers nothing here and is left to the adapter, which is defence in depth rather
-        than a hole: the two guards are independent and both would have to fail.
+        So an addition is answered from what the device itself reported, where the protocol
+        allows that question to be asked at all: on a protocol whose slots hold one purpose,
+        a slot holding an entry the backend marked `is_system` is a system slot, whatever we
+        are trying to put in it. Every Z-Wave lifeline holds the controller, so the group
+        answers even though the new entry does not exist. A device this coordinator has never
+        read answers nothing here and is left to the adapter, which is defence in depth
+        rather than a hole: the two guards are independent and both would have to fail.
 
         **The group is identified by its endpoint as well as by its name**, which is not a
         detail. `emitter_group` names the writable slot within an endpoint, not within a
