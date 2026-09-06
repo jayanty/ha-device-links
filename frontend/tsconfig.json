@@ -21,5 +21,13 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["src", "test", "scripts", "vite.config.ts", "vitest.config.ts", "build-defines.ts"]
+  "include": [
+    "src",
+    "test",
+    "harness",
+    "scripts",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "build-defines.ts"
+  ]
 }

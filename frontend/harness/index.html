@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Device Links panel harness</title>
+    <style>
+      /*
+        The subset of Home Assistant's theme variables the panel reads, with the values its
+        own light and dark themes use. The panel never names a colour, so setting these is
+        the same act as a user picking a theme.
+      */
+      :root,
+      :root[data-theme="light"] {
+        --primary-color: #03a9f4;
+        --primary-background-color: #fafafa;
+        --secondary-background-color: #e5e5e5;
+        --card-background-color: #ffffff;
+        --primary-text-color: #212121;
+        --secondary-text-color: #727272;
+        --text-primary-color: #ffffff;
+        --disabled-text-color: #bdbdbd;
+        --divider-color: rgba(0, 0, 0, 0.12);
+        --error-color: #db4437;
+        --warning-color: #ffa600;
+        --success-color: #43a047;
+        --info-color: #039be5;
+        --app-header-background-color: #03a9f4;
+        --app-header-text-color: #ffffff;
+        --ha-card-border-radius: 12px;
+        --ha-card-box-shadow: 0 2px 2px rgba(0, 0, 0, 0.08);
+        --code-font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        color-scheme: light;
+      }
+
+      :root[data-theme="dark"] {
+        --primary-color: #03a9f4;
+        --primary-background-color: #111111;
+        --secondary-background-color: #202020;
+        --card-background-color: #1c1c1c;
+        --primary-text-color: #e1e1e1;
+        --secondary-text-color: #9b9b9b;
+        --text-primary-color: #ffffff;
+        --disabled-text-color: #6f6f6f;
+        --divider-color: rgba(225, 225, 225, 0.12);
+        --error-color: #ff5252;
+        --warning-color: #ffc107;
+        --success-color: #66bb6a;
+        --info-color: #4fc3f7;
+        --app-header-background-color: #1c1c1c;
+        --app-header-text-color: #e1e1e1;
+        --ha-card-box-shadow: none;
+        color-scheme: dark;
+      }
+
+      body {
+        margin: 0;
+        background: var(--primary-background-color);
+        color: var(--primary-text-color);
+        font-family: Roboto, system-ui, sans-serif;
+      }
+
+      #controls {
+        display: flex;
+        gap: 8px;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--divider-color);
+        background: var(--card-background-color);
+        position: sticky;
+        top: 0;
+        /* Below the panel's dialogs (z-index 8 and 9), which are fixed to the viewport the
+           way Home Assistant's own dialogs are: a toolbar that painted over them would hide
+           the dialog header this page exists to look at. */
+        z-index: 1;
+      }
+
+      #controls button {
+        font: inherit;
+        padding: 6px 10px;
+        border-radius: 6px;
+        border: 1px solid var(--divider-color);
+        background: var(--secondary-background-color);
+        color: var(--primary-text-color);
+        cursor: pointer;
+      }
+
+      #stage {
+        min-height: calc(100vh - 45px);
+      }
+
+      /* The narrow case is a phone-width viewport, which is what the panel calls narrow. */
+      #stage.narrow {
+        width: 390px;
+        border-right: 1px solid var(--divider-color);
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="controls"></div>
+    <div id="stage"></div>
+    <script type="module" src="./harness.ts"></script>
+  </body>
+</html>
