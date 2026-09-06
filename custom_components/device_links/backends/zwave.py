@@ -26,13 +26,21 @@ import logging
 from typing import TYPE_CHECKING, Final
 
 from custom_components.device_links.backends import zwave_protocol
-from custom_components.device_links.backends.base import BackendDevice, ObservedDevice
+from custom_components.device_links.backends.base import (
+    BackendDevice,
+    LinkCheck,
+    LinkResult,
+    LinkResultStatus,
+    ObservedDevice,
+)
 from custom_components.device_links.backends.zwave_accessor import ZWaveAccessorError
 from custom_components.device_links.models import Backend as BackendId
 from custom_components.device_links.models import (
     DeviceCapabilities,
     DeviceHandle,
+    Diagnostic,
     Feature,
+    Link,
     LinkTarget,
     ObservedLink,
     SettingsAdapter,
@@ -167,6 +175,137 @@ class ZWaveBackend:
             managed_by=None,
         )
 
+    # Writing, and the refusals that come before it.
+
+    async def async_check_link(self, link: Link) -> LinkCheck:
+        """Say whether this link could be written, without writing it.
+
+        The same refusals as `async_add_link` up to but not including the write, so the
+        plan dialog can show what apply would say rather than a hopeful guess.
+        """
+        try:
+            node = self._node(link.source)
+            groups = await self._groups(node)
+            refusal = _local_refusal(link, groups.get(link.source_endpoint, {}))
+            if refusal is None:
+                refusal = await self._driver_refusal(node, link)
+        # A failure to ask is an answer the caller can act on, not a traceback.
+        except Exception as err:
+            _LOGGER.debug("check of %s failed: %s", link.fingerprint, err)
+            return LinkCheck(ok=False, reason=Diagnostic("check_failed", _about(link)))
+        if refusal is not None:
+            return LinkCheck(ok=False, reason=refusal)
+        return LinkCheck(ok=True)
+
+    async def async_add_link(self, link: Link) -> LinkResult:
+        """Write one link to the device, or explain why it was not written.
+
+        The order of the refusals is the safety rule, and it is this and no other:
+
+        1. The lifeline, because it is never ours to write whatever else is true, and
+           asking any later question first could answer instead of it.
+        2. Self-association, for the same reason: it can never be right, so nothing about
+           the device's current state can make it right.
+        3. Already present, which is where a state-dependent answer belongs. It sits after
+           the two absolute refusals so that neither can be masked by "it is already
+           there", and before the check so that a link the device already holds is never
+           reported as blocked: a check can start refusing something that was written
+           months ago (a security class changed, a node was re-included), and answering
+           BLOCKED for an entry that exists would make a plan that can never converge.
+        4. The driver's own check, which costs a radio round trip and so goes last of the
+           questions. Anything but OK, including a value this version has never heard of,
+           refuses.
+        5. The write.
+        """
+        return await self._write(link, adding=True)
+
+    async def async_remove_link(self, link: Link) -> LinkResult:
+        """Remove one link from the device, or explain why it was not removed.
+
+        The same shape as the add without the driver check, which asks whether an
+        association may be created and has nothing to say about taking one off. Not
+        present is `ALREADY_PRESENT`: there is nothing to do, and nothing went wrong.
+        """
+        return await self._write(link, adding=False)
+
+    async def _write(self, link: Link, *, adding: bool) -> LinkResult:
+        """Add or remove one association, refusing in the documented order."""
+        controller = self._driver.controller
+        try:
+            node = self._node(link.source)
+            groups = await self._groups(node)
+            refusal = _local_refusal(link, groups.get(link.source_endpoint, {}))
+            if refusal is not None:
+                return LinkResult(status=LinkResultStatus.BLOCKED, reason=refusal)
+
+            source = self._address(node.node_id, link.source_endpoint)
+            target = self._address(_node_id_of(link.target.handle), link.target.endpoint)
+            group = int(link.emitter_group)
+            present = _is_present(await controller.async_get_associations(source), group, target)
+            # An add of what is there and a removal of what is not are both nothing to do,
+            # and neither is worth a radio round trip on a mesh that is carrying traffic.
+            if present is adding:
+                return LinkResult(status=LinkResultStatus.ALREADY_PRESENT)
+
+            if adding:
+                refusal = await self._driver_refusal(node, link)
+                if refusal is not None:
+                    return LinkResult(status=LinkResultStatus.BLOCKED, reason=refusal)
+
+            # A sleeping node cannot answer now, so the write is queued rather than
+            # waited on. NOTE: modelled from the library signature, not observed. Stage 0
+            # item Z4 was never approved, so what really happens to a queued write, and
+            # which event reports it landing, is unproven. See docs/open-items.md J1 and
+            # issue #5. Nothing that passes against the fake driver is evidence about it.
+            asleep = _is_asleep(node)
+            write = (
+                controller.async_add_associations
+                if adding
+                else controller.async_remove_associations
+            )
+            # `force` is never passed, here or anywhere (CLAUDE.md Section 3 rule 6): it
+            # skips the driver's own safety checks, which are the ones step 4 asked.
+            await write(source, group, [target], wait_for_result=not asleep)
+        # The executor asks one link at a time and needs a result for every one.
+        except Exception as err:
+            _LOGGER.debug("write of %s failed: %s", link.fingerprint, err)
+            return LinkResult(
+                status=LinkResultStatus.FAILED,
+                reason=Diagnostic("link_write_failed", _about(link)),
+                raw_error=str(err),
+            )
+        else:
+            if asleep:
+                return LinkResult(status=LinkResultStatus.PENDING_WAKEUP)
+            return LinkResult(status=LinkResultStatus.APPLIED)
+
+    async def _driver_refusal(self, node: Node, link: Link) -> Diagnostic | None:
+        """Ask the driver whether this association may be written, and translate its answer.
+
+        `AssociationCheckResult.OK` is 1, so the answer is compared to it explicitly:
+        a truthiness test would read every refusal as permission (Stage 0 item Z3).
+        """
+        answer = await self._driver.controller.async_check_association(
+            self._address(node.node_id, link.source_endpoint),
+            int(link.emitter_group),
+            self._address(_node_id_of(link.target.handle), link.target.endpoint),
+        )
+        reason = zwave_protocol.blocked_reason_for(int(answer))
+        if reason is None:
+            return None
+        return Diagnostic(reason.translation_key, {**_about(link), **reason.placeholders})
+
+    def _address(self, node_id: int, endpoint: int | None) -> AssociationAddress:
+        """Return one end of an association, as the driver addresses it.
+
+        Stage 0 recorded that the controller is the first positional argument on 0.73.0;
+        constructing it the other way round raises `TypeError`.
+        """
+        # Imported inside the function, not at module scope: see the module docstring.
+        from zwave_js_server.model.association import AssociationAddress  # noqa: PLC0415
+
+        return AssociationAddress(self._driver.controller, node_id=node_id, endpoint=endpoint)
+
     # Devices and their identity.
 
     def _handle_of(self, node: Node) -> DeviceHandle:
@@ -258,6 +397,48 @@ class ZWaveBackend:
         return found
 
 
+def _local_refusal(
+    link: Link, groups: Mapping[str, zwave_protocol.AssociationGroup]
+) -> Diagnostic | None:
+    """Return why this link may not be written at all, without asking the driver.
+
+    Both refusals are absolute, so they are answered here rather than paid for at the
+    radio. A lifeline is how a device reports to Home Assistant at all, and a device
+    cannot be in its own association group (`Forbidden_SelfAssociation`): the driver would
+    refuse that too, but a round trip to be told what we already know is a round trip a
+    busy mesh does not have.
+    """
+    if zwave_protocol.is_lifeline_group(groups, link.emitter_group):
+        return Diagnostic("lifeline_is_protected", _about(link))
+    if link.source.identity == link.target.handle.identity:
+        return Diagnostic("self_association", _about(link))
+    return None
+
+
+def _is_present(
+    associations: Mapping[int, list[AssociationAddress]], group: int, target: AssociationAddress
+) -> bool:
+    """Say whether this exact target is already in this group.
+
+    Endpoint included, and not normalised: an address with no endpoint is a node
+    association and one with endpoint 0 is a multi channel association to the root. They
+    are written with different command classes and are genuinely different entries.
+    """
+    return any(
+        (address.node_id, address.endpoint) == (target.node_id, target.endpoint)
+        for address in associations.get(group, [])
+    )
+
+
+def _about(link: Link) -> dict[str, str]:
+    """Return the placeholders every message about a link needs to be actionable."""
+    return {
+        "device": link.source.name_at_authoring,
+        "group": link.emitter_group,
+        "target": link.target.handle.name_at_authoring,
+    }
+
+
 def _fingerprint_of(node: Node) -> ZWaveFingerprint:
     """Return what identifies this node's model, which is what a profile is keyed by."""
     return ZWaveFingerprint(
@@ -304,6 +485,14 @@ def _value_for(
         if key == adapter.bitmask:
             return value
     return None
+
+
+def _is_asleep(node: Node) -> bool:
+    """Say whether this node is asleep, which changes what a write to it means."""
+    # Imported inside the function, not at module scope: see the module docstring.
+    from zwave_js_server.const import NodeStatus  # noqa: PLC0415
+
+    return node.status == NodeStatus.ASLEEP
 
 
 def _node_id_of(handle: DeviceHandle) -> int:
