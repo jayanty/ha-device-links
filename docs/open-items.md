@@ -84,6 +84,27 @@ than being discovered by a user.
 
 ---
 
+## 1b. Assumptions made to keep going without Jayant
+
+Instructed on 2026-09-05 to complete as much as possible without waiting, using reasonable
+defaults, and to defer deployment until the open items are addressed. Every assumption made
+under that instruction is recorded here so it can be overturned cheaply rather than
+discovered later in the code.
+
+**Deployment to Jayant's Home Assistant is paused.** The last deployed commit is the Phase 1C
+merge. Nothing since then has been sent, and nothing will be until the items in section 1 are
+addressed. The deploy loop itself is proven and unchanged; it is simply not being used.
+
+| # | Assumption | If it is wrong |
+|---|---|---|
+| A1 | Sleeping-node writes queue and report `pending_wakeup`, closing on the node's next wake-up event (J1 unproven) | The Zigbee-style retry path may be needed for Z-Wave battery devices; affects the executor's pending handling only |
+| A2 | Zigbee bind and unbind behave as the Zigbee2MQTT documentation describes: `transaction` correlates the response, per-cluster failures are reported in `failed`, and `bridge/devices` reflects the change within a few seconds (J2 unproven) | The Phase 2 Zigbee adapter's write path needs rework; reads are already proven by G1 |
+| A3 | A Zooz small button's Pressed group sends a **toggle**, not a fixed OFF (J3 unproven) | Treated as the pessimistic case: Off-all refuses to compile silently onto those buttons and warns instead. If it turns out to send a fixed OFF, the warning can simply be removed |
+| A4 | An external association change emits a value-updated event we can subscribe to (J4 unproven) | Drift detection falls back to periodic verify and goal G3 is not met for external changes; the option already exists |
+| A5 | Home Assistant's lazily defined components resolve inside a custom panel after the card-helpers force-load (R1 unproven) | The panel already degrades gracefully with zero HA components, so the cost is appearance rather than function |
+
+---
+
 ## 2. Waiting on a Home Assistant restart
 
 Not blocked on a decision, just on timing. Both resolve during Phase 1D and 1E, when there
