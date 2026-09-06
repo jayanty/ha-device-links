@@ -64,10 +64,16 @@ def test_pure_modules_never_import_home_assistant(relative: str) -> None:
 
 
 def test_no_em_dash_in_tracked_text() -> None:
-    """Style rule from the PRD: no em dash anywhere in generated text."""
+    """Style rule from the PRD: no em dash anywhere in generated text.
+
+    The panel's TypeScript and the built bundle are in scope as well as the Python: a UI
+    string is the most visible generated text there is, and the bundle is what a user
+    actually runs, so a source file that slipped through would be caught twice.
+    """
+    suffixes = {".py", ".md", ".json", ".yaml", ".yml", ".ts", ".js", ".mjs", ".html"}
     offenders: list[str] = []
     for path in REPO_ROOT.rglob("*"):
-        if not path.is_file() or path.suffix not in {".py", ".md", ".json", ".yaml", ".yml"}:
+        if not path.is_file() or path.suffix not in suffixes:
             continue
         if any(part in {".git", "node_modules", ".venv", "dist"} for part in path.parts):
             continue

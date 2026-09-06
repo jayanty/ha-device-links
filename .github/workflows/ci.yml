@@ -35,6 +35,44 @@ jobs:
       - run: pip install -r requirements_test.txt
       - run: pytest -m "not live" --cov --cov-report=term-missing --cov-fail-under=95
 
+  frontend:
+    name: Frontend build and bundle check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      # `npm ci` rather than `npm install`: the lockfile pins every version, including the
+      # minifier, and the committed-bundle check below is only meaningful if CI builds with
+      # the same toolchain a developer does.
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run lint
+        working-directory: frontend
+      - run: npm run test
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      # The bundle is committed because a HACS install has no build step, so whatever is in
+      # the repository is what every user runs. Comparing the working tree after a fresh
+      # build catches a source change that was never rebuilt, a bundle edited by hand, and
+      # a build that stopped producing a file. Bytes, not a normalised hash: nothing in
+      # `vite.config.ts` reads a clock, an environment variable or an absolute path, so the
+      # output is a pure function of the repository and there is nothing to normalise.
+      - name: The committed bundle must match a fresh build
+        run: |
+          if [ -n "$(git status --porcelain -- custom_components/device_links/frontend)" ]; then
+            echo "The committed bundle does not match a fresh build of the panel source."
+            echo "Run 'cd frontend && npm run build' and commit the result."
+            git status --porcelain -- custom_components/device_links/frontend
+            git --no-pager diff --stat -- custom_components/device_links/frontend
+            exit 1
+          fi
+          echo "The committed bundle matches a fresh build."
+
   hassfest:
     name: hassfest
     runs-on: ubuntu-latest

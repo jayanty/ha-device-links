@@ -60,6 +60,7 @@ from .events import DeviceLinksEventBridge
 from .executor import JobRunner
 from .models import Backend as BackendId
 from .models import Plan
+from .panel import async_register_panel, async_unregister_panel
 from .profile_db import ProfileDatabase, load_profiles
 from .repairs import async_clear_issues, async_raise_storage_issue, async_setup_repairs
 from .rule_toggle import RuleToggleLimiter
@@ -208,6 +209,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry) 
         )
         events.async_setup()
         async_setup_raw_services(hass, entry)
+        # Before the platforms, so that a platform that will not load takes the panel down
+        # with it through the handler below rather than leaving a sidebar entry pointing at
+        # an integration that failed to set up.
+        await async_register_panel(hass, entry)
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     except Exception:
         # `async_setup_entry` already subscribed to every backend, and Home Assistant does
@@ -217,6 +222,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry) 
         # second set on top of them.
         events.async_shutdown()
         async_unload_raw_services(hass)
+        async_unregister_panel(hass)
         await coordinator.async_shutdown()
         raise
     # An option that needs a restart to take effect is an option nobody turns on, and the
@@ -249,6 +255,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry)
         return False
     runtime = entry.runtime_data
     async_clear_issues(hass)
+    async_unregister_panel(hass)
     async_unload_raw_services(hass)
     runtime.toggles.async_shutdown()
     await runtime.runner.async_shutdown()
