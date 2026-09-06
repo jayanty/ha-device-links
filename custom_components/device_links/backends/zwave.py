@@ -68,6 +68,11 @@ _LOGGER = logging.getLogger(__name__)
 # below already reads whatever endpoints a device reports.
 _ROOT_ENDPOINT: Final = 0
 
+# The device registry namespace this protocol's devices live in: the upstream integration's
+# own domain, never ours. Inventing a `device_links`-namespaced identifier is precisely how
+# an orphan device page gets made (Stage 0 item P2, and `rule_entity`'s module docstring).
+UPSTREAM_DOMAIN: Final = "zwave_js"
+
 # What a Z-Wave association target can be made to do by an association. The driver reports
 # a per-node command class list that would narrow this per device, but the Stage 0 capture
 # did not record it, so this is the set every association target in that capture supports
@@ -599,6 +604,25 @@ class ZWaveBackend:
         thing one layer lower down for the write itself.
         """
         return SystemScope.SLOT
+
+    def registry_identifier(self, handle: DeviceHandle) -> tuple[str, str] | None:
+        """Return the `zwave_js` device registry identifier for this node.
+
+        The short `<home id>-<node id>` form, which is what `zwave_js`'s own
+        `helpers.get_device_id` builds and what Stage 0 item P2 captured off the real
+        registry. The longer fingerprint-bearing form is deliberately not used: it changes
+        when a node is replaced by a different model, which is the signal FR-S3 wants and
+        the last thing an attachment lookup should depend on.
+
+        A handle whose address is not `<home id>:<node id>` gets None rather than a guess.
+        Nothing this adapter builds is shaped any other way, so reaching that means a
+        handle arrived from a file somebody edited, and a near miss here makes an orphan
+        device rather than an error (see `rule_entity`).
+        """
+        home_id, separator, node_id = handle.protocol_id.partition(":")
+        if not separator or not home_id or not node_id:
+            return None
+        return (UPSTREAM_DOMAIN, f"{home_id}-{node_id}")
 
     # Devices and their identity.
 

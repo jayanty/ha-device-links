@@ -24,19 +24,24 @@ whose device is not in the registry gets no entity at all, and the tracker below
 the entities and our own now-empty record when an upstream device goes away, which is
 `stale-devices`.
 
-The identifier formats are the ones Stage 0 item P2 captured off the real registry:
-`zwave_js` uses `("zwave_js", "<home id>-<node id>")` alongside a longer fingerprint-
-bearing form. Zigbee and Matter are deliberately not derived here: a Zigbee identifier
-depends on the MQTT base topic and a Matter one on the compressed fabric id, and neither
-is recoverable from a protocol id. Their adapters (Phase 2 and Phase 3) will know, and
-until then "not attachable" is the honest answer rather than a guess that would produce
-exactly the orphan above.
+**No identifier format is written down here.** Each adapter answers
+`Backend.registry_identifier` for its own devices, because the part of an identifier that
+is not the protocol address is knowledge only the adapter has: a Zigbee2MQTT identifier
+embeds the MQTT base topic that instance is configured with, and a Matter one the
+compressed fabric id. Deriving Z-Wave's here and calling every other protocol
+"not attachable" was open item T57, and what it cost was not attachment: it was that
+`Serializer.device_id` had no answer for a Zigbee device, so no Zigbee device could be
+opened, refreshed or chosen as a rule's source anywhere in the panel.
+
+A backend that is not loaded, and a handle its adapter says has no upstream record (a
+managed Zigbee group is an address rather than a device), both come back as None, which
+means the same thing to every caller: there is no Home Assistant device to point at.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Final, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
@@ -46,7 +51,6 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from .const import DOMAIN
 from .coordinator import RuleState
 from .entity import DeviceLinksEntity
-from .models import Backend as BackendId
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -55,15 +59,6 @@ if TYPE_CHECKING:
 
     from . import DeviceLinksConfigEntry
     from .models import DeviceHandle, Rule
-
-# The device registry namespace each backend's devices live in: the upstream integration's
-# own domain, never ours (Stage 0 item P2). Inventing a `device_links`-namespaced
-# identifier is precisely how the orphan device above gets made.
-UPSTREAM_DOMAIN: Final[dict[BackendId, str]] = {
-    BackendId.ZWAVE: "zwave_js",
-    BackendId.ZIGBEE2MQTT: "mqtt",
-    BackendId.MATTER: "matter",
-}
 
 
 @callback
@@ -77,7 +72,7 @@ def async_upstream_device(
     is the only match left, and treating that as "the device is still there" would keep a
     rule entity alive on a device that no longer exists.
     """
-    identifier = _upstream_identifier(handle)
+    identifier = _upstream_identifier(entry, handle)
     if identifier is None:
         return None
     device = dr.async_get(hass).async_get_device(identifiers={identifier})
@@ -108,14 +103,18 @@ def async_handle_of_device(
     return None
 
 
-def _upstream_identifier(handle: DeviceHandle) -> tuple[str, str] | None:
-    """Return the registry identifier this handle's device carries upstream, if derivable."""
-    if handle.backend is not BackendId.ZWAVE:
-        return None
-    home_id, separator, node_id = handle.protocol_id.partition(":")
-    if not separator or not home_id or not node_id:
-        return None
-    return (UPSTREAM_DOMAIN[BackendId.ZWAVE], f"{home_id}-{node_id}")
+def _upstream_identifier(
+    entry: DeviceLinksConfigEntry, handle: DeviceHandle
+) -> tuple[str, str] | None:
+    """Return the registry identifier this handle's device carries upstream, if it has one.
+
+    Asked of the adapter that speaks the device's protocol, never derived here: see the
+    module docstring, and `Backend.registry_identifier` for why the adapter is the only
+    layer that can answer. A protocol with no loaded backend has no answer, which is the
+    same None a device with no upstream record gets.
+    """
+    backend = entry.runtime_data.coordinator.backend_for(handle)
+    return None if backend is None else backend.registry_identifier(handle)
 
 
 class RuleEntityFactory(Protocol):

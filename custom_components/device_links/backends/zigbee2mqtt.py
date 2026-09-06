@@ -96,6 +96,11 @@ SKIPPED_BRIDGE_OFFLINE: Final = "bridge_offline"
 # rather than a fault (E22).
 BATTERY_POWER_SOURCE: Final = "Battery"
 
+# The device registry namespace Zigbee2MQTT's devices live in. They are `mqtt` devices:
+# Zigbee2MQTT publishes MQTT discovery and the `mqtt` integration registers them, so this
+# is that integration's domain and never ours (Stage 0 item P2).
+UPSTREAM_DOMAIN: Final = "mqtt"
+
 
 class MqttClient(Protocol):
     """The two things this adapter needs from an MQTT connection, and nothing else.
@@ -1476,6 +1481,27 @@ class ZigbeeBackend:
         ours is the binding itself, which `_absolute_refusal` refuses on its own account.
         """
         return SystemScope.ENTRY
+
+    def registry_identifier(self, handle: DeviceHandle) -> tuple[str, str] | None:
+        """Return the `mqtt` device registry identifier for this device.
+
+        Zigbee2MQTT devices are `mqtt` devices, and the identifier Stage 0 item P2 captured
+        is `<base topic>_<ieee address>` (the address already carries its `0x`). **The base
+        topic is part of it**, which is why this is the adapter's answer and not a constant
+        anywhere above: it is configurable (E25), and a second Zigbee2MQTT instance on the
+        same broker publishes under a different one and registers different identifiers.
+
+        A managed group gets None. `dl_<rule id>` is an address a binding can point at, not
+        a device somebody added, and Zigbee2MQTT registers no `mqtt` device for a group, so
+        there is nothing to attach to and nothing to open.
+
+        Nothing is asked of the bridge here: the identifier is derived from the address the
+        handle already carries, so a device the bridge has stopped listing still resolves to
+        the registry entry it had, and the registry is what answers that it has gone.
+        """
+        if zp.group_id_of(handle) is not None:
+            return None
+        return (UPSTREAM_DOMAIN, f"{self._base}_{handle.protocol_id}")
 
 
 def _member_of(entry: zp.GroupMember) -> tuple[str, int]:

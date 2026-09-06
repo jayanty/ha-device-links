@@ -192,5 +192,8 @@ class RecordingBackend:
     def system_scope(self) -> SystemScope:
         return self.inner.system_scope()
 
+    def registry_identifier(self, handle: DeviceHandle) -> tuple[str, str] | None:
+        return self.inner.registry_identifier(handle)
+
     def wake_instructions(self, handle: DeviceHandle) -> str | None:
         return self.inner.wake_instructions(handle)

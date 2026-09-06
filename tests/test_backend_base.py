@@ -52,6 +52,8 @@ def test_the_protocol_is_runtime_checkable_and_names_the_expected_surface() -> N
         "async_write_setting",
         "subscribe",
         "wake_instructions",
+        "system_scope",
+        "registry_identifier",
     }
     actual = {name for name in dir(Backend) if not name.startswith("_")}
 
@@ -189,3 +191,6 @@ class _StubBackend:
 
     def system_scope(self) -> SystemScope:
         return SystemScope.SLOT
+
+    def registry_identifier(self, handle: DeviceHandle) -> tuple[str, str] | None:
+        return None

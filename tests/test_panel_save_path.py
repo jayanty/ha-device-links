@@ -37,14 +37,18 @@ be in the payload at all: a serializer that stopped carrying `Emitter.endpoint` 
 `DeviceRow.receiving_endpoint` sends `null` from the panel and must fail here with the
 refusal a user would see, not with a `KeyError` about a Python dictionary.
 
-Two limits, said here rather than left to be discovered. The Zigbee cases take their device
-detail from `websocket._device_detail` rather than from the `devices/get` command, because
-a Zigbee handle resolves to no Home Assistant device id and neither that command nor the
-panel can ask for one by id yet (T57): the payload is the one the panel would be handed and
-the lookup in front of it is the part that does not work, so those cases are cover for a
-rule shape the editor cannot reach today rather than a rule it produces today. And the last
-two tests are pins rather than regression tests: they passed before T50 was closed and are
-here to say what must keep being refused.
+Since T57 the Zigbee cases go through `devices/get` by Home Assistant device id, exactly
+as the Z-Wave ones do: every backend answers `registry_identifier` for its own devices, so
+a Zigbee handle resolves to the `mqtt` device record Zigbee2MQTT's discovery registered and
+the panel can open one. They used to reach `websocket._device_detail` directly, because
+that lookup had no answer for Zigbee and no Zigbee device could be opened or chosen as a
+source at all. `test_issue_57_...` below is the acceptance half of that: it walks the whole
+path a user walks, from the device list to a saved rule, rather than asserting that an
+identifier string comes out right.
+
+One limit, said here rather than left to be discovered: the last two tests are pins rather
+than regression tests. They passed before T50 was closed and are here to say what must keep
+being refused.
 """
 
 from __future__ import annotations
@@ -147,6 +151,7 @@ async def both_radios(
     hass: HomeAssistant,
     hass_storage: dict[str, Any],
     zwave_js_devices: dict[int, dr.DeviceEntry],
+    zigbee2mqtt_devices: dict[str, dr.DeviceEntry],
     zigbee2mqtt: FakeBridge,
 ) -> AsyncGenerator[MockConfigEntry]:
     """Device Links over the fake Z-Wave network and the fake Zigbee bridge at once."""
@@ -196,18 +201,14 @@ async def zwave_detail(client: Any, device: dict[str, Any]) -> dict[str, Any]:
     return await call(client, "devices/get", device_id=device["device_id"])
 
 
-def zigbee_detail(hass: HomeAssistant, entry: MockConfigEntry, ieee: str) -> dict[str, Any]:
-    """Return the `devices/get` payload for a Zigbee device.
+async def zigbee_detail(client: Any, device: dict[str, Any]) -> dict[str, Any]:
+    """Return what the editor loads when a Zigbee device is chosen as the source.
 
-    The same function the command answers with, reached without the device-registry
-    lookup in front of it: a Zigbee handle resolves to no Home Assistant device id yet
-    (`rule_entity._upstream_identifier` is Z-Wave only), so `devices/get` cannot be asked
-    for one by id and neither can the panel. That gap is open item T57; it is about which
-    devices the panel can reach, and this file is about what it sends when it reaches one.
+    The same call the Z-Wave half makes, which is the whole of what T57 changed: a Zigbee
+    handle now resolves to the `mqtt` device record Zigbee2MQTT's discovery registered, so
+    `devices/get` can be asked for one by Home Assistant device id.
     """
-    from custom_components.device_links.websocket import _device_detail  # noqa: PLC0415
-
-    return _device_detail(hass, entry, zigbee_handle(ieee))  # type: ignore[arg-type]
+    return await call(client, "devices/get", device_id=device["device_id"])
 
 
 def stored(profile: dict[str, Any], rule_id: str) -> dict[str, Any]:
@@ -301,7 +302,7 @@ async def test_issue_50_a_zigbee_rule_the_panel_builds_is_accepted(
     """
     devices = await rows(client)
     source = devices[zigbee_handle(AUX_IEEE).identity]
-    detail = zigbee_detail(hass, both_radios, AUX_IEEE)
+    detail = await zigbee_detail(client, source)
     target = devices[zigbee_handle(LIGHT_IEEE).identity]
     rule = panel_rule(
         rule_id="panel-zigbee",
@@ -334,7 +335,7 @@ async def test_issue_50_a_two_way_zigbee_rule_the_panel_builds_converges(
     """The canonical two-Inovelli-Blue 3-way, authored the way the panel authors it."""
     devices = await rows(client)
     source = devices[zigbee_handle(AUX_IEEE).identity]
-    detail = zigbee_detail(hass, both_radios, AUX_IEEE)
+    detail = await zigbee_detail(client, source)
     target = devices[zigbee_handle(LIGHT_IEEE).identity]
     rule = panel_rule(
         rule_id="panel-zigbee-3way",
@@ -424,7 +425,7 @@ async def test_a_target_that_can_receive_nothing_is_reported_before_the_save(
     """
     devices = await rows(client)
     source = devices[zigbee_handle(AUX_IEEE).identity]
-    detail = zigbee_detail(hass, both_radios, AUX_IEEE)
+    detail = await zigbee_detail(client, source)
     sensor = next(
         device
         for device in devices.values()
@@ -445,6 +446,114 @@ async def test_a_target_that_can_receive_nothing_is_reported_before_the_save(
     assert compiled["links"] == []
     assert {error["translation_key"] for error in compiled["errors"]} == {"target_cannot_receive"}
     assert all(error["placeholders"]["device"] == sensor["name"] for error in compiled["errors"])
+
+
+async def test_issue_57_a_zigbee_device_can_be_opened_and_used_as_a_rule_source(
+    client: Any, profile: str
+) -> None:
+    """T57, end to end: list, open, refresh, author, save, plan. All by device id.
+
+    The acceptance half of the sixth test level. `registry_identifier` returning the right
+    string is a unit test and it is not the claim that matters: the claim is that a person
+    can pick a Zigbee device in the panel and end up with a rule that plans work, through
+    the commands the panel really sends.
+
+    So every step here is the panel's own path and not a shortcut around it. The device
+    list is what the Devices view and the editor's source picker both filter on, and the
+    picker drops any row whose `device_id` is null, so the row is checked for one before
+    anything else: that null is the whole of what T57 was. `devices/get` and
+    `devices/refresh` both take a device id, and the Devices view calls the second one when
+    a user presses Refresh. `plan` takes a list of them, which is what the Devices view's
+    "Plan for this device" sends.
+    """
+    devices = await rows(client)
+    source = devices[zigbee_handle(AUX_IEEE).identity]
+
+    # 1. The source picker can see it at all, which is what was broken.
+    assert source["device_id"] is not None, "a Zigbee device still has no device id"
+    assert source["emitters"] > 0, "the source picker also needs a device with controls"
+
+    # 2. Opening it, and refreshing it, both of which the Devices view does by id.
+    detail = await zigbee_detail(client, source)
+    refreshed = await call(client, "devices/refresh", device_id=source["device_id"], deep=False)
+
+    assert detail["device"]["identity"] == source["identity"]
+    assert refreshed["device"]["identity"] == source["identity"]
+    assert [emitter["emitter_id"] for emitter in detail["emitters"]] == [
+        emitter["emitter_id"] for emitter in refreshed["emitters"]
+    ]
+
+    # 3. Authoring a rule off one of its controls, and saving it.
+    target = devices[zigbee_handle(LIGHT_IEEE).identity]
+    rule = panel_rule(
+        rule_id="panel-zigbee-source",
+        name="Aux paddle controls Entrance Inside Lights",
+        template="remote",
+        source=source,
+        detail=detail,
+        emitter_id=_first_control(detail),
+        targets=[target],
+    )
+    saved = await call(client, "rules/upsert", rule=rule, profile_id=profile)
+
+    assert saved["rule"]["source"]["device"] == source["identity"]
+
+    # 4. And planning for that device by id, which is the last command taking one.
+    plan = await call(client, "plan", device_ids=[source["device_id"]])
+
+    assert plan["counts"]["add"], "a rule sourced on a Zigbee device planned no work"
+    assert [device["identity"] for device in plan["devices"]] == [source["identity"]]
+
+
+async def test_issue_57_a_zigbee_rules_switch_lands_on_that_devices_page(
+    hass: HomeAssistant, client: Any, both_radios: MockConfigEntry, profile: str
+) -> None:
+    """The other half of what an identifier is for: FR-E1 attachment, on Zigbee.
+
+    A rule's switch goes on its source device's own device page, which needs the same
+    identifier and was equally impossible before T57. Counted as devices rather than as
+    entities, because the failure mode is not a missing switch: it is a second, orphaned
+    device page beside the real one, which "the entity exists" passes for.
+    """
+    from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+
+    registry = dr.async_get(hass)
+    devices = await rows(client)
+    source = devices[zigbee_handle(AUX_IEEE).identity]
+    detail = await zigbee_detail(client, source)
+    upstream = registry.async_get(source["device_id"])
+    assert upstream is not None
+    before = {frozenset(device.identifiers) for device in registry.devices.values()}
+    rule = panel_rule(
+        rule_id="panel-zigbee-entity",
+        name="Aux paddle controls Entrance Inside Lights",
+        template="remote",
+        source=source,
+        detail=detail,
+        emitter_id=_first_control(detail),
+        targets=[devices[zigbee_handle(LIGHT_IEEE).identity]],
+    )
+    await call(client, "rules/upsert", rule=rule, profile_id=profile)
+    await hass.async_block_till_done()
+
+    entities = er.async_get(hass)
+    switches = [
+        entry
+        for entry in er.async_entries_for_config_entry(entities, both_radios.entry_id)
+        if entry.unique_id.endswith("_rule_panel-zigbee-entity")
+    ]
+
+    assert len(switches) == 1, "no rule switch was created for a Zigbee-sourced rule"
+    attached = registry.async_get(switches[0].device_id or "")
+    assert attached is not None
+    assert attached.identifiers == upstream.identifiers, (
+        "the rule switch is not on the Zigbee device: its record carries "
+        f"{attached.identifiers} rather than {upstream.identifiers}"
+    )
+    assert {frozenset(device.identifiers) for device in registry.devices.values()} == before, (
+        "attaching to the Zigbee device made a device group of its own, which is the "
+        "orphan a near-miss identifier produces"
+    )
 
 
 # --------------------------------------------------------------------------------------

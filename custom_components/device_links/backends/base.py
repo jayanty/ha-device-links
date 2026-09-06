@@ -256,3 +256,30 @@ class Backend(Protocol):
         protocol, not about a device, and answering it per link would invite an adapter to
         make it depend on state. See `SystemScope` for what each answer means.
         """
+
+    def registry_identifier(self, handle: DeviceHandle) -> tuple[str, str] | None:
+        """Return the device registry identifier the upstream integration registered.
+
+        A `(domain, value)` pair, where the domain is the upstream integration's own
+        (`zwave_js`, `mqtt`, `matter`) and never this one's: our entities attach by
+        reusing what somebody else registered, and inventing a namespace of our own makes
+        an orphan device rather than an error (see `rule_entity`).
+
+        **This is the adapter's question and nobody else's**, which is the whole reason it
+        is on the protocol. A `DeviceHandle` carries a network address and no more, and the
+        rest of the identifier is knowledge only the adapter has: the Z-Wave home id is in
+        the protocol address, while a Zigbee2MQTT identifier embeds the MQTT base topic
+        this instance is configured with, and a second instance on the same broker uses a
+        different one (Stage 0 item P2). Deriving it anywhere above this line would mean
+        core code holding one protocol's format, which is what open item T57 was.
+
+        None means this device has no upstream record and never will: a handle naming a
+        managed Zigbee group is an address on a radio rather than a device somebody added.
+        A handle that should have one but whose device has been removed is not this
+        method's business: it answers with the identifier, and the registry answers with
+        nothing when it holds no such device.
+
+        The identifier is derived rather than stored, for the reason open item T13 records:
+        a stored id goes stale the first time somebody rebuilds their device registry or
+        replaces a node, and a lookup keyed on the protocol address cannot.
+        """
