@@ -94,6 +94,7 @@ def panel_rule(  # noqa: PLR0913
     detail: dict[str, Any],
     emitter_id: str,
     targets: Iterable[dict[str, Any]],
+    hybrid: list[str] | None = None,
 ) -> dict[str, Any]:
     """Return the rule payload the editor would send for these choices.
 
@@ -120,6 +121,9 @@ def panel_rule(  # noqa: PLR0913
         # `available.slice(0, 1)` in the editor, which is the first key of `actions` in the
         # order the payload lists them, not the first in sorted order.
         "features": kept or list(emitter["actions"])[:1],
+        # Always sent, empty on almost every rule: the editor's hybrid section writes what
+        # was ticked, and a rule that ticked nothing says so rather than omitting the key.
+        "hybrid": hybrid or [],
         "source": {
             "device": source["identity"],
             "endpoint": emitter.get("endpoint"),
@@ -258,6 +262,48 @@ async def test_issue_50_a_one_way_zwave_rule_the_panel_builds_is_accepted(
     assert saved["rule"] == {**rule, "features": sorted(rule["features"])}
     # And it is really stored, rather than merely echoed back.
     assert stored(await call(client, "profiles/get", profile_id=profile), "panel-remote")
+
+
+async def test_a_rule_with_the_hybrid_opt_in_the_panel_builds_is_accepted(
+    client: Any, profile: str
+) -> None:
+    """The HA-executed opt-in, from the checkbox to the stored rule and back (FR-H1).
+
+    The sixth test level in CLAUDE.md Section 8, on the newest boundary in the product: the
+    editor's hybrid section builds a `hybrid` list, `rules/upsert` validates it, and the
+    round trip has to survive `yaml_io` in both directions. A contract test that only agreed
+    on types would pass while the panel sent a value the backend refused, which is exactly
+    what T50 was.
+    """
+    devices = await rows(client)
+    source = devices[f"zwave:{_home()}:{CONTROLLER}"]
+    detail = await zwave_detail(client, source)
+    target = devices[f"zwave:{_home()}:{MAIN_LIGHTS}"]
+    # The editor only offers an opt-in on a control that reports what the leg needs, so
+    # this picks the control the way `_renderHybridSection` filters them.
+    button = next(emitter for emitter in detail["emitters"] if emitter["scene_id"] is not None)
+    rule = panel_rule(
+        rule_id="panel-hybrid",
+        name="Button 2 only ever turns things off",
+        template="scene_button",
+        source=source,
+        detail=detail,
+        emitter_id=button["emitter_id"],
+        targets=[target],
+        hybrid=["off_only"],
+    )
+
+    compiled = await call(client, "rules/validate", rule=rule)
+    saved = await call(client, "rules/upsert", rule=rule, profile_id=profile)
+
+    assert compiled["errors"] == []
+    # The whole of kind (a): the association is not written, and the leg carries the intent.
+    assert compiled["links"] == []
+    assert [leg["kind"] for leg in compiled["hybrid_legs"]] == ["off_only"]
+    assert saved["rule"]["hybrid"] == ["off_only"]
+    assert stored(await call(client, "profiles/get", profile_id=profile), "panel-hybrid")[
+        "hybrid"
+    ] == ["off_only"]
 
 
 async def test_issue_50_a_two_way_zwave_rule_the_panel_builds_is_accepted(

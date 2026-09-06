@@ -23,6 +23,18 @@ All notable changes to this project are documented here. The format follows
   or that comes back answering as a different model, raises a Repairs issue
   offering the flow. Reachable over the WebSocket API; the panel wizard is still
   to come.
+- Hybrid legs (Phase 2C, FR-H1 to FR-H3, Decision D3): the three intents no radio
+  can carry, executed by Home Assistant and labelled HA-executed on every screen
+  that shows one. Off for the whole integration until the option is turned on, and
+  opted into per rule on top of that. On-only or off-only propagation and a scene
+  button acting on its own device's load react to a Central Scene press; a scene
+  button's LED following a light in another room writes Indicator CC, which Stage 0
+  item Z8 measured at the same latency as a configuration parameter without the
+  flash write. Legs are registered from the active profile and die with their rule,
+  their profile and their config entry. Firing counts and failures are on each
+  rule's status sensor and aggregated on the Health sensor, and a failure rate above
+  a quarter raises a Repairs issue. When Home Assistant is down, only the legs stop:
+  the native half of the same rule keeps working.
 - Snapshot rollback (Phase 2B, FR-P3): put a snapshot's devices back the way they
   were, as a plan confirmed in the same dialog every other write goes through.
   Removals that an enabled rule will write again are named before the plan is

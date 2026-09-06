@@ -52,7 +52,9 @@ DEVICE_REQUIRED_KEYS: Final = frozenset({"model", "manufacturer", "fingerprints"
 DEVICE_OPTIONAL_KEYS: Final = frozenset({"backend", "settings", "wake_instruction", "notes"})
 FINGERPRINT_REQUIRED_KEYS: Final = frozenset({"manufacturer_id", "product_type", "product_id"})
 EMITTER_REQUIRED_KEYS: Final = frozenset({"emitter_id", "label", "kind", "actions"})
-EMITTER_OPTIONAL_KEYS: Final = frozenset({"capacity_override", "semantics"})
+EMITTER_OPTIONAL_KEYS: Final = frozenset(
+    {"capacity_override", "semantics", "scene_id", "indicator_id"}
+)
 
 # The same three things for a Zigbee entry, which describes a different kind of hardware and
 # so has a different shape. An emitter names the **endpoint** it lives on, because that is
@@ -128,6 +130,13 @@ class ProfileEmitter:
     `actions` maps a feature to the association group that carries it, which is what makes
     the Inovelli paddle one control instead of three. `semantics` is set when something about
     what this control sends is not established; see `SEMANTICS_MARKERS`.
+
+    `scene_id` and `indicator_id` are the two facts a hybrid leg needs and nothing else in
+    this integration uses (PRD Section 6.7): the Central Scene number this control reports
+    when it is pressed, and the Indicator CC id of the little light on it. They are curated
+    rather than derived because neither is discoverable by reading a device: association
+    group information carries neither, and a guessed scene number is a leg that fires on
+    somebody else's button.
     """
 
     emitter_id: str
@@ -136,6 +145,8 @@ class ProfileEmitter:
     actions: Mapping[Feature, str]
     capacity_override: int | None = None
     semantics: str | None = None
+    scene_id: int | None = None
+    indicator_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -490,6 +501,8 @@ def _emitter(where: str, raw: object) -> ProfileEmitter:
     named = f"{where} emitter {emitter_id!r}"
     capacity_override = mapping.get("capacity_override")
     semantics = mapping.get("semantics")
+    scene_id = mapping.get("scene_id")
+    indicator_id = mapping.get("indicator_id")
     return ProfileEmitter(
         emitter_id=emitter_id,
         label=_text(f"{named}: 'label'", mapping["label"]),
@@ -504,6 +517,14 @@ def _emitter(where: str, raw: object) -> ProfileEmitter:
             None
             if semantics is None
             else _one_of(f"{named}: 'semantics'", semantics, SEMANTICS_MARKERS)
+        ),
+        scene_id=(
+            None if scene_id is None else _integer(f"{named}: 'scene_id'", scene_id, minimum=1)
+        ),
+        indicator_id=(
+            None
+            if indicator_id is None
+            else _integer(f"{named}: 'indicator_id'", indicator_id, minimum=1)
         ),
     )
 

@@ -51,6 +51,7 @@ from zwave_js_server.exceptions import FailedZWaveCommand, NotFoundError
 from zwave_js_server.model.association import AssociationAddress, AssociationGroup
 from zwave_js_server.model.value import SetValueResult
 
+from custom_components.device_links.backends.zwave import INDICATION_PROPERTY_BINARY
 from custom_components.device_links.models import ZWaveFingerprint
 from tests.factories import HOME_ID, profiles
 
@@ -150,7 +151,8 @@ class FakeNode(EventBase):
         # the subject of every pending_wakeup test.
         self.status = NodeStatus.ALIVE if spec.is_listening else NodeStatus.ASLEEP
         self.values: dict[str, FakeValue] = {
-            value.value_id: value for value in _config_values_for(spec)
+            value.value_id: value
+            for value in (*_config_values_for(spec), *_indicator_values_for(spec))
         }
 
     def get_configuration_values(self) -> dict[str, FakeValue]:
@@ -658,6 +660,38 @@ def _config_values_for(spec: NodeSpec) -> list[FakeValue]:
             )
         )
     return values
+
+
+def _indicator_values_for(spec: NodeSpec) -> list[FakeValue]:
+    """Return the per-button indicator values this model reports, per the curated entry.
+
+    The Z8 capture found these on node 36: one writeable Indicator CC value per button,
+    ids 67 to 71 on property 2, all reading false. They are here rather than in the
+    association capture because the association capture did not record node values at all,
+    and the entry is the only place that says which id belongs to which button.
+    """
+    entry = profiles().lookup(
+        ZWaveFingerprint(
+            manufacturer_id=spec.manufacturer_id,
+            product_type=spec.product_type,
+            product_id=spec.product_id,
+            firmware=spec.firmware_version,
+        )
+    )
+    if entry is None:
+        return []
+    return [
+        FakeValue(
+            node_id=spec.node_id,
+            command_class=CommandClass.INDICATOR,
+            property_=emitter.indicator_id,
+            property_key=INDICATION_PROPERTY_BINARY,
+            endpoint=ROOT_ENDPOINT,
+            value=0,
+        )
+        for emitter in entry.emitters
+        if emitter.indicator_id is not None
+    ]
 
 
 @cache

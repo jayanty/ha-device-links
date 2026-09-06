@@ -76,6 +76,8 @@ function lifeline(): Emitter {
     is_lifeline: true,
     grouping: "lifeline",
     semantics: null,
+    scene_id: null,
+    indicator_id: null,
   };
 }
 
@@ -94,6 +96,8 @@ function zen35Emitters(): Emitter[] {
       is_lifeline: false,
       grouping: "paddle",
       semantics: null,
+      scene_id: null,
+      indicator_id: null,
     },
     ...[1, 2, 3, 4].map((button) => ({
       emitter_id: `button_${button}`,
@@ -107,6 +111,10 @@ function zen35Emitters(): Emitter[] {
       grouping: "button",
       // Stage 0 item Z7: nobody has observed what a small button sends on a press.
       semantics: "unknown",
+      // What `profiles_db/zooz.json` says, which is what makes the HA-executed opt-ins
+      // offerable on these four controls and on nothing else on this device.
+      scene_id: button,
+      indicator_id: 66 + button,
     })),
   ];
 }
@@ -126,6 +134,8 @@ function dimmerEmitters(): Emitter[] {
       is_lifeline: false,
       grouping: "paddle",
       semantics: null,
+      scene_id: null,
+      indicator_id: null,
     },
     {
       emitter_id: "config_button",
@@ -138,6 +148,8 @@ function dimmerEmitters(): Emitter[] {
       is_lifeline: false,
       grouping: "button",
       semantics: null,
+      scene_id: null,
+      indicator_id: null,
     },
   ];
 }
@@ -376,6 +388,7 @@ export const RULES: RuleRow[] = [
       direction: "one_way",
       mirror_source: "leave",
       features: ["on_off", "level_set", "level_hold"],
+      hybrid: [],
       source: { device: identity(36), endpoint: 0, emitter_id: "main_button" },
       targets: [
         { device: identity(38), endpoint: null },
@@ -396,6 +409,7 @@ export const RULES: RuleRow[] = [
       direction: "two_way",
       mirror_source: "leave",
       features: ["on_off", "level_set"],
+      hybrid: [],
       source: { device: identity(37), endpoint: 0, emitter_id: "paddle" },
       targets: [{ device: identity(38), endpoint: null }],
     },
@@ -413,6 +427,7 @@ export const RULES: RuleRow[] = [
       direction: "one_way",
       mirror_source: "off",
       features: ["on_off"],
+      hybrid: [],
       source: { device: identity(36), endpoint: 0, emitter_id: "button_2" },
       targets: [
         { device: identity(37), endpoint: null },
@@ -434,6 +449,7 @@ export const RULES: RuleRow[] = [
       direction: "one_way",
       mirror_source: "leave",
       features: ["on_off"],
+      hybrid: [],
       source: { device: identity(29), endpoint: 0, emitter_id: "button_1" },
       targets: [{ device: identity(35), endpoint: null }],
     },

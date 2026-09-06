@@ -238,6 +238,30 @@ class Backend(Protocol):
     ) -> SettingResult:
         """Write one named setting to the device and read it back."""
 
+    async def async_read_indication(self, handle: DeviceHandle, emitter_id: str) -> bool | None:
+        """Return whether one control's own indicator is lit, or None when it cannot be read.
+
+        The indicator is the little light on a scene button, and it is here because hybrid
+        leg kind (c) is the one intent that writes to a control rather than to a link (PRD
+        Section 6.7). Named for what it is rather than for how a protocol carries it: a
+        backend that has no such thing answers None, and the leg refuses to compile.
+
+        None also covers "this control has one and the device has not reported its state",
+        which matters because the leg records what it found before its first write so that
+        turning the leg off puts the light back. Nothing was found, nothing is restored,
+        and that is said rather than papered over with a guess at the default.
+        """
+
+    async def async_write_indication(
+        self, handle: DeviceHandle, emitter_id: str, lit: bool
+    ) -> bool:
+        """Light or unlight one control's own indicator, and say whether it was written.
+
+        A plain bool rather than a `LinkResult`, because this is not a link and never
+        appears in a plan: it is one leg firing, and what a caller does with a failure is
+        count it (FR-H2's `hybrid_errors`) rather than report it into a job.
+        """
+
     def subscribe(self, callback: Callable[[str], None]) -> Callable[[], None]:
         """Call `callback` with a device identity whenever that device's state changes.
 

@@ -39,6 +39,14 @@ export type Direction = "one_way" | "two_way";
 /** `models.MirrorChoice`, what a rule asks the source device's own load to do. */
 export type MirrorChoice = "on" | "off" | "leave";
 
+/**
+ * `models.HybridKind`: one thing a rule asks for that no radio can carry.
+ *
+ * Every one of these is executed by Home Assistant rather than written to a device, and
+ * every screen that shows one says so. See PRD Section 6.7 and Decision D3.
+ */
+export type HybridKind = "on_only" | "off_only" | "self_load" | "button_led";
+
 /** `models.PlanOp`, which is also the key each plan device buckets its work under. */
 export type PlanOp = "add" | "remove" | "set_param" | "blocked" | "pending";
 
@@ -119,6 +127,15 @@ export interface Emitter {
   is_lifeline: boolean;
   grouping: string;
   semantics: string | null;
+  /**
+   * The Central Scene number this control reports when it is pressed, or null when the
+   * device has not said. Null means the on-only, off-only and own-load hybrid legs cannot
+   * be offered for this control: the compiler refuses them rather than guessing a number
+   * and reacting to a different button.
+   */
+  scene_id: number | null;
+  /** The Indicator CC id of this control's own LED, or null when nothing knows it. */
+  indicator_id: number | null;
 }
 
 /** One end of a link, as `Serializer.link` writes both ends. */
@@ -194,6 +211,13 @@ export interface RuleData {
   direction: Direction;
   mirror_source: MirrorChoice;
   features: Feature[];
+  /**
+   * The HA-executed legs this rule opts into (FR-H1). Empty on almost every rule, and
+   * always written rather than omitted, so a rule says out loud that it asks nothing of
+   * Home Assistant. Opting in here does nothing while the integration's own hybrid legs
+   * option is off.
+   */
+  hybrid: HybridKind[];
   source: RuleSourceData;
   targets: RuleTargetData[];
 }
@@ -215,10 +239,42 @@ export interface SettingWrite {
   value: number;
 }
 
+/**
+ * `Serializer.hybrid_leg`: one leg Home Assistant carries because no radio can.
+ *
+ * Deliberately not a `LinkRow`. A leg is a listener inside Home Assistant, not an entry on
+ * a device, and rendering the two in one list would blur the boundary Decision D3 exists to
+ * keep visible. Show it under its own heading, always labelled HA-executed.
+ */
+export interface HybridLegRow {
+  identity: string;
+  kind: HybridKind;
+  rule_id: string;
+  feature: Feature;
+  emitter_id: string;
+  source: HybridLegDevice;
+  target: HybridLegTarget;
+  scene_id: number | null;
+  indicator_id: number | null;
+}
+
+/** The device a hybrid leg is authored on. */
+export interface HybridLegDevice {
+  identity: string;
+  name: string;
+  device_id: string | null;
+}
+
+/** The device a hybrid leg acts on or watches, which for `self_load` is the source. */
+export interface HybridLegTarget extends HybridLegDevice {
+  endpoint: number | null;
+}
+
 /** `Serializer.compiled`: what one rule compiles to, warnings and refusals included. */
 export interface CompiledRule {
   links: LinkRow[];
   settings: SettingWrite[];
+  hybrid_legs: HybridLegRow[];
   warnings: Diagnostic[];
   errors: Diagnostic[];
 }

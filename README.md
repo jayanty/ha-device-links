@@ -31,6 +31,30 @@ tells you when reality drifts.
 - **Device swap**: re-point every rule that referenced a failed switch, in one guided flow.
 - **Automations**: rule switches, status sensors, events, and services.
 
+## What keeps working when Home Assistant is off
+
+Nearly all of it, and this is the point of the product. Every link Device Links writes lives
+in the devices themselves: an association entry, a binding table row, a configuration
+parameter. Your switch drives your light over the radio, and Home Assistant is not in the
+path. Restart it, upgrade it, unplug it: the lights carry on.
+
+There is exactly one exception, and it is opt-in twice over. Three intents contain a piece
+that no radio can carry:
+
+- passing on but not off (or off but not on), because an association carries both together;
+- a scene button acting on its own device's load, because a node cannot be a member of its
+  own association group;
+- a scene controller's small-button LED following a light in another room, because there is
+  no per-button address for an association to reach.
+
+For those, Device Links can be the missing wire itself: it listens to what Home Assistant
+already receives and issues the one command that completes the intent. These are called
+**HA-executed legs**, they are off for the whole integration until you turn them on in the
+options, each rule opts in separately, and every screen that shows one labels it
+HA-executed. **When Home Assistant is down or restarting, only these stop working.** The
+native part of the same rule keeps working, and the counters on each rule's status sensor
+say how often a leg has fired and how often it has failed.
+
 ## Design principles
 
 - Local only. No cloud, no telemetry, no outbound calls, no new listening ports.

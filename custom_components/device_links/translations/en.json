@@ -21,14 +21,16 @@
           "enable_raw_services": "Enable the raw Z-Wave association services",
           "zigbee_base_topic": "Zigbee2MQTT base topic",
           "yaml_mirror": "Mirror the profiles to YAML files",
-          "yaml_mirror_path": "Where to write the YAML copies"
+          "yaml_mirror_path": "Where to write the YAML copies",
+          "hybrid_legs": "Allow HA-executed legs"
         },
         "data_description": {
           "auto_apply_on_profile_switch": "Off by default: choosing a profile opens a plan and applying it is a separate press. This is about the Active profile select entity, which has nowhere to show a plan; the panel always shows one before it writes anything, whatever this is set to.",
           "enable_raw_services": "Expert tools. They add and remove one association group entry directly, with no rule and no plan behind them, and they still refuse to touch a lifeline. Leave them off unless you are scripting or debugging.",
           "zigbee_base_topic": "The topic every Zigbee2MQTT message hangs off, as set in that add-on's configuration. Leave it as zigbee2mqtt unless you changed it or you run a second instance, which uses a different one. One instance is adapted: if you run several, this is the one Device Links reads and writes. Saving reloads the integration so the new topic takes effect.",
           "yaml_mirror": "Off by default, because it writes files into your configuration directory. On, every change to a profile writes the same YAML the export button gives you, so a configuration directory you keep in version control shows your rules changing in a diff. It is a copy in one direction only: editing a file here changes nothing, and importing one is a separate, deliberate step.",
-          "yaml_mirror_path": "A folder inside your configuration directory. It is created if it is not there. Only files this integration wrote are ever changed or deleted in it, so pointing it at a folder of your own will not tidy anything away, but give it a folder of its own anyway. A path that leads outside the configuration directory is refused and the mirror stays off, with a line in the log saying so."
+          "yaml_mirror_path": "A folder inside your configuration directory. It is created if it is not there. Only files this integration wrote are ever changed or deleted in it, so pointing it at a folder of your own will not tidy anything away, but give it a folder of its own anyway. A path that leads outside the configuration directory is refused and the mirror stays off, with a line in the log saying so.",
+          "hybrid_legs": "Off by default. Some intents cannot be written to a radio at all: on-only propagation, a scene button acting on its own load, and a scene button LED following a light in another room. With this on, a rule may opt in to having Home Assistant carry those pieces. They are labelled HA-executed everywhere they appear, and they stop working whenever Home Assistant does, while the rest of the same rule keeps working."
         }
       }
     }
@@ -111,6 +113,21 @@
     },
     "group_not_offered": {
       "message": "No control of {device} uses association group {group}. The groups it offers are: {groups}."
+    },
+    "hybrid_no_button_indication": {
+      "message": "The control {emitter} on {device} has no button indication Device Links knows how to write, so the leg that would make its LED follow a light cannot be made. Only a curated device profile can say which indicator belongs to which button, and guessing would light the wrong one."
+    },
+    "hybrid_no_scene": {
+      "message": "The control {emitter} on {device} does not report a scene number when it is pressed, as far as Device Links knows, so a leg that has to react to a press on it cannot be made. Guessing the number would make the leg fire when a different button was pressed."
+    },
+    "hybrid_reverse_carries_both": {
+      "message": "This rule is two way, so the leg back from each target to {emitter} still carries both on and off. Only the direction you authored is limited to one of them."
+    },
+    "hybrid_scene_unverified": {
+      "message": "The scene number {emitter} on {device} reports has not been observed, only inferred from the device's own button numbering, so a leg that reacts to a press on it may react to a different button. Press it once with the rule enabled and check that the right thing happened."
+    },
+    "hybrid_self_load_not_targeted": {
+      "message": "This rule asks Home Assistant to act on the control's own load on {device}, and does not list that device as a target, so there is nothing for the leg to act on. Add the device to the targets."
     },
     "import_unknown_devices": {
       "message": "This profile names devices that are not on this network: {devices}. The rules waiting for them are: {rules}. Nothing was imported, so nothing was lost."
@@ -342,6 +359,10 @@
     "backend_unavailable": {
       "title": "The {backend} backend is not answering",
       "description": "Device Links reaches your {backend} devices through the {integration} integration, and it has stopped answering. Every {backend} device is shown as unavailable, nothing is planned for one while it cannot be read, and no links have been changed. Check that {integration} is loaded and that the add-on behind it is running; this clears by itself when it answers again."
+    },
+    "hybrid_legs_failing": {
+      "title": "Home Assistant is failing to carry some Device Links legs",
+      "description": "{errors} of the last {fired} firings of the {legs} HA-executed legs in this profile did not go through. These legs are the parts of your rules that no radio can carry, so they only work while Home Assistant is running and can reach the devices. Look at the Device Links log for which leg failed and why. The rest of each rule is written into the devices and is unaffected."
     },
     "pending_wakeup": {
       "title": "{device} has not woken up",

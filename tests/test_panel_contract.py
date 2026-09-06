@@ -44,8 +44,12 @@ from custom_components.device_links.models import (
     Diagnostic,
     Direction,
     Feature,
+    HybridKind,
     MirrorChoice,
     PlanOp,
+    Rule,
+    RuleSource,
+    RuleTarget,
     SettingWrite,
     Template,
 )
@@ -218,6 +222,7 @@ def assert_shape(payload: Any, interface: str, path: str = "") -> None:
         ("TemplateId", Template),
         ("Direction", Direction),
         ("MirrorChoice", MirrorChoice),
+        ("HybridKind", HybridKind),
         ("PlanOp", PlanOp),
         ("RuleState", RuleState),
         ("JobStatus", JobStatus),
@@ -362,6 +367,27 @@ async def test_a_device_detail_matches_the_device_detail_interface(
     detail = _device_detail(hass, loaded, handle(CONTROLLER))  # type: ignore[arg-type]
     assert_shape(detail, "DeviceDetail")
     assert detail["emitters"], "the controller reported no emitters, so nothing was checked"
+
+
+async def test_a_hybrid_leg_matches_the_hybrid_leg_row_interface(
+    hass: HomeAssistant, loaded: MockConfigEntry
+) -> None:
+    """The one payload the panel must never render as a link (PRD Section 6.7)."""
+    rule = Rule(
+        id="hybrid",
+        name="Button 2, off only",
+        template=Template.SCENE_BUTTON,
+        backend=Backend.ZWAVE,
+        source=RuleSource(device=handle(CONTROLLER), endpoint=0, emitter_id="g7"),
+        targets=(RuleTarget(device=handle(MAIN_LIGHTS), endpoint=None),),
+        features=frozenset({Feature.ON_OFF}),
+        hybrid=frozenset({HybridKind.OFF_ONLY}),
+    )
+    compiled = loaded.runtime_data.coordinator.compile_rule(rule)
+    payload = serializer(hass, loaded).compiled(compiled)
+
+    assert_shape(payload, "CompiledRule")
+    assert payload["hybrid_legs"], "the rule compiled no HA-executed leg, so nothing was checked"
 
 
 def test_a_setting_write_matches_the_setting_write_interface() -> None:

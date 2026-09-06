@@ -54,6 +54,7 @@ from custom_components.device_links.models import Backend as BackendId
 from custom_components.device_links.models import (
     DeviceCapabilities,
     DeviceHandle,
+    HybridLeg,
     Link,
     ObservedLink,
     Plan,
@@ -119,12 +120,20 @@ class DeviceLinksCoordinator:
         backends: Mapping[BackendId, Backend],
         store: DeviceLinksStore,
         refresh_debounce_seconds: float = REFRESH_DEBOUNCE_SECONDS,
+        hybrid_allowed: bool = False,
     ) -> None:
-        """Hold what the coordinator needs, and read nothing yet."""
+        """Hold what the coordinator needs, and read nothing yet.
+
+        `hybrid_allowed` is the global option (FR-H1), and it is here for one question
+        only: whether a rule that compiles to nothing but HA-executed legs is doing its job
+        or is switched off at the wall. It cannot change under a running coordinator,
+        because changing an option reloads the config entry.
+        """
         self._hass = hass
         self._backends = dict(backends)
         self._store = store
         self._debounce_seconds = refresh_debounce_seconds
+        self._hybrid_allowed = hybrid_allowed
 
         self._state = StoredState()
         self._handles: dict[str, DeviceHandle] = {}
@@ -763,6 +772,16 @@ class DeviceLinksCoordinator:
         compiled = self._compiled.get(rule_id)
         return () if compiled is None else compiled.links
 
+    def _hybrid_legs_of(self, rule_id: str) -> tuple[HybridLeg, ...]:
+        """Return the HA-executed legs one rule of the active profile asks for."""
+        compiled = self._compiled.get(rule_id)
+        return () if compiled is None else compiled.hybrid_legs
+
+    @property
+    def hybrid_allowed(self) -> bool:
+        """Say whether the option that lets a hybrid leg run at all is on (FR-H1)."""
+        return self._hybrid_allowed
+
     # Drift.
 
     def drift_state(self) -> Mapping[str, RuleState]:
@@ -803,7 +822,15 @@ class DeviceLinksCoordinator:
             return RuleState.UNKNOWN
         wanted = self._links_of(rule.id)
         if not wanted:
-            return RuleState.BLOCKED
+            # A rule that compiles to nothing but hybrid legs is not blocked, it is
+            # HA-executed: there is nothing on a device for it to be in sync with, and the
+            # legs are either running or the global option is off, which is the one case
+            # where "this rule is not doing anything" is the true answer (PRD Section 6.7).
+            return (
+                RuleState.IN_SYNC
+                if self._hybrid_allowed and self._hybrid_legs_of(rule.id)
+                else RuleState.BLOCKED
+            )
         if all(link.fingerprint in self._present for link in wanted):
             return RuleState.IN_SYNC
         if rule.id not in self._state.applied_rule_ids:

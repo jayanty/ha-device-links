@@ -51,6 +51,7 @@ from custom_components.device_links.models import (
     DeviceHandle,
     Direction,
     Feature,
+    HybridKind,
     LinkTarget,
     MatterFingerprint,
     MirrorChoice,
@@ -313,6 +314,9 @@ def _rule_to_data(rule: Rule) -> dict[str, object]:
         "direction": str(rule.direction),
         "mirror_source": str(rule.mirror_source),
         "features": sorted(str(feature) for feature in rule.features),
+        # Always written, even when empty, so a file says out loud that this rule asks
+        # nothing of Home Assistant rather than leaving it to be inferred from silence.
+        "hybrid": sorted(str(kind) for kind in rule.hybrid),
         "source": {
             "device": rule.source.device.identity,
             "endpoint": rule.source.endpoint,
@@ -415,6 +419,13 @@ def _rule_from_data(value: object, index: int, devices: Mapping[str, DeviceHandl
                 MirrorChoice, fields.get("mirror_source"), f"{label} mirror choice"
             ),
             enabled=_require_bool(fields.get("enabled"), f"{label} enabled flag"),
+            # Absent means none, which is what every file written before hybrid legs
+            # existed means: the schema version does not move for a key whose absence has
+            # exactly one honest reading (PRD Section 6.7, Decision D3).
+            hybrid=frozenset(
+                _enum(HybridKind, kind, f"{label} hybrid leg")
+                for kind in _require_sequence(fields.get("hybrid", []), f"{label} hybrid legs")
+            ),
         )
     except ValueError as error:
         if isinstance(error, ProfileFormatError):

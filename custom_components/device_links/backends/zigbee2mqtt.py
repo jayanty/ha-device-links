@@ -1469,6 +1469,24 @@ class ZigbeeBackend:
         """
         return self._state.version
 
+    async def async_read_indication(self, handle: DeviceHandle, emitter_id: str) -> bool | None:
+        """Report that nothing here has a per-button light this integration can address.
+
+        Not a gap so much as a different kind of hardware: a Zigbee remote's LEDs are
+        driven by its own firmware, and Zigbee2MQTT exposes no per-button indicator to
+        write. Answering None is what makes the compiler refuse hybrid leg kind (c) on this
+        protocol rather than a leg that fires forever and changes nothing.
+        """
+        del handle, emitter_id
+        return None
+
+    async def async_write_indication(
+        self, handle: DeviceHandle, emitter_id: str, lit: bool
+    ) -> bool:
+        """Report that there was nothing to write. See `async_read_indication`."""
+        del handle, emitter_id, lit
+        return False
+
     def system_scope(self) -> SystemScope:
         """Report that a Zigbee coordinator binding reserves itself and not its cluster.
 

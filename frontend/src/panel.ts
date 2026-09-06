@@ -326,6 +326,17 @@ export class DeviceLinksPanel extends LitElement {
     return typeof version === "string" && version ? version : null;
   }
 
+  /**
+   * Whether this Home Assistant allows HA-executed legs (FR-H1).
+   *
+   * Absent on an older backend and false by default, and both read the same way: the rule
+   * editor offers no hybrid opt-in. A checkbox the backend would never act on is worse
+   * than no checkbox at all.
+   */
+  get hybridAllowed(): boolean {
+    return this.panel?.config?.hybrid_legs === true;
+  }
+
   /** True when the running integration is not the one this bundle was built from. */
   get versionMismatch(): boolean {
     const backend = this.backendVersion;
@@ -375,6 +386,7 @@ export class DeviceLinksPanel extends LitElement {
         .components=${this._components}
         .narrow=${this.narrow}
         .selected=${this._selected}
+        .hybridAllowed=${this.hybridAllowed}
         @dl-navigate=${this._onNavigate}
       ></${unsafeStatic(definition.tagName)}>
     `;

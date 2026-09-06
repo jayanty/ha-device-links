@@ -5,7 +5,7 @@
     {
       "model": "ZEN35",
       "manufacturer": "Zooz",
-      "notes": "One main paddle plus four small scene buttons. Group layout captured from nodes 36 and 39. The main paddle has a real off press, so it carries no semantics marker; the four small buttons are the ones Z7 is about.",
+      "notes": "One main paddle plus four small scene buttons. Group layout captured from nodes 36 and 39. The main paddle has a real off press, so it carries no semantics marker; the four small buttons are the ones Z7 is about. The four small buttons carry scene_id and indicator_id, which hybrid legs need. Both are the button's own number, corroborated three ways by the captures: the association group labels read 'Button 2 - Pressed' (z7_button_semantics), the LED-mode parameter approved for small button 2 in the Z8 sandbox is parameter 3, one more than the button, and the Indicator CC ids node 36 reports are 67 to 71, labelled 'Button 1 indication' to 'Button 5 indication' (z8_led_path). The main paddle gets neither, because nothing captured says which of the five numbers is the paddle, and a leg that fires on the wrong button is worse than one that refuses to be made. Open item T70 is the capture that would settle the scene numbers by observation rather than by three labels agreeing.",
       "fingerprints": [
         { "manufacturer_id": 634, "product_type": 28672, "product_id": 40984 }
       ],
@@ -21,6 +21,8 @@
           "label": "Button 1",
           "kind": "button",
           "semantics": "unknown",
+          "scene_id": 1,
+          "indicator_id": 67,
           "actions": { "on_off": "5", "level_hold": "6" }
         },
         {
@@ -28,6 +30,8 @@
           "label": "Button 2",
           "kind": "button",
           "semantics": "unknown",
+          "scene_id": 2,
+          "indicator_id": 68,
           "actions": { "on_off": "7", "level_hold": "8" }
         },
         {
@@ -35,6 +39,8 @@
           "label": "Button 3",
           "kind": "button",
           "semantics": "unknown",
+          "scene_id": 3,
+          "indicator_id": 69,
           "actions": { "on_off": "9", "level_hold": "10" }
         },
         {
@@ -42,6 +48,8 @@
           "label": "Button 4",
           "kind": "button",
           "semantics": "unknown",
+          "scene_id": 4,
+          "indicator_id": 70,
           "actions": { "on_off": "11", "level_hold": "12" }
         }
       ],

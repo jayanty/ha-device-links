@@ -279,6 +279,9 @@ export class HarnessBackend {
     }
     return {
       links,
+      // The harness compiles no HA-executed legs: the option is off in it, which is the
+      // shipped default, so what it renders is what a user sees before they opt in.
+      hybrid_legs: [],
       settings:
         rule.mirror_source === "leave"
           ? []

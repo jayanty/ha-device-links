@@ -56,11 +56,17 @@ from .backends.zwave_accessor import (
     async_get_driver,
     async_get_server_version,
 )
-from .const import DEFAULT_ZIGBEE_BASE_TOPIC, DOMAIN, OPTION_ZIGBEE_BASE_TOPIC
+from .const import (
+    DEFAULT_ZIGBEE_BASE_TOPIC,
+    DOMAIN,
+    OPTION_HYBRID_LEGS,
+    OPTION_ZIGBEE_BASE_TOPIC,
+)
 from .coordinator import DeviceLinksCoordinator
 from .deployment import Deployment, read_deployment
 from .events import DeviceLinksEventBridge
 from .executor import JobRunner
+from .hybrid import HybridLegs
 from .models import Backend as BackendId
 from .models import Plan
 from .panel import async_register_panel, async_unregister_panel
@@ -147,6 +153,7 @@ class DeviceLinksRuntimeData:
     runner: JobRunner
     toggles: RuleToggleLimiter
     events: DeviceLinksEventBridge
+    hybrid: HybridLegs
     backends: dict[BackendId, Backend]
     backend_info: tuple[BackendInfo, ...]
     version: str | None
@@ -196,7 +203,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry) 
             translation_key="no_backend_loaded",
         )
 
-    coordinator = DeviceLinksCoordinator(hass, backends=backends, store=DeviceLinksStore(hass))
+    hybrid_allowed = bool(entry.options.get(OPTION_HYBRID_LEGS, False))
+    coordinator = DeviceLinksCoordinator(
+        hass,
+        backends=backends,
+        store=DeviceLinksStore(hass),
+        hybrid_allowed=hybrid_allowed,
+    )
     try:
         await coordinator.async_setup()
     except StorageSchemaError as error:
@@ -216,6 +229,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry) 
 
     events = DeviceLinksEventBridge(hass, entry, coordinator)
     runner = JobRunner(coordinator, on_finished=events.async_job_finished)
+    hybrid = HybridLegs(hass, entry, coordinator, allowed=hybrid_allowed)
     mirror = YamlMirror(hass, coordinator, MirrorSettings.from_options(entry.options))
     try:
         entry.runtime_data = DeviceLinksRuntimeData(
@@ -223,6 +237,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry) 
             runner=runner,
             toggles=RuleToggleLimiter(hass, coordinator, runner),
             events=events,
+            hybrid=hybrid,
             backends=backends,
             backend_info=backend_info,
             version=await _async_version(hass),
@@ -230,6 +245,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry) 
             profiles=profiles,
         )
         events.async_setup()
+        # After `runtime_data`, because a leg resolves devices through it, and before the
+        # platforms, so a rule's status sensor has counters to read from the first write.
+        hybrid.async_setup()
         # Before the platforms, and after `runtime_data`, because it registers a
         # coordinator listener and writes the first files from inside `async_setup`.
         mirror.async_setup(entry)
@@ -245,6 +263,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry) 
         # a platform that would not load leaves those subscriptions and the debounced
         # refresh timer running for the life of the process, and a later reload adds a
         # second set on top of them.
+        hybrid.async_shutdown()
         events.async_shutdown()
         async_unload_raw_services(hass)
         async_unregister_panel(hass)
@@ -283,6 +302,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry)
     async_unregister_panel(hass)
     async_unload_raw_services(hass)
     runtime.toggles.async_shutdown()
+    # Before the runner, for the same reason the platforms come down before everything: a
+    # leg that outlives its entry fires against a house whose owner thought they had turned
+    # it off, and it would survive a reload as a second copy of itself.
+    runtime.hybrid.async_shutdown()
     await runtime.runner.async_shutdown()
     runtime.events.async_shutdown()
     await runtime.coordinator.async_shutdown()

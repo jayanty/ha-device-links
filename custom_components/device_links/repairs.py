@@ -8,7 +8,7 @@ of issues that should exist right now, and everything of ours that is not in tha
 deleted. A condition that clears cannot leave an issue behind, because no code path
 exists that would keep one.
 
-The four:
+The five:
 
 - **E1**, a backend that stopped answering. Not "the upstream integration is missing":
   with one adapted protocol, that state fails setup with `ConfigEntryNotReady` and the
@@ -22,11 +22,16 @@ The four:
   question as "can we read it": a node that is asleep or a backend that is restarting
   makes a rule `unknown` (E4), and raising the swap-flow issue for that is how somebody
   learns to dismiss it.
+- **FR-H2**, HA-executed legs failing often enough to matter. The one failure in this
+  integration with nowhere else to be seen: a leg fires at three in the morning against a
+  house nobody is watching, so there is no dialog and no job summary to report into. The
+  counters live on the entities; this is what puts the fact in front of somebody who was
+  not looking for it.
 - **E18**, stored data that could not be read at all. The entry does not load in that
   state, so this issue is the only thing that can explain what happened, and it names the
   file so the user can move it aside.
 
-**Two of the four cannot be noticed by an event.** A queued write ages without anything
+**Two of the five cannot be noticed by an event.** A queued write ages without anything
 happening: no device answers, no state moves, nothing fires. So the checks also run on a
 timer, which is what makes "more than a day" a real threshold rather than one that only
 triggers when something else happens to change.
@@ -70,6 +75,18 @@ ISSUE_RULES_MISSING_DEVICES: Final = "rules_missing_devices"
 ISSUE_SWAP_CANDIDATE: Final = "swap_candidate"
 ISSUE_SWAP_DEVICE_CHANGED: Final = "swap_device_changed"
 ISSUE_STORAGE_UNREADABLE: Final = "storage_unreadable"
+# FR-H2: a hybrid leg that fails often enough is the one failure in this integration with
+# nowhere else to be seen. A leg fires at three in the morning against a house nobody is
+# watching, so there is no dialog and no job summary; the counters are on the entities and
+# this is what puts the fact in front of somebody who was not looking for it.
+ISSUE_HYBRID_LEGS_FAILING: Final = "hybrid_legs_failing"
+
+# What counts as "failing" for a hybrid leg. Both halves matter: a rate on its own would
+# raise an issue for one failed press out of one, and a count on its own would stay silent
+# for a leg that has failed forty times out of four thousand. A light that was rebooting
+# when a button was pressed is not a fault; a third of every press going nowhere is.
+HYBRID_ERROR_RATE: Final = 0.25
+HYBRID_ERROR_FLOOR: Final = 4
 
 # E5 says 24 hours. A battery remote that has not been touched for a day is one where
 # something is wrong with the device or with the mesh, rather than one nobody has pressed.
@@ -99,7 +116,7 @@ class _Issue:
 
 @callback
 def async_setup_repairs(hass: HomeAssistant, entry: DeviceLinksConfigEntry) -> None:
-    """Start watching for the conditions E1, E5 and E19 describe.
+    """Start watching for the conditions E1, E5, E19 and FR-H2 describe.
 
     Two triggers, because two of the conditions have no event behind them: the coordinator
     tells us whenever anything it knows changed, and the timer covers the passage of time
@@ -131,6 +148,7 @@ def async_check_issues(hass: HomeAssistant, entry: DeviceLinksConfigEntry) -> No
     # taken: two issues about one device is two things to read and one thing to do.
     replaced = _swap_candidates(runtime, wanted)
     _missing_devices(runtime, wanted, replaced)
+    _hybrid_legs(runtime, wanted)
 
     registry = ir.async_get(hass)
     existing = {issue_id for (domain, issue_id) in list(registry.issues) if domain == DOMAIN}
@@ -319,6 +337,30 @@ def _missing_devices(
             "count": str(len(rules)),
             "rules": ", ".join(sorted(rules)),
             "devices": ", ".join(sorted(devices)),
+        },
+    )
+
+
+def _hybrid_legs(runtime: DeviceLinksRuntimeData, wanted: dict[str, _Issue]) -> None:
+    """Say when Home Assistant is failing to carry the legs it took on (FR-H2).
+
+    One issue for the integration rather than one per rule: the answer is the same for
+    every one of them, and it is not "look at this rule", it is "the part of your setup
+    that depends on Home Assistant being up and reachable is not working". The rules are
+    named in the message so it can be acted on.
+    """
+    totals = runtime.hybrid.totals
+    if totals.errors < HYBRID_ERROR_FLOOR or totals.fired == 0:
+        return
+    if totals.errors / totals.fired < HYBRID_ERROR_RATE:
+        return
+    wanted[ISSUE_HYBRID_LEGS_FAILING] = _Issue(
+        translation_key=ISSUE_HYBRID_LEGS_FAILING,
+        severity=ir.IssueSeverity.WARNING,
+        placeholders={
+            "errors": str(totals.errors),
+            "fired": str(totals.fired),
+            "legs": str(totals.legs),
         },
     )
 

@@ -53,3 +53,9 @@ OPTION_YAML_MIRROR: Final = "yaml_mirror"
 # UI form point a writer, and a pruner, at any directory Home Assistant can reach.
 OPTION_YAML_MIRROR_PATH: Final = "yaml_mirror_path"
 DEFAULT_YAML_MIRROR_PATH: Final = "device_links/profiles"
+
+# Hybrid legs (FR-H1, Decision D3). Off by default and per-rule opt-in on top, because a
+# leg is Home Assistant reaching into somebody's house on a schedule nobody wrote down: it
+# is the one part of this integration that does not keep working when Home Assistant is
+# off, so it is never on because nobody looked at the options.
+OPTION_HYBRID_LEGS: Final = "hybrid_legs"

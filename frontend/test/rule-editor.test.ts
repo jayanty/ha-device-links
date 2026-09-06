@@ -33,8 +33,12 @@ async function flush(): Promise<void> {
   }
 }
 
-async function open(hass: MockHass): Promise<DeviceLinksRuleEditor> {
+async function open(
+  hass: MockHass,
+  options: { hybridAllowed?: boolean } = {},
+): Promise<DeviceLinksRuleEditor> {
   const editor = document.createElement("dl-rule-editor");
+  editor.hybridAllowed = options.hybridAllowed ?? false;
   editor.hass = hass;
   editor.api = new DeviceLinksApi(hass);
   editor.components = componentSet([]);
@@ -57,6 +61,19 @@ function text(editor: DeviceLinksRuleEditor): string {
 
 function buttons(editor: DeviceLinksRuleEditor): HTMLButtonElement[] {
   return [...(editor.shadowRoot?.querySelectorAll("button") ?? [])];
+}
+
+/** Tick the checkbox inside the label whose text contains this fragment. */
+function tick(editor: DeviceLinksRuleEditor, fragment: string): void {
+  const label = [...(editor.shadowRoot?.querySelectorAll("label") ?? [])].find((candidate) =>
+    candidate.textContent?.includes(fragment),
+  );
+  const box = label?.querySelector("input[type=checkbox]") as HTMLInputElement | null;
+  if (box === null || box === undefined) {
+    throw new Error(`no checkbox labelled ${fragment}`);
+  }
+  box.checked = true;
+  box.dispatchEvent(new Event("change"));
 }
 
 function press(editor: DeviceLinksRuleEditor, label: string): void {
@@ -119,6 +136,7 @@ describe("the rule editor", () => {
     hass.results.set(COMMANDS.rulesValidate, {
       links: [],
       settings: [],
+      hybrid_legs: [],
       warnings: [Z7],
       errors: [],
     });
@@ -139,6 +157,7 @@ describe("the rule editor", () => {
     hass.results.set(COMMANDS.rulesValidate, {
       links: [],
       settings: [],
+      hybrid_legs: [],
       warnings: [],
       errors: [
         {
@@ -164,6 +183,7 @@ describe("the rule editor", () => {
     hass.results.set(COMMANDS.rulesValidate, {
       links: [],
       settings: [],
+      hybrid_legs: [],
       warnings: [],
       errors: [],
     });
@@ -187,6 +207,7 @@ describe("the rule editor", () => {
     hass.results.set(COMMANDS.rulesValidate, {
       links: [],
       settings: [],
+      hybrid_legs: [],
       warnings: [],
       errors: [],
     });
@@ -264,6 +285,105 @@ async function settle(editor: DeviceLinksRuleEditor): Promise<void> {
   await editor.updateComplete;
 }
 
+describe("the HA-executed opt-ins", () => {
+  it("offers nothing at all while the integration option is off", async () => {
+    const hass = mockHass();
+    hass.results.set(COMMANDS.devicesGet, deviceDetail());
+    const editor = await open(hass);
+
+    press(editor, "Next");
+    await editor.updateComplete;
+    press(editor, "Next");
+    await editor.updateComplete;
+    press(editor, "Next");
+    await editor.updateComplete;
+    await flush();
+    await editor.updateComplete;
+
+    // FR-H1's first gate. A checkbox the backend would never register is a promise the
+    // product does not keep, so it is absent rather than greyed.
+    expect(text(editor)).not.toContain("HA-executed");
+  });
+
+  it("labels every opt-in HA-executed and puts the chosen ones on the rule", async () => {
+    const hass = mockHass();
+    hass.results.set(COMMANDS.devicesGet, deviceDetail());
+    hass.results.set(COMMANDS.rulesValidate, {
+      links: [],
+      settings: [],
+      hybrid_legs: [],
+      warnings: [],
+      errors: [],
+    });
+    const editor = await open(hass, { hybridAllowed: true });
+
+    for (let step = 0; step < 3; step += 1) {
+      press(editor, "Next");
+      await editor.updateComplete;
+      await flush();
+      await editor.updateComplete;
+    }
+
+    expect(text(editor)).toContain("HA-executed");
+    expect(text(editor)).toContain("Only pass off, never on");
+    tick(editor, "Only pass off, never on");
+    await editor.updateComplete;
+
+    press(editor, "Next");
+    await editor.updateComplete;
+    await flush();
+    await editor.updateComplete;
+    press(editor, "Save");
+    await flush();
+
+    const upsert = hass.sent.find((message) => message.type === COMMANDS.rulesUpsert);
+    if (upsert === undefined) {
+      throw new Error("the editor saved nothing");
+    }
+    expect((upsert.rule as RuleData).hybrid).toEqual(["off_only"]);
+  });
+
+  it("renders a compiled leg under its own heading, never as a link", async () => {
+    const hass = mockHass();
+    hass.results.set(COMMANDS.devicesGet, deviceDetail());
+    hass.results.set(COMMANDS.rulesValidate, {
+      links: [],
+      settings: [],
+      hybrid_legs: [
+        {
+          identity: "off_only|zwave:home:36|button_2|on_off|zwave:home:38|",
+          kind: "off_only",
+          rule_id: "rule-1",
+          feature: "on_off",
+          emitter_id: "button_2",
+          source: {
+            identity: "zwave:home:36",
+            name: "Bedroom Scene Controller",
+            device_id: "ha36",
+          },
+          target: {
+            identity: "zwave:home:38",
+            name: "Bedside Light L",
+            device_id: "ha38",
+            endpoint: null,
+          },
+          scene_id: 2,
+          indicator_id: null,
+        },
+      ],
+      warnings: [],
+      errors: [],
+    });
+    const editor = await open(hass, { hybridAllowed: true });
+    await toReview(editor);
+
+    const rendered = text(editor);
+    expect(rendered).toContain("1 HA-executed leg");
+    expect(rendered).toContain("stop working while Home Assistant is off");
+    expect(rendered).toContain("Bedside Light L");
+  });
+});
+
 describe("the payload the rule editor sends", () => {
   it("takes the source endpoint from the control and the target endpoint from the device", async () => {
     const hass = mockHass();
@@ -271,6 +391,7 @@ describe("the payload the rule editor sends", () => {
     hass.results.set(COMMANDS.rulesValidate, {
       links: [],
       settings: [],
+      hybrid_legs: [],
       warnings: [],
       errors: [],
     });

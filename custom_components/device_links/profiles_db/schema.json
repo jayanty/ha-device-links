@@ -173,6 +173,22 @@
             null
           ],
           "description": "Set to 'unknown' when what this control sends on a press is not established as a fixed OFF, which makes the Off-all template unsafe on it. See Stage 0 item Z7. This set is closed because each marker needs matching compiler support."
+        },
+        "scene_id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "The Central Scene number this control reports over the lifeline when it is pressed. Needed only by hybrid legs of kinds (a) and (b), which trigger on a press; a control without one refuses those legs rather than firing on a guessed number. Curated, because association group information does not carry it."
+        },
+        "indicator_id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "The Indicator CC id of this control's own little light, property 2 (binary). Needed only by hybrid leg kind (c), which makes a scene button's LED follow a light in another room. Indicator sets do not touch device NVM, which is why they are used rather than the LED-mode configuration parameters (tests/fixtures/z8_led_path.json)."
         }
       }
     },

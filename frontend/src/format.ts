@@ -17,6 +17,8 @@
 import type {
   Backend,
   Feature,
+  HybridKind,
+  HybridLegRow,
   JobStatus,
   LinkEndpoint,
   LinkOutcome,
@@ -250,6 +252,32 @@ export function describeLink(link: LinkRow): string {
   return `${featureLabel(link.feature)} from ${endpointName(link.source)} group ${
     link.emitter_group
   } to ${endpointName(link.target)}`;
+}
+
+/** How each HA-executed leg reads, in the words the checkbox that created it used. */
+const HYBRID_SENTENCES: Record<HybridKind, string> = {
+  on_only: "turns on, and never off",
+  off_only: "turns off, and never on",
+  self_load: "turns off this device's own load",
+  button_led: "keeps this button's LED in sync with",
+};
+
+/**
+ * One HA-executed leg, said as what Home Assistant will do rather than as a link.
+ *
+ * Deliberately a different sentence shape from `describeLink`. A link is written into a
+ * device; a leg is Home Assistant standing in for a wire, and a reader who cannot tell the
+ * two apart at a glance cannot tell which half of their rule survives a restart.
+ */
+export function describeHybridLeg(leg: HybridLegRow): string {
+  const control = `${leg.source.name} ${leg.emitter_id}`;
+  if (leg.kind === "self_load") {
+    return `When ${control} is pressed, Home Assistant ${HYBRID_SENTENCES[leg.kind]}`;
+  }
+  if (leg.kind === "button_led") {
+    return `Home Assistant ${HYBRID_SENTENCES[leg.kind]} ${leg.target.name}, on ${control}`;
+  }
+  return `When ${control} is pressed, Home Assistant ${HYBRID_SENTENCES[leg.kind]} ${leg.target.name}`;
 }
 
 /**

@@ -160,6 +160,13 @@ class DeviceLinksHealthSensor(DeviceLinksEntity, SensorEntity):
                 "last_at": jobs[-1].created_at if jobs else None,
             },
             "last_error": self.coordinator.last_error,
+            # PRD Section 6.6 asks the Health sensor for the hybrid-leg counters, and this
+            # is the one place a remote session can see that Home Assistant is standing in
+            # for a wire somewhere in this house, and how often it has failed to.
+            "hybrid": {
+                "allowed": self.runtime.hybrid.allowed,
+                **self.runtime.hybrid.totals.as_attributes(),
+            },
         }
 
     @property
@@ -280,4 +287,11 @@ class RuleStatusSensor(RuleEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the counts that make a drifted rule actionable rather than alarming."""
         total, in_sync = self.coordinator.rule_link_counts(self.rule.id)
-        return {"links_total": total, "links_in_sync": in_sync, "rule_id": self.rule.id}
+        return {
+            "links_total": total,
+            "links_in_sync": in_sync,
+            "rule_id": self.rule.id,
+            # FR-H2. Zeroes for a rule with no HA-executed leg, which is most of them, and
+            # a count that only moves when Home Assistant did something a radio could not.
+            **self.runtime.hybrid.status_for(self.rule.id).as_attributes(),
+        }

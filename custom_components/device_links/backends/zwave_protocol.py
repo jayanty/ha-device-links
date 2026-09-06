@@ -373,6 +373,11 @@ def _curated_emitter(
         is_lifeline=False,
         grouping=GROUPING_PROFILE_DB,
         semantics=emitter.semantics,
+        # Only a curated entry can answer these: neither the scene number a button reports
+        # nor the id of the little light on it is discoverable from association group
+        # information, so a derived emitter leaves both None and refuses hybrid legs.
+        scene_id=emitter.scene_id,
+        indicator_id=emitter.indicator_id,
     )
 
 

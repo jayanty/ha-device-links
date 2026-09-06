@@ -155,6 +155,7 @@ export class DeviceLinksRules extends DeviceLinksView {
         .devices=${this._devices}
         .rule=${this._editing}
         .initialTemplate=${this._editorTemplate}
+        .hybridAllowed=${this.hybridAllowed}
         @dl-editor-closed=${this._closeEditor}
         @dl-rule-saved=${this._onSaved}
       ></dl-rule-editor>

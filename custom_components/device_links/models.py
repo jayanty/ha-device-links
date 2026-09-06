@@ -231,6 +231,12 @@ class Emitter:
     will name its own. It has no default, for the same reason `ObservedLink.is_system` has
     none: a default is one protocol's answer quietly given for another's, which is exactly
     the bug this field was added to fix (docs/open-items.md T48).
+
+    `scene_id` and `indicator_id` are what a hybrid leg needs and nothing else uses: the
+    scene number this control reports over the lifeline when it is pressed, and the button
+    indication that lights up on it. Both default to None, which means "this device has not
+    said", and a leg that needs one and finds None refuses to compile rather than guessing a
+    number and firing on somebody else's button.
     """
 
     emitter_id: str
@@ -243,6 +249,8 @@ class Emitter:
     is_lifeline: bool
     grouping: str
     semantics: str | None = None
+    scene_id: int | None = None
+    indicator_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,6 +318,38 @@ class MirrorChoice(StrEnum):
     LEAVE = "leave"
 
 
+class HybridKind(StrEnum):
+    """One thing a rule asks for that no radio can carry, so Home Assistant carries it.
+
+    PRD Section 6.7 names three, and the first is two here because on-only and off-only are
+    opposite intents rather than one option with a direction: a rule asking for both would
+    be asking for the plain association it already has.
+
+    - `ON_ONLY` and `OFF_ONLY` (kind a): an association group and a bound cluster both carry
+      on and off together, so half of one cannot be written.
+    - `SELF_LOAD` (kind b): a node cannot be a member of its own association group
+      (`Forbidden_SelfAssociation`), so a scene button cannot drive its own load.
+    - `BUTTON_LED` (kind c): a Zooz scene controller has no per-button endpoint an
+      association could address, so nothing on the radio can make button 3's LED follow a
+      light in another room.
+
+    Every one of these is executed by Home Assistant and is labelled so on every screen
+    (Decision D3). They stop working while Home Assistant is down; the native legs of the
+    same rule do not.
+    """
+
+    ON_ONLY = "on_only"
+    OFF_ONLY = "off_only"
+    SELF_LOAD = "self_load"
+    BUTTON_LED = "button_led"
+
+
+# The two that contradict each other. Asking for both is asking for a link that carries on
+# and off, which is what an association already is, so it is refused rather than compiled
+# into two legs that undo each other.
+_OPPOSITE_HYBRID_KINDS: Final = frozenset({HybridKind.ON_ONLY, HybridKind.OFF_ONLY})
+
+
 @dataclass(frozen=True, slots=True)
 class RuleSource:
     """The control a rule starts from: a device, an endpoint, and one of its emitters."""
@@ -346,6 +386,7 @@ class Rule:
     direction: Direction = Direction.ONE_WAY
     mirror_source: MirrorChoice = MirrorChoice.LEAVE
     enabled: bool = True
+    hybrid: frozenset[HybridKind] = frozenset()
 
     def __post_init__(self) -> None:
         """Reject a rule that could not compile into a single link."""
@@ -353,6 +394,11 @@ class Rule:
             raise ValueError(f"rule {self.id} needs at least one target")
         if not self.features:
             raise ValueError(f"rule {self.id} needs at least one feature")
+        if self.hybrid >= _OPPOSITE_HYBRID_KINDS:
+            raise ValueError(
+                f"rule {self.id} asks for on-only and off-only propagation at once, which "
+                "is the plain association it would have had anyway"
+            )
         seen: set[RuleTarget] = set()
         for target in self.targets:
             if target in seen:
@@ -424,18 +470,47 @@ class SettingWrite:
 
 @dataclass(frozen=True, slots=True)
 class HybridLeg:
-    """A leg of a rule no link can express, which an automation has to carry instead.
+    """A leg of a rule no link can express, which Home Assistant carries instead.
 
-    Decision D3 puts hybrid legs in Phase 2, so nothing compiles one yet. The type exists
-    because `CompiledRule` reports them, and a rule that needs one has to be able to say so
-    without the result type changing shape later.
+    `source` is the device the leg is authored on and `target` is the device it acts on or
+    watches, which for `SELF_LOAD` is the source itself: that is the whole of kind (b), and
+    it is why this type is not a `Link` (a link refuses to name one device twice).
+
+    `scene_id` is the button press this leg triggers on, and `indicator_id` is the button
+    indication it writes, both taken from the device's own capabilities rather than
+    invented here. Either being None where the kind needs it is what makes a leg refuse to
+    compile: a leg that fired on the wrong button would be worse than one that did not fire.
     """
 
     rule_id: str
+    kind: HybridKind
     source: DeviceHandle
     emitter_id: str
     feature: Feature
     target: LinkTarget
+    scene_id: int | None = None
+    indicator_id: int | None = None
+
+    @property
+    def identity(self) -> str:
+        """The leg's identity: what it is, on which control, about which device.
+
+        A plain string, for the same reason `Link.fingerprint` is one: it keys the firing
+        counters, it survives a restart, and it is readable in diagnostics. It does not
+        carry the rule, because a leg moved between rules is the same leg to the device.
+        """
+        endpoint = "" if self.target.endpoint is None else str(self.target.endpoint)
+        return _SEPARATOR.join(
+            _escaped(part)
+            for part in (
+                str(self.kind),
+                self.source.identity,
+                self.emitter_id,
+                str(self.feature),
+                self.target.handle.identity,
+                endpoint,
+            )
+        )
 
 
 class PlanOp(StrEnum):

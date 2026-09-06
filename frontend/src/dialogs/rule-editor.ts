@@ -37,6 +37,7 @@ import "../components/dialog";
 import { renderIcon } from "../components/icon";
 import {
   backendLabel,
+  describeHybridLeg,
   describeLink,
   emitterUsage,
   featureIcon,
@@ -56,6 +57,7 @@ import type {
   DeviceRow,
   Emitter,
   Feature,
+  HybridKind,
   MirrorChoice,
   RuleData,
   TemplateId,
@@ -111,6 +113,50 @@ const TEMPLATE_DEFAULTS: Record<
   status_feedback: { features: ["status_report"], direction: "one_way", mirror: "leave" },
   custom: { features: ["on_off"], direction: "one_way", mirror: "leave" },
 };
+
+/**
+ * The three HA-executed opt-ins, in the words the user meets them in (PRD Section 6.7).
+ *
+ * `needs` is what the chosen control must report before an opt-in can be offered at all: a
+ * scene number for the two that react to a press, an indicator id for the one that lights a
+ * button. Offering a tick box the compiler would refuse is worse than offering none, so a
+ * control that cannot carry a leg does not get the choice.
+ *
+ * Every label says what it does and every help line says the cost, in the same sentence,
+ * because the cost is the whole point of Decision D3: this part runs in Home Assistant, and
+ * it stops when Home Assistant stops.
+ */
+const HYBRID_CHOICES: {
+  value: HybridKind;
+  needs: "scene_id" | "indicator_id";
+  label: string;
+  help: string;
+}[] = [
+  {
+    value: "on_only",
+    needs: "scene_id",
+    label: "Only pass on, never off",
+    help: "An association carries on and off together, so Home Assistant does this part: it hears the button press and turns the targets on.",
+  },
+  {
+    value: "off_only",
+    needs: "scene_id",
+    label: "Only pass off, never on",
+    help: "The same the other way round. Home Assistant hears the press and turns the targets off.",
+  },
+  {
+    value: "self_load",
+    needs: "scene_id",
+    label: "Also turn off this device's own load",
+    help: "A device cannot be in its own association group, so Home Assistant turns this device's own load off when the button is pressed. Add the device to the targets as well.",
+  },
+  {
+    value: "button_led",
+    needs: "indicator_id",
+    label: "Keep this button's LED in sync with the target",
+    help: "Nothing on the radio can address one button's LED, so Home Assistant watches the target and lights the button to match.",
+  },
+];
 
 const MIRROR_CHOICES: { value: MirrorChoice; label: string; help: string }[] = [
   {
@@ -193,6 +239,15 @@ export class DeviceLinksRuleEditor extends LitElement {
    * the step says what that means, and one of the six is now chosen for them.
    */
   @property({ attribute: false }) initialTemplate: TemplateId | null = null;
+
+  /**
+   * Whether this Home Assistant allows HA-executed legs at all (FR-H1).
+   *
+   * The global half of Decision D3's two gates, from the panel config. False hides the
+   * whole section rather than greying it: an opt-in nothing would ever register is not a
+   * choice, it is a promise the product does not keep.
+   */
+  @property({ type: Boolean }) hybridAllowed = false;
 
   @state() private _draft: RuleDraft | null = null;
 
@@ -737,7 +792,88 @@ export class DeviceLinksRuleEditor extends LitElement {
         `,
       )}
       ${this._renderSettingPreview()}
+      ${this._renderHybridSection(draft)}
     `;
+  }
+
+  /**
+   * The HA-executed opt-ins, which are the one place this product bends local-first.
+   *
+   * Hidden entirely unless the integration's own option is on, and hidden per choice unless
+   * the chosen control can carry it. What is never hidden is the label: every leg is called
+   * HA-executed here, in the review step, and in the plan, so nobody has to work out which
+   * half of their rule stops when Home Assistant does.
+   */
+  private _renderHybridSection(draft: RuleDraft): TemplateResult | typeof nothing {
+    if (!this.hybridAllowed) {
+      return nothing;
+    }
+    const emitter = this._selectedEmitter(draft);
+    const offered = HYBRID_CHOICES.filter(
+      (choice) => emitter !== null && emitter[choice.needs] !== null,
+    );
+    return html`
+      <h3 style="margin-top: 16px">
+        Run in Home Assistant <span class="chip warn">HA-executed</span>
+      </h3>
+      <p class="secondary">
+        These are the parts no radio can carry. Home Assistant does them, so they stop
+        working while Home Assistant is off or restarting. The rest of this rule is written
+        into the devices and keeps working either way.
+      </p>
+      ${
+        offered.length === 0
+          ? html`<p class="secondary">
+            ${
+              emitter === null
+                ? "Choose a control first."
+                : `${emitter.label} does not report a scene number or a button LED that Device Links knows how to use, so none of these can be offered for it.`
+            }
+          </p>`
+          : offered.map((choice) => this._renderHybridChoice(draft, choice))
+      }
+    `;
+  }
+
+  private _renderHybridChoice(
+    draft: RuleDraft,
+    choice: (typeof HYBRID_CHOICES)[number],
+  ): TemplateResult {
+    // On-only and off-only are opposite intents rather than one option with a direction,
+    // and the backend refuses a rule that asks for both, so ticking one unticks the other
+    // here rather than letting a save be refused for a reason nobody can see.
+    const opposite: Partial<Record<HybridKind, HybridKind>> = {
+      on_only: "off_only",
+      off_only: "on_only",
+    };
+    return html`
+      <label class="choice">
+        <input
+          type="checkbox"
+          .checked=${draft.hybrid.includes(choice.value)}
+          @change=${(event: Event) =>
+            this._toggleHybrid(choice.value, opposite[choice.value], event)}
+        />
+        <span>
+          <span>${choice.label}</span>
+          <span class="chip warn">HA-executed</span>
+          <span class="secondary" style="display: block">${choice.help}</span>
+        </span>
+      </label>
+    `;
+  }
+
+  private _toggleHybrid(kind: HybridKind, opposite: HybridKind | undefined, event: Event): void {
+    const draft = this._draft;
+    if (draft === null) {
+      return;
+    }
+    const checked = (event.target as HTMLInputElement).checked;
+    const hybrid = draft.hybrid.filter((existing) => existing !== kind && existing !== opposite);
+    if (checked) {
+      hybrid.push(kind);
+    }
+    this._update({ hybrid });
   }
 
   /** The exact parameter a mirror choice writes, taken from the compiler rather than guessed. */
@@ -817,7 +953,10 @@ export class DeviceLinksRuleEditor extends LitElement {
 
   private _renderCompiled(compiled: CompiledRule): TemplateResult {
     if (compiled.links.length === 0) {
-      return html`<p>No links.</p>`;
+      return html`
+        <p>No links written to devices.</p>
+        ${this._renderHybridLegs(compiled)}
+      `;
     }
     return html`
       <h3>${plural(compiled.links.length, "link")}</h3>
@@ -840,6 +979,36 @@ export class DeviceLinksRuleEditor extends LitElement {
             </ul>
           `
       }
+      ${this._renderHybridLegs(compiled)}
+    `;
+  }
+
+  /**
+   * What Home Assistant will carry for this rule, under its own heading and its own label.
+   *
+   * Never mixed into the link list. A link is written into a device and survives Home
+   * Assistant being off; a leg is a listener that does not. Showing them in one list would
+   * be exactly the blurring Decision D3 says must not happen quietly.
+   */
+  private _renderHybridLegs(compiled: CompiledRule): TemplateResult | typeof nothing {
+    if (compiled.hybrid_legs.length === 0) {
+      return nothing;
+    }
+    return html`
+      <h3 style="margin-top: 12px">
+        ${plural(compiled.hybrid_legs.length, "HA-executed leg")}
+      </h3>
+      <p class="secondary">
+        Run by Home Assistant, not written to a device. These stop working while Home
+        Assistant is off; everything above keeps working.
+      </p>
+      <ul class="list">
+        ${compiled.hybrid_legs.map(
+          (leg) => html`<li>
+            <span class="chip warn">HA-executed</span> ${describeHybridLeg(leg)}
+          </li>`,
+        )}
+      </ul>
     `;
   }
 
@@ -1007,6 +1176,7 @@ export class DeviceLinksRuleEditor extends LitElement {
         direction: defaults.direction,
         mirror_source: defaults.mirror,
         features: [...defaults.features],
+        hybrid: [],
         source: { device: "", endpoint: null, emitter_id: "" },
         targets: [],
       };
@@ -1016,6 +1186,10 @@ export class DeviceLinksRuleEditor extends LitElement {
     this._draft = {
       ...this.rule,
       features: [...this.rule.features],
+      // Defaulted rather than assumed present: a rule stored before hybrid legs existed
+      // arrives without the key, and a draft with an undefined list would throw on the
+      // first render of the section rather than showing nothing ticked.
+      hybrid: [...(this.rule.hybrid ?? [])],
       targets: [...this.rule.targets],
     };
     this._step = "template";

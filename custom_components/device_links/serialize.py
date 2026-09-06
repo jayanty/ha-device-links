@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.core import HomeAssistant, callback
 
 from .coordinator import RuleState
-from .models import Diagnostic, Link, ObservedLink, PlanOp
+from .models import Diagnostic, HybridLeg, Link, ObservedLink, PlanOp
 from .rule_entity import async_upstream_device
 from .yaml_io import rule_to_data
 
@@ -136,6 +136,11 @@ class Serializer:
             "is_lifeline": emitter.is_lifeline,
             "grouping": emitter.grouping,
             "semantics": emitter.semantics,
+            # What a hybrid leg on this control would need. The rule editor reads them to
+            # decide which of the three checkboxes it may offer at all, so that a user is
+            # never shown an opt-in the compiler will refuse (PRD Section 6.7).
+            "scene_id": emitter.scene_id,
+            "indicator_id": emitter.indicator_id,
         }
 
     # Links.
@@ -260,8 +265,41 @@ class Serializer:
         return {
             "links": [self.link(link) for link in compiled.links],
             "settings": [self.setting(setting) for setting in compiled.settings],
+            "hybrid_legs": [self.hybrid_leg(leg) for leg in compiled.hybrid_legs],
             "warnings": [diagnostic(warning) for warning in compiled.warnings],
             "errors": [diagnostic(error) for error in compiled.errors],
+        }
+
+    @callback
+    def hybrid_leg(self, leg: HybridLeg) -> dict[str, Any]:
+        """Return one HA-executed leg, said as what it is rather than as a link.
+
+        A separate shape from `link` on purpose, and the reason is the product's honesty
+        rather than the data: a leg is not written to a device, it is a listener inside
+        Home Assistant, and rendering one in the same list as the association entries would
+        blur exactly the boundary Decision D3 says has to stay visible. Every screen that
+        shows one of these labels it HA-executed, and it can only do that if the payload
+        never let it be mistaken for a device write in the first place.
+        """
+        return {
+            "identity": leg.identity,
+            "kind": str(leg.kind),
+            "rule_id": leg.rule_id,
+            "feature": str(leg.feature),
+            "emitter_id": leg.emitter_id,
+            "source": {
+                "identity": leg.source.identity,
+                "name": leg.source.name_at_authoring,
+                "device_id": self.device_id(leg.source),
+            },
+            "target": {
+                "identity": leg.target.handle.identity,
+                "name": leg.target.handle.name_at_authoring,
+                "device_id": self.device_id(leg.target.handle),
+                "endpoint": leg.target.endpoint,
+            },
+            "scene_id": leg.scene_id,
+            "indicator_id": leg.indicator_id,
         }
 
     @callback

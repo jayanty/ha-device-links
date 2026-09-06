@@ -50,6 +50,8 @@ def test_the_protocol_is_runtime_checkable_and_names_the_expected_surface() -> N
         "async_remove_link",
         "async_read_setting",
         "async_write_setting",
+        "async_read_indication",
+        "async_write_indication",
         "subscribe",
         "wake_instructions",
         "system_scope",
@@ -182,6 +184,14 @@ class _StubBackend:
         self, handle: DeviceHandle, capability: str, value: int
     ) -> SettingResult:
         return SettingResult(ok=False, reason=Diagnostic("settings_not_available"))
+
+    async def async_read_indication(self, handle: DeviceHandle, emitter_id: str) -> bool | None:
+        return None
+
+    async def async_write_indication(
+        self, handle: DeviceHandle, emitter_id: str, lit: bool
+    ) -> bool:
+        return False
 
     def subscribe(self, callback: Callable[[str], None]) -> Callable[[], None]:
         return lambda: None

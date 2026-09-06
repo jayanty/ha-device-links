@@ -189,6 +189,14 @@ class RecordingBackend:
     def subscribe(self, callback: Callable[[str], None]) -> Callable[[], None]:
         return self.inner.subscribe(callback)
 
+    async def async_read_indication(self, handle: DeviceHandle, emitter_id: str) -> bool | None:
+        return await self.inner.async_read_indication(handle, emitter_id)
+
+    async def async_write_indication(
+        self, handle: DeviceHandle, emitter_id: str, lit: bool
+    ) -> bool:
+        return await self.inner.async_write_indication(handle, emitter_id, lit)
+
     def system_scope(self) -> SystemScope:
         return self.inner.system_scope()
 

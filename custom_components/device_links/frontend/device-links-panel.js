@@ -29,7 +29,7 @@ var e = globalThis, t = e.ShadowRoot && (e.ShadyCSS === void 0 || e.ShadyCSS.nat
 	let t = "";
 	for (let n of e.cssRules) t += n.cssText;
 	return a(t);
-})(e) : e, { is: l, defineProperty: u, getOwnPropertyDescriptor: ee, getOwnPropertyNames: te, getOwnPropertySymbols: ne, getPrototypeOf: re } = Object, ie = globalThis, ae = ie.trustedTypes, oe = ae ? ae.emptyScript : "", se = ie.reactiveElementPolyfillSupport, d = (e, t) => e, f = {
+})(e) : e, { is: l, defineProperty: u, getOwnPropertyDescriptor: ee, getOwnPropertyNames: te, getOwnPropertySymbols: ne, getPrototypeOf: re } = Object, ie = globalThis, ae = ie.trustedTypes, oe = ae ? ae.emptyScript : "", se = ie.reactiveElementPolyfillSupport, d = (e, t) => e, ce = {
 	toAttribute(e, t) {
 		switch (t) {
 			case Boolean:
@@ -58,23 +58,23 @@ var e = globalThis, t = e.ShadowRoot && (e.ShadyCSS === void 0 || e.ShadyCSS.nat
 		}
 		return n;
 	}
-}, ce = (e, t) => !l(e, t), le = {
+}, le = (e, t) => !l(e, t), ue = {
 	attribute: !0,
 	type: String,
-	converter: f,
+	converter: ce,
 	reflect: !1,
 	useDefault: !1,
-	hasChanged: ce
+	hasChanged: le
 };
 Symbol.metadata ??= Symbol("metadata"), ie.litPropertyMetadata ??= /* @__PURE__ */ new WeakMap();
-var p = class extends HTMLElement {
+var f = class extends HTMLElement {
 	static addInitializer(e) {
 		this._$Ei(), (this.l ??= []).push(e);
 	}
 	static get observedAttributes() {
 		return this.finalize(), this._$Eh && [...this._$Eh.keys()];
 	}
-	static createProperty(e, t = le) {
+	static createProperty(e, t = ue) {
 		if (t.state && (t.attribute = !1), this._$Ei(), this.prototype.hasOwnProperty(e) && ((t = Object.create(t)).wrapped = !0), this.elementProperties.set(e, t), !t.noAccessor) {
 			let n = Symbol(), r = this.getPropertyDescriptor(e, n, t);
 			r !== void 0 && u(this.prototype, e, r);
@@ -100,7 +100,7 @@ var p = class extends HTMLElement {
 		};
 	}
 	static getPropertyOptions(e) {
-		return this.elementProperties.get(e) ?? le;
+		return this.elementProperties.get(e) ?? ue;
 	}
 	static _$Ei() {
 		if (this.hasOwnProperty(d("elementProperties"))) return;
@@ -171,14 +171,14 @@ var p = class extends HTMLElement {
 	_$ET(e, t) {
 		let n = this.constructor.elementProperties.get(e), r = this.constructor._$Eu(e, n);
 		if (r !== void 0 && !0 === n.reflect) {
-			let i = (n.converter?.toAttribute === void 0 ? f : n.converter).toAttribute(t, n.type);
+			let i = (n.converter?.toAttribute === void 0 ? ce : n.converter).toAttribute(t, n.type);
 			this._$Em = e, i == null ? this.removeAttribute(r) : this.setAttribute(r, i), this._$Em = null;
 		}
 	}
 	_$AK(e, t) {
 		let n = this.constructor, r = n._$Eh.get(e);
 		if (r !== void 0 && this._$Em !== r) {
-			let e = n.getPropertyOptions(r), i = typeof e.converter == "function" ? { fromAttribute: e.converter } : e.converter?.fromAttribute === void 0 ? f : e.converter;
+			let e = n.getPropertyOptions(r), i = typeof e.converter == "function" ? { fromAttribute: e.converter } : e.converter?.fromAttribute === void 0 ? ce : e.converter;
 			this._$Em = r;
 			let a = i.fromAttribute(t, e.type);
 			this[r] = a ?? this._$Ej?.get(r) ?? a, this._$Em = null;
@@ -187,7 +187,7 @@ var p = class extends HTMLElement {
 	requestUpdate(e, t, n, r = !1, i) {
 		if (e !== void 0) {
 			let a = this.constructor;
-			if (!1 === r && (i = this[e]), n ??= a.getPropertyOptions(e), !((n.hasChanged ?? ce)(i, t) || n.useDefault && n.reflect && i === this._$Ej?.get(e) && !this.hasAttribute(a._$Eu(e, n)))) return;
+			if (!1 === r && (i = this[e]), n ??= a.getPropertyOptions(e), !((n.hasChanged ?? le)(i, t) || n.useDefault && n.reflect && i === this._$Ej?.get(e) && !this.hasAttribute(a._$Eu(e, n)))) return;
 			this.C(e, t, n);
 		}
 		!1 === this.isUpdatePending && (this._$ES = this._$EP());
@@ -251,89 +251,89 @@ var p = class extends HTMLElement {
 	updated(e) {}
 	firstUpdated(e) {}
 };
-p.elementStyles = [], p.shadowRootOptions = { mode: "open" }, p[d("elementProperties")] = /* @__PURE__ */ new Map(), p[d("finalized")] = /* @__PURE__ */ new Map(), se?.({ ReactiveElement: p }), (ie.reactiveElementVersions ??= []).push("2.1.2");
+f.elementStyles = [], f.shadowRootOptions = { mode: "open" }, f[d("elementProperties")] = /* @__PURE__ */ new Map(), f[d("finalized")] = /* @__PURE__ */ new Map(), se?.({ ReactiveElement: f }), (ie.reactiveElementVersions ??= []).push("2.1.2");
 //#endregion
 //#region node_modules/lit-html/lit-html.js
-var ue = globalThis, de = (e) => e, m = ue.trustedTypes, fe = m ? m.createPolicy("lit-html", { createHTML: (e) => e }) : void 0, pe = "$lit$", h = `lit$${Math.random().toFixed(9).slice(2)}$`, me = "?" + h, he = `<${me}>`, g = document, _ = () => g.createComment(""), v = (e) => e === null || typeof e != "object" && typeof e != "function", ge = Array.isArray, _e = (e) => ge(e) || typeof e?.[Symbol.iterator] == "function", ve = "[ 	\n\f\r]", y = /<(?:(!--|\/[^a-zA-Z])|(\/?[a-zA-Z][^>\s]*)|(\/?$))/g, ye = /-->/g, be = />/g, b = RegExp(`>|${ve}(?:([^\\s"'>=/]+)(${ve}*=${ve}*(?:[^ \t\n\f\r"'\`<>=]|("|')|))|$)`, "g"), xe = /'/g, Se = /"/g, Ce = /^(?:script|style|textarea|title)$/i, x = ((e) => (t, ...n) => ({
+var de = globalThis, fe = (e) => e, p = de.trustedTypes, pe = p ? p.createPolicy("lit-html", { createHTML: (e) => e }) : void 0, me = "$lit$", m = `lit$${Math.random().toFixed(9).slice(2)}$`, he = "?" + m, ge = `<${he}>`, h = document, g = () => h.createComment(""), _ = (e) => e === null || typeof e != "object" && typeof e != "function", _e = Array.isArray, ve = (e) => _e(e) || typeof e?.[Symbol.iterator] == "function", ye = "[ 	\n\f\r]", v = /<(?:(!--|\/[^a-zA-Z])|(\/?[a-zA-Z][^>\s]*)|(\/?$))/g, be = /-->/g, xe = />/g, y = RegExp(`>|${ye}(?:([^\\s"'>=/]+)(${ye}*=${ye}*(?:[^ \t\n\f\r"'\`<>=]|("|')|))|$)`, "g"), Se = /'/g, Ce = /"/g, we = /^(?:script|style|textarea|title)$/i, b = ((e) => (t, ...n) => ({
 	_$litType$: e,
 	strings: t,
 	values: n
-}))(1), S = Symbol.for("lit-noChange"), C = Symbol.for("lit-nothing"), we = /* @__PURE__ */ new WeakMap(), w = g.createTreeWalker(g, 129);
-function Te(e, t) {
-	if (!ge(e) || !e.hasOwnProperty("raw")) throw Error("invalid template strings array");
-	return fe === void 0 ? t : fe.createHTML(t);
+}))(1), x = Symbol.for("lit-noChange"), S = Symbol.for("lit-nothing"), Te = /* @__PURE__ */ new WeakMap(), C = h.createTreeWalker(h, 129);
+function Ee(e, t) {
+	if (!_e(e) || !e.hasOwnProperty("raw")) throw Error("invalid template strings array");
+	return pe === void 0 ? t : pe.createHTML(t);
 }
-var Ee = (e, t) => {
-	let n = e.length - 1, r = [], i, a = t === 2 ? "<svg>" : t === 3 ? "<math>" : "", o = y;
+var De = (e, t) => {
+	let n = e.length - 1, r = [], i, a = t === 2 ? "<svg>" : t === 3 ? "<math>" : "", o = v;
 	for (let t = 0; t < n; t++) {
 		let n = e[t], s, c, l = -1, u = 0;
-		for (; u < n.length && (o.lastIndex = u, c = o.exec(n), c !== null);) u = o.lastIndex, o === y ? c[1] === "!--" ? o = ye : c[1] === void 0 ? c[2] === void 0 ? c[3] !== void 0 && (o = b) : (Ce.test(c[2]) && (i = RegExp("</" + c[2], "g")), o = b) : o = be : o === b ? c[0] === ">" ? (o = i ?? y, l = -1) : c[1] === void 0 ? l = -2 : (l = o.lastIndex - c[2].length, s = c[1], o = c[3] === void 0 ? b : c[3] === "\"" ? Se : xe) : o === Se || o === xe ? o = b : o === ye || o === be ? o = y : (o = b, i = void 0);
-		let ee = o === b && e[t + 1].startsWith("/>") ? " " : "";
-		a += o === y ? n + he : l >= 0 ? (r.push(s), n.slice(0, l) + pe + n.slice(l) + h + ee) : n + h + (l === -2 ? t : ee);
+		for (; u < n.length && (o.lastIndex = u, c = o.exec(n), c !== null);) u = o.lastIndex, o === v ? c[1] === "!--" ? o = be : c[1] === void 0 ? c[2] === void 0 ? c[3] !== void 0 && (o = y) : (we.test(c[2]) && (i = RegExp("</" + c[2], "g")), o = y) : o = xe : o === y ? c[0] === ">" ? (o = i ?? v, l = -1) : c[1] === void 0 ? l = -2 : (l = o.lastIndex - c[2].length, s = c[1], o = c[3] === void 0 ? y : c[3] === "\"" ? Ce : Se) : o === Ce || o === Se ? o = y : o === be || o === xe ? o = v : (o = y, i = void 0);
+		let ee = o === y && e[t + 1].startsWith("/>") ? " " : "";
+		a += o === v ? n + ge : l >= 0 ? (r.push(s), n.slice(0, l) + me + n.slice(l) + m + ee) : n + m + (l === -2 ? t : ee);
 	}
-	return [Te(e, a + (e[n] || "<?>") + (t === 2 ? "</svg>" : t === 3 ? "</math>" : "")), r];
-}, De = class e {
+	return [Ee(e, a + (e[n] || "<?>") + (t === 2 ? "</svg>" : t === 3 ? "</math>" : "")), r];
+}, Oe = class e {
 	constructor({ strings: t, _$litType$: n }, r) {
 		let i;
 		this.parts = [];
-		let a = 0, o = 0, s = t.length - 1, c = this.parts, [l, u] = Ee(t, n);
-		if (this.el = e.createElement(l, r), w.currentNode = this.el.content, n === 2 || n === 3) {
+		let a = 0, o = 0, s = t.length - 1, c = this.parts, [l, u] = De(t, n);
+		if (this.el = e.createElement(l, r), C.currentNode = this.el.content, n === 2 || n === 3) {
 			let e = this.el.content.firstChild;
 			e.replaceWith(...e.childNodes);
 		}
-		for (; (i = w.nextNode()) !== null && c.length < s;) {
+		for (; (i = C.nextNode()) !== null && c.length < s;) {
 			if (i.nodeType === 1) {
-				if (i.hasAttributes()) for (let e of i.getAttributeNames()) if (e.endsWith(pe)) {
-					let t = u[o++], n = i.getAttribute(e).split(h), r = /([.?@])?(.*)/.exec(t);
+				if (i.hasAttributes()) for (let e of i.getAttributeNames()) if (e.endsWith(me)) {
+					let t = u[o++], n = i.getAttribute(e).split(m), r = /([.?@])?(.*)/.exec(t);
 					c.push({
 						type: 1,
 						index: a,
 						name: r[2],
 						strings: n,
-						ctor: r[1] === "." ? Ae : r[1] === "?" ? je : r[1] === "@" ? Me : E
+						ctor: r[1] === "." ? je : r[1] === "?" ? Me : r[1] === "@" ? Ne : T
 					}), i.removeAttribute(e);
-				} else e.startsWith(h) && (c.push({
+				} else e.startsWith(m) && (c.push({
 					type: 6,
 					index: a
 				}), i.removeAttribute(e));
-				if (Ce.test(i.tagName)) {
-					let e = i.textContent.split(h), t = e.length - 1;
+				if (we.test(i.tagName)) {
+					let e = i.textContent.split(m), t = e.length - 1;
 					if (t > 0) {
-						i.textContent = m ? m.emptyScript : "";
-						for (let n = 0; n < t; n++) i.append(e[n], _()), w.nextNode(), c.push({
+						i.textContent = p ? p.emptyScript : "";
+						for (let n = 0; n < t; n++) i.append(e[n], g()), C.nextNode(), c.push({
 							type: 2,
 							index: ++a
 						});
-						i.append(e[t], _());
+						i.append(e[t], g());
 					}
 				}
 			} else if (i.nodeType === 8) {
-				if (i.data === me) c.push({
+				if (i.data === he) c.push({
 					type: 2,
 					index: a
 				});
 				else {
 					let e = -1;
-					for (; (e = i.data.indexOf(h, e + 1)) !== -1;) c.push({
+					for (; (e = i.data.indexOf(m, e + 1)) !== -1;) c.push({
 						type: 7,
 						index: a
-					}), e += h.length - 1;
+					}), e += m.length - 1;
 				}
 			}
 			a++;
 		}
 	}
 	static createElement(e, t) {
-		let n = g.createElement("template");
+		let n = h.createElement("template");
 		return n.innerHTML = e, n;
 	}
 };
-function T(e, t, n = e, r) {
-	if (t === S) return t;
-	let i = r === void 0 ? n._$Cl : n._$Co?.[r], a = v(t) ? void 0 : t._$litDirective$;
-	return i?.constructor !== a && (i?._$AO?.(!1), a === void 0 ? i = void 0 : (i = new a(e), i._$AT(e, n, r)), r === void 0 ? n._$Cl = i : (n._$Co ??= [])[r] = i), i !== void 0 && (t = T(e, i._$AS(e, t.values), i, r)), t;
+function w(e, t, n = e, r) {
+	if (t === x) return t;
+	let i = r === void 0 ? n._$Cl : n._$Co?.[r], a = _(t) ? void 0 : t._$litDirective$;
+	return i?.constructor !== a && (i?._$AO?.(!1), a === void 0 ? i = void 0 : (i = new a(e), i._$AT(e, n, r)), r === void 0 ? n._$Cl = i : (n._$Co ??= [])[r] = i), i !== void 0 && (t = w(e, i._$AS(e, t.values), i, r)), t;
 }
-var Oe = class {
+var ke = class {
 	constructor(e, t) {
 		this._$AV = [], this._$AN = void 0, this._$AD = e, this._$AM = t;
 	}
@@ -344,28 +344,28 @@ var Oe = class {
 		return this._$AM._$AU;
 	}
 	u(e) {
-		let { el: { content: t }, parts: n } = this._$AD, r = (e?.creationScope ?? g).importNode(t, !0);
-		w.currentNode = r;
-		let i = w.nextNode(), a = 0, o = 0, s = n[0];
+		let { el: { content: t }, parts: n } = this._$AD, r = (e?.creationScope ?? h).importNode(t, !0);
+		C.currentNode = r;
+		let i = C.nextNode(), a = 0, o = 0, s = n[0];
 		for (; s !== void 0;) {
 			if (a === s.index) {
 				let t;
-				s.type === 2 ? t = new ke(i, i.nextSibling, this, e) : s.type === 1 ? t = new s.ctor(i, s.name, s.strings, this, e) : s.type === 6 && (t = new Ne(i, this, e)), this._$AV.push(t), s = n[++o];
+				s.type === 2 ? t = new Ae(i, i.nextSibling, this, e) : s.type === 1 ? t = new s.ctor(i, s.name, s.strings, this, e) : s.type === 6 && (t = new Pe(i, this, e)), this._$AV.push(t), s = n[++o];
 			}
-			a !== s?.index && (i = w.nextNode(), a++);
+			a !== s?.index && (i = C.nextNode(), a++);
 		}
-		return w.currentNode = g, r;
+		return C.currentNode = h, r;
 	}
 	p(e) {
 		let t = 0;
 		for (let n of this._$AV) n !== void 0 && (n.strings === void 0 ? n._$AI(e[t]) : (n._$AI(e, n, t), t += n.strings.length - 2)), t++;
 	}
-}, ke = class e {
+}, Ae = class e {
 	get _$AU() {
 		return this._$AM?._$AU ?? this._$Cv;
 	}
 	constructor(e, t, n, r) {
-		this.type = 2, this._$AH = C, this._$AN = void 0, this._$AA = e, this._$AB = t, this._$AM = n, this.options = r, this._$Cv = r?.isConnected ?? !0;
+		this.type = 2, this._$AH = S, this._$AN = void 0, this._$AA = e, this._$AB = t, this._$AM = n, this.options = r, this._$Cv = r?.isConnected ?? !0;
 	}
 	get parentNode() {
 		let e = this._$AA.parentNode, t = this._$AM;
@@ -378,7 +378,7 @@ var Oe = class {
 		return this._$AB;
 	}
 	_$AI(e, t = this) {
-		e = T(this, e, t), v(e) ? e === C || e == null || e === "" ? (this._$AH !== C && this._$AR(), this._$AH = C) : e !== this._$AH && e !== S && this._(e) : e._$litType$ === void 0 ? e.nodeType === void 0 ? _e(e) ? this.k(e) : this._(e) : this.T(e) : this.$(e);
+		e = w(this, e, t), _(e) ? e === S || e == null || e === "" ? (this._$AH !== S && this._$AR(), this._$AH = S) : e !== this._$AH && e !== x && this._(e) : e._$litType$ === void 0 ? e.nodeType === void 0 ? ve(e) ? this.k(e) : this._(e) : this.T(e) : this.$(e);
 	}
 	O(e) {
 		return this._$AA.parentNode.insertBefore(e, this._$AB);
@@ -387,36 +387,36 @@ var Oe = class {
 		this._$AH !== e && (this._$AR(), this._$AH = this.O(e));
 	}
 	_(e) {
-		this._$AH !== C && v(this._$AH) ? this._$AA.nextSibling.data = e : this.T(g.createTextNode(e)), this._$AH = e;
+		this._$AH !== S && _(this._$AH) ? this._$AA.nextSibling.data = e : this.T(h.createTextNode(e)), this._$AH = e;
 	}
 	$(e) {
-		let { values: t, _$litType$: n } = e, r = typeof n == "number" ? this._$AC(e) : (n.el === void 0 && (n.el = De.createElement(Te(n.h, n.h[0]), this.options)), n);
+		let { values: t, _$litType$: n } = e, r = typeof n == "number" ? this._$AC(e) : (n.el === void 0 && (n.el = Oe.createElement(Ee(n.h, n.h[0]), this.options)), n);
 		if (this._$AH?._$AD === r) this._$AH.p(t);
 		else {
-			let e = new Oe(r, this), n = e.u(this.options);
+			let e = new ke(r, this), n = e.u(this.options);
 			e.p(t), this.T(n), this._$AH = e;
 		}
 	}
 	_$AC(e) {
-		let t = we.get(e.strings);
-		return t === void 0 && we.set(e.strings, t = new De(e)), t;
+		let t = Te.get(e.strings);
+		return t === void 0 && Te.set(e.strings, t = new Oe(e)), t;
 	}
 	k(t) {
-		ge(this._$AH) || (this._$AH = [], this._$AR());
+		_e(this._$AH) || (this._$AH = [], this._$AR());
 		let n = this._$AH, r, i = 0;
-		for (let a of t) i === n.length ? n.push(r = new e(this.O(_()), this.O(_()), this, this.options)) : r = n[i], r._$AI(a), i++;
+		for (let a of t) i === n.length ? n.push(r = new e(this.O(g()), this.O(g()), this, this.options)) : r = n[i], r._$AI(a), i++;
 		i < n.length && (this._$AR(r && r._$AB.nextSibling, i), n.length = i);
 	}
 	_$AR(e = this._$AA.nextSibling, t) {
 		for (this._$AP?.(!1, !0, t); e !== this._$AB;) {
-			let t = de(e).nextSibling;
-			de(e).remove(), e = t;
+			let t = fe(e).nextSibling;
+			fe(e).remove(), e = t;
 		}
 	}
 	setConnected(e) {
 		this._$AM === void 0 && (this._$Cv = e, this._$AP?.(e));
 	}
-}, E = class {
+}, T = class {
 	get tagName() {
 		return this.element.tagName;
 	}
@@ -424,47 +424,47 @@ var Oe = class {
 		return this._$AM._$AU;
 	}
 	constructor(e, t, n, r, i) {
-		this.type = 1, this._$AH = C, this._$AN = void 0, this.element = e, this.name = t, this._$AM = r, this.options = i, n.length > 2 || n[0] !== "" || n[1] !== "" ? (this._$AH = Array(n.length - 1).fill(/* @__PURE__ */ new String()), this.strings = n) : this._$AH = C;
+		this.type = 1, this._$AH = S, this._$AN = void 0, this.element = e, this.name = t, this._$AM = r, this.options = i, n.length > 2 || n[0] !== "" || n[1] !== "" ? (this._$AH = Array(n.length - 1).fill(/* @__PURE__ */ new String()), this.strings = n) : this._$AH = S;
 	}
 	_$AI(e, t = this, n, r) {
 		let i = this.strings, a = !1;
-		if (i === void 0) e = T(this, e, t, 0), a = !v(e) || e !== this._$AH && e !== S, a && (this._$AH = e);
+		if (i === void 0) e = w(this, e, t, 0), a = !_(e) || e !== this._$AH && e !== x, a && (this._$AH = e);
 		else {
 			let r = e, o, s;
-			for (e = i[0], o = 0; o < i.length - 1; o++) s = T(this, r[n + o], t, o), s === S && (s = this._$AH[o]), a ||= !v(s) || s !== this._$AH[o], s === C ? e = C : e !== C && (e += (s ?? "") + i[o + 1]), this._$AH[o] = s;
+			for (e = i[0], o = 0; o < i.length - 1; o++) s = w(this, r[n + o], t, o), s === x && (s = this._$AH[o]), a ||= !_(s) || s !== this._$AH[o], s === S ? e = S : e !== S && (e += (s ?? "") + i[o + 1]), this._$AH[o] = s;
 		}
 		a && !r && this.j(e);
 	}
 	j(e) {
-		e === C ? this.element.removeAttribute(this.name) : this.element.setAttribute(this.name, e ?? "");
+		e === S ? this.element.removeAttribute(this.name) : this.element.setAttribute(this.name, e ?? "");
 	}
-}, Ae = class extends E {
+}, je = class extends T {
 	constructor() {
 		super(...arguments), this.type = 3;
 	}
 	j(e) {
-		this.element[this.name] = e === C ? void 0 : e;
+		this.element[this.name] = e === S ? void 0 : e;
 	}
-}, je = class extends E {
+}, Me = class extends T {
 	constructor() {
 		super(...arguments), this.type = 4;
 	}
 	j(e) {
-		this.element.toggleAttribute(this.name, !!e && e !== C);
+		this.element.toggleAttribute(this.name, !!e && e !== S);
 	}
-}, Me = class extends E {
+}, Ne = class extends T {
 	constructor(e, t, n, r, i) {
 		super(e, t, n, r, i), this.type = 5;
 	}
 	_$AI(e, t = this) {
-		if ((e = T(this, e, t, 0) ?? C) === S) return;
-		let n = this._$AH, r = e === C && n !== C || e.capture !== n.capture || e.once !== n.once || e.passive !== n.passive, i = e !== C && (n === C || r);
+		if ((e = w(this, e, t, 0) ?? S) === x) return;
+		let n = this._$AH, r = e === S && n !== S || e.capture !== n.capture || e.once !== n.once || e.passive !== n.passive, i = e !== S && (n === S || r);
 		r && this.element.removeEventListener(this.name, this, n), i && this.element.addEventListener(this.name, this, e), this._$AH = e;
 	}
 	handleEvent(e) {
 		typeof this._$AH == "function" ? this._$AH.call(this.options?.host ?? this.element, e) : this._$AH.handleEvent(e);
 	}
-}, Ne = class {
+}, Pe = class {
 	constructor(e, t, n) {
 		this.element = e, this.type = 6, this._$AN = void 0, this._$AM = t, this.options = n;
 	}
@@ -472,18 +472,18 @@ var Oe = class {
 		return this._$AM._$AU;
 	}
 	_$AI(e) {
-		T(this, e);
+		w(this, e);
 	}
-}, Pe = ue.litHtmlPolyfillSupport;
-Pe?.(De, ke), (ue.litHtmlVersions ??= []).push("3.3.3");
-var Fe = (e, t, n) => {
+}, Fe = de.litHtmlPolyfillSupport;
+Fe?.(Oe, Ae), (de.litHtmlVersions ??= []).push("3.3.3");
+var Ie = (e, t, n) => {
 	let r = n?.renderBefore ?? t, i = r._$litPart$;
 	if (i === void 0) {
 		let e = n?.renderBefore ?? null;
-		r._$litPart$ = i = new ke(t.insertBefore(_(), e), e, void 0, n ?? {});
+		r._$litPart$ = i = new Ae(t.insertBefore(g(), e), e, void 0, n ?? {});
 	}
 	return i._$AI(e), i;
-}, Ie = globalThis, D = class extends p {
+}, Le = globalThis, E = class extends f {
 	constructor() {
 		super(...arguments), this.renderOptions = { host: this }, this._$Do = void 0;
 	}
@@ -493,7 +493,7 @@ var Fe = (e, t, n) => {
 	}
 	update(e) {
 		let t = this.render();
-		this.hasUpdated || (this.renderOptions.isConnected = this.isConnected), super.update(e), this._$Do = Fe(t, this.renderRoot, this.renderOptions);
+		this.hasUpdated || (this.renderOptions.isConnected = this.isConnected), super.update(e), this._$Do = Ie(t, this.renderRoot, this.renderOptions);
 	}
 	connectedCallback() {
 		super.connectedCallback(), this._$Do?.setConnected(!0);
@@ -502,25 +502,25 @@ var Fe = (e, t, n) => {
 		super.disconnectedCallback(), this._$Do?.setConnected(!1);
 	}
 	render() {
-		return S;
+		return x;
 	}
 };
-D._$litElement$ = !0, D.finalized = !0, Ie.litElementHydrateSupport?.({ LitElement: D });
-var Le = Ie.litElementPolyfillSupport;
-Le?.({ LitElement: D }), (Ie.litElementVersions ??= []).push("4.2.2");
+E._$litElement$ = !0, E.finalized = !0, Le.litElementHydrateSupport?.({ LitElement: E });
+var Re = Le.litElementPolyfillSupport;
+Re?.({ LitElement: E }), (Le.litElementVersions ??= []).push("4.2.2");
 //#endregion
 //#region node_modules/@lit/reactive-element/decorators/custom-element.js
-var O = (e) => (t, n) => {
+var D = (e) => (t, n) => {
 	n === void 0 ? customElements.define(e, t) : n.addInitializer(() => {
 		customElements.define(e, t);
 	});
-}, Re = {
+}, ze = {
 	attribute: !0,
 	type: String,
-	converter: f,
+	converter: ce,
 	reflect: !1,
-	hasChanged: ce
-}, ze = (e = Re, t, n) => {
+	hasChanged: le
+}, Be = (e = ze, t, n) => {
 	let { kind: r, metadata: i } = n, a = globalThis.litPropertyMetadata.get(i);
 	if (a === void 0 && globalThis.litPropertyMetadata.set(i, a = /* @__PURE__ */ new Map()), r === "setter" && ((e = Object.create(e)).wrapped = !0), a.set(n.name, e), r === "accessor") {
 		let { name: r } = n;
@@ -543,16 +543,16 @@ var O = (e) => (t, n) => {
 	}
 	throw Error("Unsupported decorator location: " + r);
 };
-function k(e) {
-	return (t, n) => typeof n == "object" ? ze(e, t, n) : ((e, t, n) => {
+function O(e) {
+	return (t, n) => typeof n == "object" ? Be(e, t, n) : ((e, t, n) => {
 		let r = t.hasOwnProperty(n);
 		return t.constructor.createProperty(n, e), r ? Object.getOwnPropertyDescriptor(t, n) : void 0;
 	})(e, t, n);
 }
 //#endregion
 //#region node_modules/@lit/reactive-element/decorators/state.js
-function A(e) {
-	return k({
+function k(e) {
+	return O({
 		...e,
 		state: !0,
 		attribute: !1
@@ -560,10 +560,10 @@ function A(e) {
 }
 //#endregion
 //#region node_modules/@lit/reactive-element/decorators/base.js
-var Be = (e, t, n) => (n.configurable = !0, n.enumerable = !0, Reflect.decorate && typeof t != "object" && Object.defineProperty(e, t, n), n);
+var Ve = (e, t, n) => (n.configurable = !0, n.enumerable = !0, Reflect.decorate && typeof t != "object" && Object.defineProperty(e, t, n), n);
 //#endregion
 //#region node_modules/@lit/reactive-element/decorators/query.js
-function Ve(e, t) {
+function He(e, t) {
 	return (n, r, i) => {
 		let a = (t) => t.renderRoot?.querySelector(e) ?? null;
 		if (t) {
@@ -578,44 +578,44 @@ function Ve(e, t) {
 					}
 				};
 			})();
-			return Be(n, r, { get() {
+			return Ve(n, r, { get() {
 				let n = e.call(this);
 				return n === void 0 && (n = a(this), (n !== null || this.hasUpdated) && t.call(this, n)), n;
 			} });
 		}
-		return Be(n, r, { get() {
+		return Ve(n, r, { get() {
 			return a(this);
 		} });
 	};
 }
 //#endregion
 //#region node_modules/lit-html/static.js
-var He = Symbol.for(""), Ue = (e) => {
-	if (e?.r === He) return e?._$litStatic$;
-}, We = (e) => ({
+var Ue = Symbol.for(""), We = (e) => {
+	if (e?.r === Ue) return e?._$litStatic$;
+}, Ge = (e) => ({
 	_$litStatic$: e,
-	r: He
-}), Ge = /* @__PURE__ */ new Map(), Ke = ((e) => (t, ...n) => {
+	r: Ue
+}), Ke = /* @__PURE__ */ new Map(), qe = ((e) => (t, ...n) => {
 	let r = n.length, i, a, o = [], s = [], c, l = 0, u = !1;
 	for (; l < r;) {
-		for (c = t[l]; l < r && (a = n[l], (i = Ue(a)) !== void 0);) c += i + t[++l], u = !0;
+		for (c = t[l]; l < r && (a = n[l], (i = We(a)) !== void 0);) c += i + t[++l], u = !0;
 		l !== r && s.push(a), o.push(c), l++;
 	}
 	if (l === r && o.push(t[r]), u) {
 		let e = o.join("$$lit$$");
-		(t = Ge.get(e)) === void 0 && (o.raw = o, Ge.set(e, t = o)), n = s;
+		(t = Ke.get(e)) === void 0 && (o.raw = o, Ke.set(e, t = o)), n = s;
 	}
 	return e(t, ...n);
-})(x), qe = "component.device_links", Je = ["exceptions", "issues"];
-function Ye(e, t) {
+})(b), Je = "component.device_links", Ye = ["exceptions", "issues"];
+function Xe(e, t) {
 	return t ? e.replace(/\{(\w+)\}/g, (e, n) => {
 		let r = t[n];
 		return r == null ? e : String(r);
 	}) : e;
 }
-function Xe(e, t, n) {
-	for (let r of Je) {
-		let i = e?.localize(`${qe}.${r}.${t}.message`, { ...n ?? {} });
+function Ze(e, t, n) {
+	for (let r of Ye) {
+		let i = e?.localize(`${Je}.${r}.${t}.message`, { ...n ?? {} });
 		if (i) return i;
 	}
 	let r = {
@@ -632,6 +632,11 @@ function Xe(e, t, n) {
 		feature_unavailable_status_report: "{emitter} does not report its own state, so the status feedback part of this rule was left out.",
 		group_full: "Group {group} on {device} is full ({used} of {capacity}). Remove an entry it holds, or point this rule at a group with room, before adding {target}.",
 		group_not_offered: "No control of {device} uses association group {group}. The groups it offers are: {groups}.",
+		hybrid_no_button_indication: "The control {emitter} on {device} has no button indication Device Links knows how to write, so the leg that would make its LED follow a light cannot be made. Only a curated device profile can say which indicator belongs to which button, and guessing would light the wrong one.",
+		hybrid_no_scene: "The control {emitter} on {device} does not report a scene number when it is pressed, as far as Device Links knows, so a leg that has to react to a press on it cannot be made. Guessing the number would make the leg fire when a different button was pressed.",
+		hybrid_reverse_carries_both: "This rule is two way, so the leg back from each target to {emitter} still carries both on and off. Only the direction you authored is limited to one of them.",
+		hybrid_scene_unverified: "The scene number {emitter} on {device} reports has not been observed, only inferred from the device's own button numbering, so a leg that reacts to a press on it may react to a different button. Press it once with the rule enabled and check that the right thing happened.",
+		hybrid_self_load_not_targeted: "This rule asks Home Assistant to act on the control's own load on {device}, and does not list that device as a target, so there is nothing for the leg to act on. Add the device to the targets.",
 		import_unknown_devices: "This profile names devices that are not on this network: {devices}. The rules waiting for them are: {rules}. Nothing was imported, so nothing was lost.",
 		job_running: "An apply is already running. Wait for it to finish and plan again: a plan made before it started would be out of date by the time it ran.",
 		level_hold_without_on_off: "{emitter} can dim on hold but cannot switch on or off, so the light can be dimmed and not turned on. Add on/off to the rule if the control supports it.",
@@ -708,16 +713,16 @@ function Xe(e, t, n) {
 		zigbee_unknown_device: "Zigbee2MQTT does not report {target}, so the {cluster} binding from {device} was not written. It may have been removed from the network.",
 		zigbee_wake_the_device: "{device} was not listening, so the {cluster} binding to {target} is queued rather than written. Wake the device and apply again."
 	}[t];
-	return r === void 0 ? null : Ye(r, n);
+	return r === void 0 ? null : Xe(r, n);
 }
-function Ze(e, t) {
+function Qe(e, t) {
 	if (!t) return "";
-	let n = Xe(e, t.translation_key, t.placeholders);
+	let n = Ze(e, t.translation_key, t.placeholders);
 	return n === null ? `Device Links reported "${t.translation_key.replace(/_/g, " ")}", and this panel has no wording for it yet.` : n;
 }
 //#endregion
 //#region src/api.ts
-var j = {
+var A = {
 	profilesList: "device_links/profiles/list",
 	profilesGet: "device_links/profiles/get",
 	profilesCreate: "device_links/profiles/create",
@@ -746,12 +751,12 @@ var j = {
 	unmanagedRemove: "device_links/unmanaged/remove",
 	snapshotsList: "device_links/snapshots/list",
 	snapshotsRollback: "device_links/snapshots/rollback"
-}, M = class e extends Error {
+}, j = class e extends Error {
 	constructor(e, t = {}) {
 		super(e), this.name = "DeviceLinksApiError", this.code = t.code ?? "unknown_error", this.translationKey = t.translationKey ?? null, this.translationDomain = t.translationDomain ?? null, this.placeholders = t.placeholders ?? {};
 	}
 	static from(t) {
-		return t instanceof e ? t : Qe(t) ? new e(t.message || "Device Links could not answer.", {
+		return t instanceof e ? t : $e(t) ? new e(t.message || "Device Links could not answer.", {
 			code: t.code,
 			translationKey: t.translation_key ?? null,
 			translationDomain: t.translation_domain ?? null,
@@ -759,116 +764,116 @@ var j = {
 		}) : t instanceof Error ? new e(t.message || "Device Links could not answer.", { code: "connection_error" }) : new e("Device Links could not answer, and gave no reason. The connection to Home Assistant may have dropped.", { code: "connection_error" });
 	}
 };
-function Qe(e) {
+function $e(e) {
 	if (typeof e != "object" || !e) return !1;
 	let t = e;
 	return typeof t.code == "string" && typeof t.message == "string";
 }
-function N(e, t) {
+function M(e, t) {
 	if (t.translationKey) {
-		let n = Xe(e, t.translationKey, t.placeholders);
+		let n = Ze(e, t.translationKey, t.placeholders);
 		if (n !== null) return n;
 	}
-	return Ye(t.message, t.placeholders);
+	return Xe(t.message, t.placeholders);
 }
-function $e(e) {
+function et(e) {
 	let t = {};
 	return e?.rule_ids?.length && (t.rule_ids = [...e.rule_ids]), e?.device_ids?.length && (t.device_ids = [...e.device_ids]), t;
 }
-var et = class {
+var tt = class {
 	constructor(e) {
 		this.open = /* @__PURE__ */ new Set(), this.hass = e;
 	}
 	async listProfiles() {
-		return this.send(j.profilesList);
+		return this.send(A.profilesList);
 	}
 	async getProfile(e) {
-		return this.send(j.profilesGet, { profile_id: e });
+		return this.send(A.profilesGet, { profile_id: e });
 	}
 	async createProfile(e) {
-		return (await this.send(j.profilesCreate, { profile: e })).profile;
+		return (await this.send(A.profilesCreate, { profile: e })).profile;
 	}
 	async updateProfile(e) {
-		return (await this.send(j.profilesUpdate, { profile: e })).profile;
+		return (await this.send(A.profilesUpdate, { profile: e })).profile;
 	}
 	async deleteProfile(e) {
-		await this.send(j.profilesDelete, { profile_id: e });
+		await this.send(A.profilesDelete, { profile_id: e });
 	}
 	async activateProfile(e) {
-		return this.send(j.profilesActivate, { profile_id: e });
+		return this.send(A.profilesActivate, { profile_id: e });
 	}
 	async duplicateProfile(e, t) {
-		return (await this.send(j.profilesDuplicate, {
+		return (await this.send(A.profilesDuplicate, {
 			profile_id: e,
 			...t === void 0 ? {} : { name: t }
 		})).profile;
 	}
 	async exportProfile(e) {
-		return this.send(j.profilesExport, { ...e === void 0 ? {} : { profile_id: e } });
+		return this.send(A.profilesExport, { ...e === void 0 ? {} : { profile_id: e } });
 	}
 	async importProfile(e) {
-		return this.send(j.profilesImport, { yaml: e });
+		return this.send(A.profilesImport, { yaml: e });
 	}
 	async validateRule(e) {
-		return this.send(j.rulesValidate, { rule: e });
+		return this.send(A.rulesValidate, { rule: e });
 	}
 	async upsertRule(e, t) {
-		return this.send(j.rulesUpsert, {
+		return this.send(A.rulesUpsert, {
 			rule: e,
 			...t === void 0 ? {} : { profile_id: t }
 		});
 	}
 	async deleteRule(e, t) {
-		await this.send(j.rulesDelete, {
+		await this.send(A.rulesDelete, {
 			rule_id: e,
 			...t === void 0 ? {} : { profile_id: t }
 		});
 	}
 	async setRuleEnabled(e, t) {
-		return this.send(j.rulesSetEnabled, {
+		return this.send(A.rulesSetEnabled, {
 			rule_id: e,
 			enabled: t
 		});
 	}
 	async listDevices() {
-		return (await this.send(j.devicesList)).devices;
+		return (await this.send(A.devicesList)).devices;
 	}
 	async getDevice(e) {
-		return this.send(j.devicesGet, { device_id: e });
+		return this.send(A.devicesGet, { device_id: e });
 	}
 	async refreshDevice(e, t = !1) {
-		return this.send(j.devicesRefresh, {
+		return this.send(A.devicesRefresh, {
 			device_id: e,
 			deep: t
 		});
 	}
 	async listTemplates() {
-		return (await this.send(j.templatesList)).templates;
+		return (await this.send(A.templatesList)).templates;
 	}
 	async plan(e, t) {
-		return this.send(j.plan, {
-			...$e(e),
+		return this.send(A.plan, {
+			...et(e),
 			...t?.length ? { remove_unmanaged: [...t] } : {}
 		});
 	}
 	async apply(e) {
-		return this.send(j.apply, {
+		return this.send(A.apply, {
 			plan_token: e.planToken,
-			...$e(e.scope),
+			...et(e.scope),
 			...e.removeUnmanaged?.length ? { remove_unmanaged: [...e.removeUnmanaged] } : {}
 		});
 	}
 	async verify(e) {
-		return this.send(j.verify, $e(e));
+		return this.send(A.verify, et(e));
 	}
 	async listJobs() {
-		return this.send(j.jobsList);
+		return this.send(A.jobsList);
 	}
 	async getJob(e) {
-		return this.send(j.jobsGet, { job_id: e });
+		return this.send(A.jobsGet, { job_id: e });
 	}
 	async cancelJob() {
-		return (await this.send(j.jobsCancel)).cancelled;
+		return (await this.send(A.jobsCancel)).cancelled;
 	}
 	subscribeJobs(e, t) {
 		let n = {
@@ -884,29 +889,29 @@ var et = class {
 		};
 		return this.open.add(n), this.hass.connection.subscribeMessage((t) => {
 			n.closed || e(t);
-		}, { type: j.jobsSubscribe }).then((e) => {
+		}, { type: A.jobsSubscribe }).then((e) => {
 			r = e, n.closed && i();
 		}).catch((e) => {
-			n.closed = !0, this.open.delete(n), t?.(M.from(e));
+			n.closed = !0, this.open.delete(n), t?.(j.from(e));
 		}), n;
 	}
 	close() {
 		for (let e of [...this.open]) e.unsubscribe();
 	}
 	async setUnmanagedIgnored(e, t) {
-		return (await this.send(j.unmanagedIgnore, {
+		return (await this.send(A.unmanagedIgnore, {
 			fingerprints: [...e],
 			ignored: t
 		})).ignored;
 	}
 	async removeUnmanaged(e) {
-		return this.send(j.unmanagedRemove, { fingerprints: [...e] });
+		return this.send(A.unmanagedRemove, { fingerprints: [...e] });
 	}
 	async listSnapshots() {
-		return (await this.send(j.snapshotsList)).snapshots;
+		return (await this.send(A.snapshotsList)).snapshots;
 	}
 	async rollbackSnapshot(e, t = {}) {
-		return this.send(j.snapshotsRollback, {
+		return this.send(A.snapshotsRollback, {
 			snapshot_id: e,
 			...t.planToken === void 0 ? {} : { plan_token: t.planToken },
 			...t.removeUnmanaged?.length ? { remove_unmanaged: [...t.removeUnmanaged] } : {}
@@ -919,13 +924,13 @@ var et = class {
 				...t
 			});
 		} catch (e) {
-			throw M.from(e);
+			throw j.from(e);
 		}
 	}
 };
 //#endregion
 //#region \0@oxc-project+runtime@0.148.0/helpers/esm/decorate.js
-function P(e, t, n, r) {
+function N(e, t, n, r) {
 	var i = arguments.length, a = i < 3 ? t : r === null ? r = Object.getOwnPropertyDescriptor(t, n) : r, o;
 	if (typeof Reflect == "object" && typeof Reflect.decorate == "function") a = Reflect.decorate(e, t, n, r);
 	else for (var s = e.length - 1; s >= 0; s--) (o = e[s]) && (a = (i < 3 ? o(a) : i > 3 ? o(t, n, a) : o(t, n)) || a);
@@ -933,7 +938,7 @@ function P(e, t, n, r) {
 }
 //#endregion
 //#region src/components/two-pane.ts
-var F = class extends D {
+var P = class extends E {
 	constructor(...e) {
 		super(...e), this.narrow = !1, this.showDetail = !1;
 	}
@@ -961,22 +966,22 @@ var F = class extends D {
 	}
 	render() {
 		let e = this.narrow && this.showDetail, t = this.narrow && !this.showDetail;
-		return x`
+		return b`
       <div class="pane ${e ? "hidden" : ""}"><slot name="list"></slot></div>
       <div class="pane ${t ? "hidden" : ""}"><slot name="detail"></slot></div>
     `;
 	}
 };
-P([k({
+N([O({
 	type: Boolean,
 	reflect: !0
-})], F.prototype, "narrow", void 0), P([k({
+})], P.prototype, "narrow", void 0), N([O({
 	type: Boolean,
 	attribute: "show-detail"
-})], F.prototype, "showDetail", void 0), F = P([O("dl-two-pane")], F);
+})], P.prototype, "showDetail", void 0), P = N([D("dl-two-pane")], P);
 //#endregion
 //#region src/ha-components.ts
-var tt = [
+var nt = [
 	"ha-alert",
 	"ha-assist-chip",
 	"ha-button",
@@ -1000,7 +1005,7 @@ var tt = [
 	"ha-tab-group-tab",
 	"ha-tooltip",
 	"ha-top-app-bar-fixed"
-], nt = {
+], rt = {
 	"ha-alert": "div",
 	"ha-assist-chip": "span",
 	"ha-button": "button",
@@ -1024,7 +1029,7 @@ var tt = [
 	"ha-tab-group-tab": "button",
 	"ha-tooltip": "span",
 	"ha-top-app-bar-fixed": "div"
-}, rt = 5e3, it = class {
+}, it = 5e3, at = class {
 	constructor(e, t) {
 		this.defined = e, this.missing = t;
 	}
@@ -1032,18 +1037,18 @@ var tt = [
 		return this.defined.has(e);
 	}
 	tag(e) {
-		return this.defined.has(e) ? e : nt[e] ?? "div";
+		return this.defined.has(e) ? e : rt[e] ?? "div";
 	}
 };
-async function at(e = tt, t = {}) {
+async function ot(e = nt, t = {}) {
 	let n = t.registry ?? globalThis.customElements;
-	await ot(t.loadHelpers ?? (() => window.loadCardHelpers?.()));
-	let r = t.timeoutMs ?? rt, i = /* @__PURE__ */ new Set(), a = [];
+	await st(t.loadHelpers ?? (() => window.loadCardHelpers?.()));
+	let r = t.timeoutMs ?? it, i = /* @__PURE__ */ new Set(), a = [];
 	return await Promise.all(e.map(async (e) => {
-		await st(n, e, r) ? i.add(e) : a.push(e);
-	})), a.sort(), a.length && console.warn(`Device Links: these Home Assistant components did not load, so plain elements are used instead: ${a.join(", ")}`), new it(i, a);
+		await ct(n, e, r) ? i.add(e) : a.push(e);
+	})), a.sort(), a.length && console.warn(`Device Links: these Home Assistant components did not load, so plain elements are used instead: ${a.join(", ")}`), new at(i, a);
 }
-async function ot(e) {
+async function st(e) {
 	try {
 		let t = await e();
 		if (!t) return;
@@ -1053,7 +1058,7 @@ async function ot(e) {
 		})).constructor.getConfigElement?.();
 	} catch {}
 }
-async function st(e, t, n) {
+async function ct(e, t, n) {
 	if (!e) return !1;
 	if (e.get(t)) return !0;
 	let r;
@@ -1069,7 +1074,7 @@ async function st(e, t, n) {
 }
 //#endregion
 //#region src/tabs.ts
-var I = [
+var F = [
 	{
 		id: "overview",
 		label: "Overview",
@@ -1100,77 +1105,77 @@ var I = [
 		icon: "mdi:history",
 		tagName: "device-links-activity"
 	}
-], ct = I[0]?.id ?? "overview";
-function lt(e) {
+], lt = F[0]?.id ?? "overview";
+function ut(e) {
 	let t = (e ?? "").split("/").filter(Boolean)[0];
-	return I.some((e) => e.id === t) ? t : ct;
+	return F.some((e) => e.id === t) ? t : lt;
 }
 //#endregion
 //#region src/format.ts
-var ut = {
+var dt = {
 	on_off: "On and off",
 	level_set: "Brightness",
 	level_hold: "Hold to dim",
 	scene: "Scenes",
 	color: "Colour",
 	status_report: "Status feedback"
-}, dt = {
+}, ft = {
 	on_off: "mdi:power",
 	level_set: "mdi:brightness-6",
 	level_hold: "mdi:gesture-tap-hold",
 	scene: "mdi:palette-outline",
 	color: "mdi:invert-colors",
 	status_report: "mdi:arrow-left-right"
-}, ft = {
+}, pt = {
 	zwave: "Z-Wave",
 	zigbee2mqtt: "Zigbee",
 	matter: "Matter"
-}, pt = {
+}, mt = {
 	remote: "Remote control",
 	virtual_3way: "Virtual 3-way",
 	scene_button: "Scene button",
 	off_all: "Off all",
 	status_feedback: "Status feedback",
 	custom: "Custom"
-}, mt = {
+}, ht = {
 	remote: "One control drives one or more lights, on, off and dimming.",
 	virtual_3way: "Two switches control each other, so either one works like the other.",
 	scene_button: "A scene button sends one command to the devices you pick.",
 	off_all: "One press turns a set of devices off.",
 	status_feedback: "A device reports its state back to the control that drives it.",
 	custom: "Choose the control, the targets and the features yourself."
-}, ht = {
+}, gt = {
 	in_sync: "In sync",
 	drift: "Drift",
 	pending: "Pending",
 	blocked: "Blocked",
 	disabled: "Disabled",
 	unknown: "Unknown"
-}, gt = {
+}, _t = {
 	in_sync: "ok",
 	drift: "error",
 	pending: "warn",
 	blocked: "error",
 	disabled: "muted",
 	unknown: "muted"
-}, _t = {
+}, vt = {
 	in_sync: "Every link this rule asks for is on the devices.",
 	drift: "The devices do not hold what this rule asks for. Something changed them.",
 	pending: "This rule has links waiting to be written. Plan and apply to write them.",
 	blocked: "This rule compiles to nothing. Open it to see why.",
 	disabled: "This rule is off, so its links are not on the devices.",
 	unknown: "A device this rule uses could not be read, so its state cannot be judged."
-}, vt = {
+}, yt = {
 	completed: "Completed",
 	partial: "Partly done",
 	cancelled: "Cancelled",
 	interrupted: "Interrupted"
-}, yt = {
+}, bt = {
 	completed: "ok",
 	partial: "warn",
 	cancelled: "muted",
 	interrupted: "error"
-}, bt = {
+}, xt = {
 	applied: "Written",
 	already_present: "Already there",
 	unverified: "Written, not verified",
@@ -1181,7 +1186,7 @@ var ut = {
 	stale_plan: "Plan was out of date",
 	cancelled: "Cancelled",
 	interrupted: "Interrupted"
-}, xt = {
+}, St = {
 	applied: "ok",
 	already_present: "ok",
 	unverified: "warn",
@@ -1193,43 +1198,43 @@ var ut = {
 	cancelled: "muted",
 	interrupted: "error"
 };
-function L(e) {
-	return ut[e] ?? e;
-}
-function St(e) {
-	return dt[e] ?? "mdi:link-variant";
-}
-function R(e) {
-	return e === null ? "Unknown protocol" : ft[e] ?? e;
-}
-function z(e) {
-	return pt[e] ?? e;
+function I(e) {
+	return dt[e] ?? e;
 }
 function Ct(e) {
-	return mt[e] ?? "";
+	return ft[e] ?? "mdi:link-variant";
 }
-function B(e) {
-	return ht[e] ?? e;
+function L(e) {
+	return e === null ? "Unknown protocol" : pt[e] ?? e;
+}
+function R(e) {
+	return mt[e] ?? e;
 }
 function wt(e) {
-	return gt[e] ?? "muted";
+	return ht[e] ?? "";
+}
+function z(e) {
+	return gt[e] ?? e;
 }
 function Tt(e) {
-	return _t[e] ?? "";
+	return _t[e] ?? "muted";
 }
 function Et(e) {
-	return vt[e] ?? e;
+	return vt[e] ?? "";
 }
 function Dt(e) {
-	return yt[e] ?? "muted";
+	return yt[e] ?? e;
 }
 function Ot(e) {
-	return bt[e] ?? e;
+	return bt[e] ?? "muted";
 }
 function kt(e) {
-	return xt[e] ?? "muted";
+	return xt[e] ?? e;
 }
-function At(e, t) {
+function At(e) {
+	return St[e] ?? "muted";
+}
+function jt(e, t) {
 	let n = e.group_ids.length ? e.group_ids : Object.values(e.actions).filter((e) => e !== void 0), r = null;
 	for (let i of n) {
 		let n = t.filter((e) => e.emitter_group === i).length;
@@ -1242,14 +1247,24 @@ function At(e, t) {
 	}
 	return r;
 }
-function jt(e) {
+function Mt(e) {
 	let t = e.name || e.identity;
 	return e.endpoint === null || e.endpoint === 0 ? t : `${t} (endpoint ${e.endpoint})`;
 }
-function Mt(e) {
-	return `${L(e.feature)} from ${jt(e.source)} group ${e.emitter_group} to ${jt(e.target)}`;
-}
 function Nt(e) {
+	return `${I(e.feature)} from ${Mt(e.source)} group ${e.emitter_group} to ${Mt(e.target)}`;
+}
+var Pt = {
+	on_only: "turns on, and never off",
+	off_only: "turns off, and never on",
+	self_load: "turns off this device's own load",
+	button_led: "keeps this button's LED in sync with"
+};
+function Ft(e) {
+	let t = `${e.source.name} ${e.emitter_id}`;
+	return e.kind === "self_load" ? `When ${t} is pressed, Home Assistant ${Pt[e.kind]}` : e.kind === "button_led" ? `Home Assistant ${Pt[e.kind]} ${e.target.name}, on ${t}` : `When ${t} is pressed, Home Assistant ${Pt[e.kind]} ${e.target.name}`;
+}
+function It(e) {
 	let t = [], n = "", r = !1;
 	for (let i of e) r ? (n += i, r = !1) : i === "\\" ? r = !0 : i === "|" ? (t.push(n), n = "") : n += i;
 	t.push(n);
@@ -1264,16 +1279,16 @@ function Nt(e) {
 		feature: u ?? ""
 	};
 }
-function Pt(e, t) {
-	let n = Nt(e);
+function Lt(e, t) {
+	let n = It(e);
 	if (n === null) return e;
-	let r = ut[n.feature] ?? n.feature, i = n.targetEndpoint ? `${t(n.target)} (endpoint ${n.targetEndpoint})` : t(n.target);
+	let r = dt[n.feature] ?? n.feature, i = n.targetEndpoint ? `${t(n.target)} (endpoint ${n.targetEndpoint})` : t(n.target);
 	return `${r} from ${t(n.source)} group ${n.group} to ${i}`;
 }
-function V(e, t, n) {
+function B(e, t, n) {
 	return `${e} ${e === 1 ? t : n ?? `${t}s`}`;
 }
-function Ft(e, t) {
+function Rt(e, t) {
 	let n = new Date(e);
 	if (Number.isNaN(n.getTime())) return e;
 	try {
@@ -1285,19 +1300,19 @@ function Ft(e, t) {
 		return n.toISOString();
 	}
 }
-function It(e, t = Date.now()) {
+function zt(e, t = Date.now()) {
 	let n = new Date(e).getTime();
 	if (Number.isNaN(n)) return "";
 	let r = Math.max(0, Math.round((t - n) / 1e3));
 	if (r < 60) return "just now";
 	let i = Math.round(r / 60);
-	if (i < 60) return `${V(i, "minute")} ago`;
+	if (i < 60) return `${B(i, "minute")} ago`;
 	let a = Math.round(i / 60);
-	return a < 24 ? `${V(a, "hour")} ago` : `${V(Math.round(a / 24), "day")} ago`;
+	return a < 24 ? `${B(a, "hour")} ago` : `${B(Math.round(a / 24), "day")} ago`;
 }
 //#endregion
 //#region src/styles.ts
-var H = o`
+var V = o`
   :host {
     display: block;
     color: var(--primary-text-color, #212121);
@@ -1661,9 +1676,9 @@ var H = o`
   .notice.error {
     border-left-color: var(--error-color, #db4437);
   }
-`, U = class extends D {
+`, H = class extends E {
 	constructor(...e) {
-		super(...e), this.narrow = !1, this.selected = null;
+		super(...e), this.narrow = !1, this.selected = null, this.hybridAllowed = !1;
 	}
 	goTo(e, t) {
 		this.dispatchEvent(new CustomEvent("dl-navigate", {
@@ -1676,15 +1691,15 @@ var H = o`
 		}));
 	}
 };
-P([k({ attribute: !1 })], U.prototype, "hass", void 0), P([k({ attribute: !1 })], U.prototype, "api", void 0), P([k({ attribute: !1 })], U.prototype, "components", void 0), P([k({ type: Boolean })], U.prototype, "narrow", void 0), P([k({ attribute: !1 })], U.prototype, "selected", void 0);
+N([O({ attribute: !1 })], H.prototype, "hass", void 0), N([O({ attribute: !1 })], H.prototype, "api", void 0), N([O({ attribute: !1 })], H.prototype, "components", void 0), N([O({ type: Boolean })], H.prototype, "narrow", void 0), N([O({ attribute: !1 })], H.prototype, "selected", void 0), N([O({ type: Boolean })], H.prototype, "hybridAllowed", void 0);
 //#endregion
 //#region src/views/activity.ts
-var W = class extends U {
+var U = class extends H {
 	constructor(...e) {
 		super(...e), this._jobs = [], this._running = null, this._selectedId = null, this._detail = null, this._devices = [], this._loading = !0, this._error = null, this._cancelling = !1, this._snapshots = [], this._rollingBack = null, this._returning = [], this._unreadable = [], this._subscription = null;
 	}
 	static {
-		this.styles = H;
+		this.styles = V;
 	}
 	connectedCallback() {
 		super.connectedCallback(), this._load(), this._subscribe();
@@ -1696,9 +1711,9 @@ var W = class extends U {
 		e.has("selected") && this.selected !== null && this._select(this.selected);
 	}
 	render() {
-		return x`
+		return b`
       <div class="content">
-        ${this._error === null ? C : x`<div class="notice error" role="alert">${this._error}</div>`}
+        ${this._error === null ? S : b`<div class="notice error" role="alert">${this._error}</div>`}
         ${this._renderRunning()}
         <dl-two-pane .narrow=${this.narrow} ?show-detail=${this._selectedId !== null}>
           <div slot="list" class="card">${this._renderList()}</div>
@@ -1721,7 +1736,7 @@ var W = class extends U {
 	}
 	_renderRunning() {
 		let e = this._running;
-		return e === null ? C : x`
+		return e === null ? S : b`
       <div class="card">
         <div class="spread">
           <div class="grow">
@@ -1738,10 +1753,10 @@ var W = class extends U {
     `;
 	}
 	_renderList() {
-		return this._loading ? x`<p class="secondary">Loading.</p>` : this._jobs.length === 0 ? x`<p class="empty">Nothing has been applied yet.</p>` : x`
-      <h3>${V(this._jobs.length, "job")}</h3>
+		return this._loading ? b`<p class="secondary">Loading.</p>` : this._jobs.length === 0 ? b`<p class="empty">Nothing has been applied yet.</p>` : b`
+      <h3>${B(this._jobs.length, "job")}</h3>
       <ul class="list">
-        ${this._jobs.map((e) => x`
+        ${this._jobs.map((e) => b`
             <li>
               <button
                 type="button"
@@ -1750,12 +1765,12 @@ var W = class extends U {
                 @click=${() => this._select(e.id)}
               >
                 <span class="row">
-                  <span class="chip ${Dt(e.status)}">${Et(e.status)}</span>
+                  <span class="chip ${Ot(e.status)}">${Dt(e.status)}</span>
                   <span class="grow truncate">${e.scope}</span>
                 </span>
                 <span class="secondary">
-                  ${Ft(e.created_at, this.hass?.language)} &middot;
-                  ${V(e.total, "link")}
+                  ${Rt(e.created_at, this.hass?.language)} &middot;
+                  ${B(e.total, "link")}
                 </span>
               </button>
             </li>
@@ -1765,28 +1780,28 @@ var W = class extends U {
 	}
 	_renderDetail() {
 		let e = this._detail;
-		return e === null ? x`<p class="empty">Choose a job to see what it did.</p>` : x`
-      ${this.narrow ? x`<button type="button" class="link" @click=${this._clear}>Back to the list</button>` : C}
+		return e === null ? b`<p class="empty">Choose a job to see what it did.</p>` : b`
+      ${this.narrow ? b`<button type="button" class="link" @click=${this._clear}>Back to the list</button>` : S}
       <div class="row" style="margin: 8px 0">
-        <span class="chip ${Dt(e.status)}">${Et(e.status)}</span>
+        <span class="chip ${Ot(e.status)}">${Dt(e.status)}</span>
         <strong class="grow">${e.scope}</strong>
       </div>
       <p class="secondary">
-        ${Ft(e.created_at, this.hass?.language)} (${It(e.created_at)}) &middot;
-        ${V(e.total, "link")}
+        ${Rt(e.created_at, this.hass?.language)} (${zt(e.created_at)}) &middot;
+        ${B(e.total, "link")}
       </p>
       <div class="chips" style="margin-bottom: 12px">
-        ${[...this._outcomeCounts(e)].map(([e, t]) => x`<span class="chip ${kt(e)}">${Ot(e)} ${t}</span>`)}
+        ${[...this._outcomeCounts(e)].map(([e, t]) => b`<span class="chip ${At(e)}">${kt(e)} ${t}</span>`)}
       </div>
-      ${e.results.length === 0 ? x`<p class="secondary">This job touched no links.</p>` : x`<ul class="list">${e.results.map((e) => this._renderResult(e))}</ul>`}
+      ${e.results.length === 0 ? b`<p class="secondary">This job touched no links.</p>` : b`<ul class="list">${e.results.map((e) => this._renderResult(e))}</ul>`}
     `;
 	}
 	_renderResult(e) {
-		return x`
+		return b`
       <li>
         <div class="row">
-          <span class="chip ${kt(e.status)}">${Ot(e.status)}</span>
-          <span class="grow">${Pt(e.fingerprint, (e) => this._nameOf(e))}</span>
+          <span class="chip ${At(e.status)}">${kt(e.status)}</span>
+          <span class="grow">${Lt(e.fingerprint, (e) => this._nameOf(e))}</span>
         </div>
         <details>
           <summary class="secondary">What the backend reported</summary>
@@ -1797,7 +1812,7 @@ var W = class extends U {
     `;
 	}
 	_renderSnapshots() {
-		return this._snapshots.length === 0 ? C : x`
+		return this._snapshots.length === 0 ? S : b`
       <div class="card">
         <h3>Snapshots</h3>
         <p class="secondary">
@@ -1817,9 +1832,9 @@ var W = class extends U {
               </tr>
             </thead>
             <tbody>
-              ${this._snapshots.map((e) => x`
+              ${this._snapshots.map((e) => b`
                   <tr>
-                    <td>${Ft(e.created_at, this.hass?.language)}</td>
+                    <td>${Rt(e.created_at, this.hass?.language)}</td>
                     <td>${e.reason}</td>
                     <td>${e.devices.length}</td>
                     <td>${e.links}</td>
@@ -1874,7 +1889,7 @@ var W = class extends U {
 	}
 	_rollbackNotices() {
 		let e = [], t = [...new Set(this._returning)].sort();
-		return t.length > 0 && e.push(`Some of these removals belong to rules that are still on: ${t.join(", ")}. They will be written again the next time those rules are applied, and until then those rules read as drifted. Turn a rule off first if you want its links gone for good.`), this._unreadable.length > 0 && e.push(`${V(this._unreadable.length, "device")} this snapshot covers cannot be read right now, so nothing is planned for them and whatever they hold stays as it is.`), e;
+		return t.length > 0 && e.push(`Some of these removals belong to rules that are still on: ${t.join(", ")}. They will be written again the next time those rules are applied, and until then those rules read as drifted. Turn a rule off first if you want its links gone for good.`), this._unreadable.length > 0 && e.push(`${B(this._unreadable.length, "device")} this snapshot covers cannot be read right now, so nothing is planned for them and whatever they hold stays as it is.`), e;
 	}
 	_outcomeCounts(e) {
 		let t = /* @__PURE__ */ new Map();
@@ -1898,7 +1913,7 @@ var W = class extends U {
 					e !== void 0 && this._select(e.id);
 				}
 			} catch (e) {
-				this._error = N(this.hass, M.from(e));
+				this._error = M(this.hass, j.from(e));
 			} finally {
 				this._loading = !1;
 			}
@@ -1908,7 +1923,7 @@ var W = class extends U {
 		this._selectedId = e, this._detail = this._jobs.find((t) => t.id === e) ?? null, this.api && this.api.getJob(e).then((t) => {
 			this._selectedId === e && (this._detail = t);
 		}).catch((e) => {
-			this._error = N(this.hass, M.from(e));
+			this._error = M(this.hass, j.from(e));
 		});
 	}
 	_clear() {
@@ -1922,7 +1937,7 @@ var W = class extends U {
 			}
 			this._running = null, this._load();
 		}, (e) => {
-			this._error = N(this.hass, e);
+			this._error = M(this.hass, e);
 		}));
 	}
 	async _cancel() {
@@ -1931,15 +1946,15 @@ var W = class extends U {
 			try {
 				await this.api.cancelJob();
 			} catch (e) {
-				this._error = N(this.hass, M.from(e)), this._cancelling = !1;
+				this._error = M(this.hass, j.from(e)), this._cancelling = !1;
 			}
 		}
 	}
 };
-P([A()], W.prototype, "_jobs", void 0), P([A()], W.prototype, "_running", void 0), P([A()], W.prototype, "_selectedId", void 0), P([A()], W.prototype, "_detail", void 0), P([A()], W.prototype, "_devices", void 0), P([A()], W.prototype, "_loading", void 0), P([A()], W.prototype, "_error", void 0), P([A()], W.prototype, "_cancelling", void 0), P([A()], W.prototype, "_snapshots", void 0), P([A()], W.prototype, "_rollingBack", void 0), P([A()], W.prototype, "_returning", void 0), P([A()], W.prototype, "_unreadable", void 0), W = P([O("device-links-activity")], W);
+N([k()], U.prototype, "_jobs", void 0), N([k()], U.prototype, "_running", void 0), N([k()], U.prototype, "_selectedId", void 0), N([k()], U.prototype, "_detail", void 0), N([k()], U.prototype, "_devices", void 0), N([k()], U.prototype, "_loading", void 0), N([k()], U.prototype, "_error", void 0), N([k()], U.prototype, "_cancelling", void 0), N([k()], U.prototype, "_snapshots", void 0), N([k()], U.prototype, "_rollingBack", void 0), N([k()], U.prototype, "_returning", void 0), N([k()], U.prototype, "_unreadable", void 0), U = N([D("device-links-activity")], U);
 //#endregion
 //#region src/components/dialog.ts
-var G = class extends D {
+var W = class extends E {
 	constructor(...e) {
 		super(...e), this.open = !1, this.heading = "", this.narrow = !1, this.dismissible = !0, this._returnFocusTo = null, this._onKeyDown = (e) => {
 			this.open && this.dismissible && e.key === "Escape" && (e.stopPropagation(), this._close());
@@ -2060,12 +2075,12 @@ var G = class extends D {
 		e.has("open") && (this.open ? (this._returnFocusTo = document.activeElement, this._surface?.focus()) : this._returnFocusTo instanceof HTMLElement && (this._returnFocusTo.focus(), this._returnFocusTo = null));
 	}
 	render() {
-		return this.open ? x`
+		return this.open ? b`
       <div class="scrim" @click=${this._onScrim}></div>
       <div class="dialog" role="dialog" aria-modal="true" aria-label=${this.heading} tabindex="-1">
         <header>
           <h2>${this.heading}</h2>
-          ${this.dismissible ? x`<button
+          ${this.dismissible ? b`<button
                 class="close"
                 type="button"
                 aria-label="Close"
@@ -2073,12 +2088,12 @@ var G = class extends D {
                 @click=${this._close}
               >
                 &#10005;
-              </button>` : C}
+              </button>` : S}
         </header>
         <div class="body"><slot></slot></div>
         <footer><slot name="actions"></slot></footer>
       </div>
-    ` : C;
+    ` : S;
 	}
 	_onScrim() {
 		this.dismissible && this._close();
@@ -2090,21 +2105,21 @@ var G = class extends D {
 		}));
 	}
 };
-P([k({
+N([O({
 	type: Boolean,
 	reflect: !0
-})], G.prototype, "open", void 0), P([k({ type: String })], G.prototype, "heading", void 0), P([k({
+})], W.prototype, "open", void 0), N([O({ type: String })], W.prototype, "heading", void 0), N([O({
 	type: Boolean,
 	reflect: !0
-})], G.prototype, "narrow", void 0), P([k({ type: Boolean })], G.prototype, "dismissible", void 0), P([Ve(".dialog")], G.prototype, "_surface", void 0), G = P([O("dl-dialog")], G);
+})], W.prototype, "narrow", void 0), N([O({ type: Boolean })], W.prototype, "dismissible", void 0), N([He(".dialog")], W.prototype, "_surface", void 0), W = N([D("dl-dialog")], W);
 //#endregion
 //#region src/dialogs/plan-dialog.ts
-var K = class extends D {
+var G = class extends E {
 	constructor(...e) {
 		super(...e), this.components = null, this.narrow = !1, this.open = !1, this.heading = "Plan and apply", this.initialPlan = null, this.initialRemoveUnmanaged = [], this.flow = null, this._plan = null, this._phase = "loading", this._error = null, this._stale = !1, this._removeUnmanaged = [], this._progress = null, this._finished = null, this._cancelling = !1, this._jobId = null, this._subscription = null;
 	}
 	static {
-		this.styles = [H, o`
+		this.styles = [V, o`
       .summary {
         margin-bottom: 12px;
       }
@@ -2185,7 +2200,7 @@ var K = class extends D {
 		e.has("open") && (this.open ? this._start() : this._reset());
 	}
 	render() {
-		return x`
+		return b`
       <dl-dialog
         .open=${this.open}
         .narrow=${this.narrow}
@@ -2199,46 +2214,46 @@ var K = class extends D {
     `;
 	}
 	_renderBody() {
-		return this._error === null ? this._phase === "loading" ? x`<p class="secondary">Working out what would change.</p>` : this._phase === "applying" ? this._renderProgress() : this._phase === "finished" ? this._renderResult() : this._renderPlan() : x`
+		return this._error === null ? this._phase === "loading" ? b`<p class="secondary">Working out what would change.</p>` : this._phase === "applying" ? this._renderProgress() : this._phase === "finished" ? this._renderResult() : this._renderPlan() : b`
         <div class="notice error" role="alert">
           <p>${this._error}</p>
-          ${this._stale ? x`<p class="secondary">
+          ${this._stale ? b`<p class="secondary">
                 Nothing was written. Plan again to see what would happen now.
-              </p>` : C}
+              </p>` : S}
         </div>
       `;
 	}
 	_renderPlan() {
 		let e = this._plan;
-		return e === null ? x`<p class="secondary">No plan yet.</p>` : e.is_empty && e.counts.unmanaged === 0 ? x`
+		return e === null ? b`<p class="secondary">No plan yet.</p>` : e.is_empty && e.counts.unmanaged === 0 ? b`
         ${this._renderNotices(e)}
         <p>Nothing to do. Every link this covers is already on the devices.</p>
-        ${e.unchanged_count > 0 ? x`<p class="secondary">
-              ${V(e.unchanged_count, "link")} checked and left alone.
-            </p>` : C}
-      ` : x`
+        ${e.unchanged_count > 0 ? b`<p class="secondary">
+              ${B(e.unchanged_count, "link")} checked and left alone.
+            </p>` : S}
+      ` : b`
       ${this._renderNotices(e)} ${this._renderSummary(e)}
       ${e.devices.map((e) => this._renderDevice(e))}
     `;
 	}
 	_renderNotices(e) {
 		let t = this.flow?.notices?.(e) ?? [];
-		return t.length === 0 ? C : x`
+		return t.length === 0 ? S : b`
       <div class="notice warn" role="note">
-        ${t.map((e) => x`<p>${e}</p>`)}
+        ${t.map((e) => b`<p>${e}</p>`)}
       </div>
     `;
 	}
 	_renderSummary(e) {
 		let t = e.counts;
-		return x`
+		return b`
       <div class="summary">
         <p>
-          ${V(this._changeCount(e), "change")} on
-          ${V(e.devices.length, "device")}.
-          ${e.unchanged_count > 0 ? x`<span class="secondary">
-                ${V(e.unchanged_count, "link")} already correct.
-              </span>` : C}
+          ${B(this._changeCount(e), "change")} on
+          ${B(e.devices.length, "device")}.
+          ${e.unchanged_count > 0 ? b`<span class="secondary">
+                ${B(e.unchanged_count, "link")} already correct.
+              </span>` : S}
         </p>
         <div class="chips">
           ${this._countChip("Add", t.add, "ok")}
@@ -2253,16 +2268,16 @@ var K = class extends D {
     `;
 	}
 	_countChip(e, t, n) {
-		return t === 0 ? C : x`<span class="chip ${n}">${e} ${t}</span>`;
+		return t === 0 ? S : b`<span class="chip ${n}">${e} ${t}</span>`;
 	}
 	_renderUnmanagedControls(e) {
 		let t = this._selectableUnmanaged(e);
-		if (t.length === 0) return C;
+		if (t.length === 0) return S;
 		let n = this._removeUnmanaged.length;
-		return x`
+		return b`
       <div class="notice">
         <p>
-          ${V(t.length, "link")} on these devices belong to no rule. They are
+          ${B(t.length, "link")} on these devices belong to no rule. They are
           left alone unless you tick them.
         </p>
         <div class="row">
@@ -2288,16 +2303,16 @@ var K = class extends D {
     `;
 	}
 	_renderDevice(e) {
-		return x`
+		return b`
       <section class="device">
         <header>
           <h3>${e.name}</h3>
-          <span class="chip muted">${R(e.backend)}</span>
-          ${e.available ? C : x`<span class="chip warn" title="This device is not answering right now">
+          <span class="chip muted">${L(e.backend)}</span>
+          ${e.available ? S : b`<span class="chip warn" title="This device is not answering right now">
                 Not answering
               </span>`}
         </header>
-        ${e.available ? C : x`<p class="secondary">
+        ${e.available ? S : b`<p class="secondary">
               Device Links cannot read this device right now, so what it holds is what was
               last seen. Anything planned for it may be refused when apply runs.
             </p>`}
@@ -2311,7 +2326,7 @@ var K = class extends D {
     `;
 	}
 	_renderBucket(e, t) {
-		return t.length === 0 ? C : x`
+		return t.length === 0 ? S : b`
       <div class="bucket">
         <h4>${e}</h4>
         ${t.map((e) => this._renderItem(e))}
@@ -2319,20 +2334,20 @@ var K = class extends D {
     `;
 	}
 	_renderItem(e) {
-		let t = e.reason === null ? null : Ze(this.hass, e.reason);
-		return x`
+		let t = e.reason === null ? null : Qe(this.hass, e.reason);
+		return b`
       <div class="item">
         <div>${this._describeItem(e)}</div>
-        ${t === null ? C : x`<p class="reason">${t}</p>`}
-        ${e.op === "pending" ? x`<p class="reason">
+        ${t === null ? S : b`<p class="reason">${t}</p>`}
+        ${e.op === "pending" ? b`<p class="reason">
               Battery devices only accept changes while they are awake. Press a button on
               it, or wait for it to check in.
-            </p>` : C}
+            </p>` : S}
       </div>
     `;
 	}
 	_describeItem(e) {
-		if (e.link !== null) return Mt(e.link);
+		if (e.link !== null) return Nt(e.link);
 		if (e.setting !== null) {
 			let t = e.setting, n = t.bitmask === null ? "" : ` (bitmask ${t.bitmask})`;
 			return `Set ${t.capability}, parameter ${t.parameter}${n}, to ${t.value}`;
@@ -2340,7 +2355,7 @@ var K = class extends D {
 		return "A change this panel has no wording for yet.";
 	}
 	_renderUnmanaged(e) {
-		return e.length === 0 ? C : x`
+		return e.length === 0 ? S : b`
       <div class="bucket">
         <h4>Not managed by any rule</h4>
         ${e.map((e) => this._renderUnmanagedLink(e))}
@@ -2348,12 +2363,12 @@ var K = class extends D {
     `;
 	}
 	_renderUnmanagedLink(e) {
-		return e.is_system ? x`
+		return e.is_system ? b`
         <div class="unmanaged-item">
           <span class="chip muted">System link</span>
-          <span>${Mt(e)}</span>
+          <span>${Nt(e)}</span>
         </div>
-      ` : x`
+      ` : b`
       <label class="unmanaged-item">
         <input
           type="checkbox"
@@ -2362,61 +2377,61 @@ var K = class extends D {
           @change=${(t) => this._toggleUnmanaged(e, t)}
         />
         <span>
-          Also remove: ${Mt(e)}
-          ${e.ignored ? x`<span class="chip muted">Ignored</span>` : C}
+          Also remove: ${Nt(e)}
+          ${e.ignored ? b`<span class="chip muted">Ignored</span>` : S}
         </span>
       </label>
     `;
 	}
 	_renderProgress() {
 		let e = this._progress, t = e?.total ?? 0, n = e?.completed ?? 0;
-		return x`
+		return b`
       <p>Writing to your devices. Leave this open until it finishes.</p>
       <div class="bar"><div style=${`width: ${t === 0 ? 0 : Math.round(n / t * 100)}%`}></div></div>
       <p class="secondary">
         ${t === 0 ? "Starting" : `${n} of ${t} done`}
-        ${e?.devices_in_flight.length ? x`<span> &middot; now on ${e.devices_in_flight.join(", ")}</span>` : C}
+        ${e?.devices_in_flight.length ? b`<span> &middot; now on ${e.devices_in_flight.join(", ")}</span>` : S}
       </p>
-      ${this._cancelling ? x`<p class="secondary">
+      ${this._cancelling ? b`<p class="secondary">
             Stopping. What is already in flight still finishes.
-          </p>` : C}
+          </p>` : S}
     `;
 	}
 	_renderResult() {
 		let e = this._finished;
-		if (e === null) return x`<p>The job finished.</p>`;
+		if (e === null) return b`<p>The job finished.</p>`;
 		let t = Object.entries(e.results);
-		return x`
+		return b`
       <div class="row">
-        <span class="chip ${Dt(e.status)}">${Et(e.status)}</span>
-        <span class="secondary">${V(e.total, "link")} attempted</span>
+        <span class="chip ${Ot(e.status)}">${Dt(e.status)}</span>
+        <span class="secondary">${B(e.total, "link")} attempted</span>
       </div>
       <div class="chips" style="margin-top: 12px">
-        ${t.map(([e, t]) => x`<span class="chip ${kt(e)}">
-              ${Ot(e)} ${t}
+        ${t.map(([e, t]) => b`<span class="chip ${At(e)}">
+              ${kt(e)} ${t}
             </span>`)}
       </div>
-      ${e.status === "completed" ? C : x`<p class="secondary" style="margin-top: 12px">
+      ${e.status === "completed" ? S : b`<p class="secondary" style="margin-top: 12px">
             Activity has the per-link detail, including what each device said.
           </p>`}
     `;
 	}
 	_renderActions() {
-		if (this._error !== null) return x`
+		if (this._error !== null) return b`
         <button type="button" class="outlined" @click=${this._requestClose}>Close</button>
         <button type="button" class="primary" @click=${this._replan}>Plan again</button>
       `;
-		if (this._phase === "applying") return x`
+		if (this._phase === "applying") return b`
         <button type="button" class="danger" @click=${this._cancel} ?disabled=${this._cancelling}>
           Stop
         </button>
       `;
-		if (this._phase === "finished") return x`
+		if (this._phase === "finished") return b`
         <button type="button" class="outlined" @click=${this._replan}>Plan again</button>
         <button type="button" class="primary" @click=${this._requestClose}>Close</button>
       `;
 		let e = this._plan === null ? 0 : this._changeCount(this._plan);
-		return x`
+		return b`
       <button type="button" class="outlined" @click=${this._requestClose}>Cancel</button>
       <button
         type="button"
@@ -2424,7 +2439,7 @@ var K = class extends D {
         ?disabled=${this._phase !== "plan" || e === 0}
         @click=${this._apply}
       >
-        ${e === 0 ? "Nothing to apply" : `Apply ${V(e, "change")}`}
+        ${e === 0 ? "Nothing to apply" : `Apply ${B(e, "change")}`}
       </button>
     `;
 	}
@@ -2505,15 +2520,15 @@ var K = class extends D {
 				composed: !0
 			})));
 		}, (e) => {
-			this._error = N(this.hass, e);
+			this._error = M(this.hass, e);
 		});
 	}
 	_unsubscribe() {
 		this._subscription?.unsubscribe(), this._subscription = null;
 	}
 	_fail(e) {
-		let t = M.from(e);
-		this._error = N(this.hass, t), this._stale = t.translationKey === "plan_out_of_date", this._phase = "plan";
+		let t = j.from(e);
+		this._error = M(this.hass, t), this._stale = t.translationKey === "plan_out_of_date", this._phase = "plan";
 	}
 	_requestClose() {
 		this._phase !== "applying" && this.dispatchEvent(new CustomEvent("dl-plan-closed", {
@@ -2526,20 +2541,20 @@ var K = class extends D {
 		}));
 	}
 };
-P([k({ attribute: !1 })], K.prototype, "hass", void 0), P([k({ attribute: !1 })], K.prototype, "api", void 0), P([k({ attribute: !1 })], K.prototype, "components", void 0), P([k({ type: Boolean })], K.prototype, "narrow", void 0), P([k({ type: Boolean })], K.prototype, "open", void 0), P([k({ attribute: !1 })], K.prototype, "scope", void 0), P([k({ type: String })], K.prototype, "heading", void 0), P([k({ attribute: !1 })], K.prototype, "initialPlan", void 0), P([k({ attribute: !1 })], K.prototype, "initialRemoveUnmanaged", void 0), P([k({ attribute: !1 })], K.prototype, "flow", void 0), P([A()], K.prototype, "_plan", void 0), P([A()], K.prototype, "_phase", void 0), P([A()], K.prototype, "_error", void 0), P([A()], K.prototype, "_stale", void 0), P([A()], K.prototype, "_removeUnmanaged", void 0), P([A()], K.prototype, "_progress", void 0), P([A()], K.prototype, "_finished", void 0), P([A()], K.prototype, "_cancelling", void 0), K = P([O("dl-plan-dialog")], K);
+N([O({ attribute: !1 })], G.prototype, "hass", void 0), N([O({ attribute: !1 })], G.prototype, "api", void 0), N([O({ attribute: !1 })], G.prototype, "components", void 0), N([O({ type: Boolean })], G.prototype, "narrow", void 0), N([O({ type: Boolean })], G.prototype, "open", void 0), N([O({ attribute: !1 })], G.prototype, "scope", void 0), N([O({ type: String })], G.prototype, "heading", void 0), N([O({ attribute: !1 })], G.prototype, "initialPlan", void 0), N([O({ attribute: !1 })], G.prototype, "initialRemoveUnmanaged", void 0), N([O({ attribute: !1 })], G.prototype, "flow", void 0), N([k()], G.prototype, "_plan", void 0), N([k()], G.prototype, "_phase", void 0), N([k()], G.prototype, "_error", void 0), N([k()], G.prototype, "_stale", void 0), N([k()], G.prototype, "_removeUnmanaged", void 0), N([k()], G.prototype, "_progress", void 0), N([k()], G.prototype, "_finished", void 0), N([k()], G.prototype, "_cancelling", void 0), G = N([D("dl-plan-dialog")], G);
 //#endregion
 //#region src/components/icon.ts
-function Lt(e, t) {
-	return e?.has("ha-icon") ? x`<ha-icon .icon=${t} aria-hidden="true"></ha-icon>` : C;
+function K(e, t) {
+	return e?.has("ha-icon") ? b`<ha-icon .icon=${t} aria-hidden="true"></ha-icon>` : S;
 }
 //#endregion
 //#region src/views/devices.ts
-var q = class extends U {
+var q = class extends H {
 	constructor(...e) {
 		super(...e), this._devices = [], this._detail = null, this._selectedId = null, this._search = "", this._loading = !0, this._busy = !1, this._error = null, this._confidence = "cached", this._incoming = null, this._incomingState = "idle", this._planOpen = !1, this._planRemove = [], this._planHeading = "Plan and apply", this._linkIndex = [], this._ignored = /* @__PURE__ */ new Set();
 	}
 	static {
-		this.styles = H;
+		this.styles = V;
 	}
 	connectedCallback() {
 		super.connectedCallback(), this._load();
@@ -2548,9 +2563,9 @@ var q = class extends U {
 		e.has("selected") && this.selected !== null && this._select(this.selected);
 	}
 	render() {
-		return x`
+		return b`
       <div class="content">
-        ${this._error === null ? C : x`<div class="notice error" role="alert">${this._error}</div>`}
+        ${this._error === null ? S : b`<div class="notice error" role="alert">${this._error}</div>`}
         <dl-two-pane .narrow=${this.narrow} ?show-detail=${this._selectedId !== null}>
           <div slot="list" class="card">${this._renderList()}</div>
           <div slot="detail" class="card">${this._renderDetail()}</div>
@@ -2572,7 +2587,7 @@ var q = class extends U {
 	}
 	_renderList() {
 		let e = this._filtered();
-		return x`
+		return b`
       <label class="field" style="margin-bottom: 8px">
         <span>Search</span>
         <input
@@ -2584,7 +2599,7 @@ var q = class extends U {
 		}}
         />
       </label>
-      ${this._loading ? x`<p class="secondary">Loading.</p>` : e.length === 0 ? x`<p class="empty">No device matches that search.</p>` : x`
+      ${this._loading ? b`<p class="secondary">Loading.</p>` : e.length === 0 ? b`<p class="empty">No device matches that search.</p>` : b`
               <ul class="list">
                 ${e.map((e) => this._renderListRow(e))}
               </ul>
@@ -2592,7 +2607,7 @@ var q = class extends U {
     `;
 	}
 	_renderListRow(e) {
-		return x`
+		return b`
       <li>
         <button
           type="button"
@@ -2603,14 +2618,14 @@ var q = class extends U {
         >
           <span class="row">
             <span class="grow">${e.name}</span>
-            <span class="chip muted">${R(e.backend)}</span>
+            <span class="chip muted">${L(e.backend)}</span>
           </span>
           <span class="chips" style="margin-top: 4px">
-            <span class="chip muted">${V(e.links, "link")}</span>
-            <span class="chip muted">${V(e.emitters, "control")}</span>
-            ${e.available ? C : x`<span class="chip warn">Not answering</span>`}
-            ${e.is_long_range ? x`<span class="chip error">Long Range</span>` : C}
-            ${e.device_id === null ? x`<span class="chip muted">No Home Assistant device</span>` : C}
+            <span class="chip muted">${B(e.links, "link")}</span>
+            <span class="chip muted">${B(e.emitters, "control")}</span>
+            ${e.available ? S : b`<span class="chip warn">Not answering</span>`}
+            ${e.is_long_range ? b`<span class="chip error">Long Range</span>` : S}
+            ${e.device_id === null ? b`<span class="chip muted">No Home Assistant device</span>` : S}
           </span>
         </button>
       </li>
@@ -2618,18 +2633,18 @@ var q = class extends U {
 	}
 	_renderDetail() {
 		let e = this._detail;
-		if (e === null) return x`<p class="empty">Choose a device to see what is on it.</p>`;
+		if (e === null) return b`<p class="empty">Choose a device to see what is on it.</p>`;
 		let t = e.device;
-		return x`
-      ${this.narrow ? x`<button type="button" class="link" @click=${this._clear}>Back to the list</button>` : C}
+		return b`
+      ${this.narrow ? b`<button type="button" class="link" @click=${this._clear}>Back to the list</button>` : S}
       <div class="spread" style="margin-top: 8px">
         <div class="grow">
           <h2>${t.name}</h2>
           <div class="chips">
-            <span class="chip muted">${R(t.backend)}</span>
+            <span class="chip muted">${L(t.backend)}</span>
             <span class="chip muted">${t.protocol_id}</span>
-            ${t.available ? C : x`<span class="chip warn">Not answering</span>`}
-            ${t.is_long_range ? x`<span class="chip error">Long Range</span>` : C}
+            ${t.available ? S : b`<span class="chip warn">Not answering</span>`}
+            ${t.is_long_range ? b`<span class="chip error">Long Range</span>` : S}
           </div>
         </div>
         <div class="row">
@@ -2648,11 +2663,11 @@ var q = class extends U {
     `;
 	}
 	_renderConfidence(e) {
-		return e.available ? this._confidence === "confirmed" ? x`
+		return e.available ? this._confidence === "confirmed" ? b`
         <div class="notice">
           <p>Read from the device itself just now.</p>
         </div>
-      ` : this._confidence === "unconfirmed" ? x`
+      ` : this._confidence === "unconfirmed" ? b`
         <div class="notice warn">
           <p>
             The deep verify did not come back confirmed. The device may have been asleep or
@@ -2660,11 +2675,11 @@ var q = class extends U {
             rather than a fresh reading. It is not evidence that anything is wrong.
           </p>
         </div>
-      ` : x`
+      ` : b`
       <p class="secondary">
         From the driver's cache. Deep verify reads the device itself.
       </p>
-    ` : x`
+    ` : b`
         <div class="notice warn">
           <p>
             This device is not answering. What follows is what Device Links last read from
@@ -2676,47 +2691,47 @@ var q = class extends U {
 	}
 	_renderOutgoing(e) {
 		let t = /* @__PURE__ */ new Set();
-		return x`
+		return b`
       <h3 style="margin-top: 16px">Outgoing</h3>
       <p class="secondary">What this device sends, and to whom.</p>
-      ${e.emitters.length === 0 ? x`<p class="secondary">This device offers no controls that reach another device.</p>` : e.emitters.map((n) => this._renderEmitter(e, n, t))}
+      ${e.emitters.length === 0 ? b`<p class="secondary">This device offers no controls that reach another device.</p>` : e.emitters.map((n) => this._renderEmitter(e, n, t))}
       ${this._renderOrphans(e, t)}
     `;
 	}
 	_renderEmitter(e, t, n) {
 		let r = new Set(t.group_ids.length ? t.group_ids : Object.values(t.actions).filter((e) => e !== void 0)), i = e.links.filter((e) => r.has(e.emitter_group));
 		for (let e of i) n.add(e.fingerprint);
-		let a = At(t, e.links), o = Object.keys(t.actions);
-		return x`
+		let a = jt(t, e.links), o = Object.keys(t.actions);
+		return b`
       <div class="card" style="margin-top: 8px">
         <div class="row">
           <strong class="grow">${t.label}</strong>
-          ${t.is_lifeline ? x`<span class="chip muted" title="Device Links never writes to a lifeline">
+          ${t.is_lifeline ? b`<span class="chip muted" title="Device Links never writes to a lifeline">
                 System link
-              </span>` : C}
-          ${a === null ? C : x`<span class="chip ${a.free === 0 ? "warn" : "muted"}">
+              </span>` : S}
+          ${a === null ? S : b`<span class="chip ${a.free === 0 ? "warn" : "muted"}">
                 ${a.used} of ${a.capacity} used in group ${a.group}
               </span>`}
         </div>
         <div class="chips" style="margin: 6px 0">
-          ${o.map((e) => x`<span class="chip">
-                ${Lt(this.components, St(e))}${L(e)}
+          ${o.map((e) => b`<span class="chip">
+                ${K(this.components, Ct(e))}${I(e)}
               </span>`)}
-          ${t.semantics === "unknown" ? x`<span class="chip warn" title="What this control sends has not been observed">
+          ${t.semantics === "unknown" ? b`<span class="chip warn" title="What this control sends has not been observed">
                 Unverified
-              </span>` : C}
+              </span>` : S}
         </div>
-        ${i.length === 0 ? x`<p class="secondary">Nothing on it.</p>` : x`<ul class="list">${i.map((e) => this._renderEntry(e))}</ul>`}
+        ${i.length === 0 ? b`<p class="secondary">Nothing on it.</p>` : b`<ul class="list">${i.map((e) => this._renderEntry(e))}</ul>`}
       </div>
     `;
 	}
 	_renderOrphans(e, t) {
 		let n = e.links.filter((e) => !t.has(e.fingerprint));
-		return n.length === 0 ? C : x`
+		return n.length === 0 ? S : b`
       <div class="card" style="margin-top: 8px">
         <div class="row">
           <strong class="grow">Other groups</strong>
-          <span class="chip muted">${V(n.length, "entry", "entries")}</span>
+          <span class="chip muted">${B(n.length, "entry", "entries")}</span>
         </div>
         <p class="secondary">
           These are on groups no control of this device claims, so Device Links cannot say
@@ -2728,13 +2743,13 @@ var q = class extends U {
 	}
 	_renderEntry(e) {
 		let t = !e.is_system && e.rule_id === null;
-		return x`
+		return b`
       <li>
         <div class="spread">
           <div class="grow">
             <div class="row">
-              <span>${jt(e.target)}</span>
-              <span class="chip muted">${L(e.feature)}</span>
+              <span>${Mt(e.target)}</span>
+              <span class="chip muted">${I(e.feature)}</span>
               <span class="chip muted">group ${e.emitter_group}</span>
             </div>
             <p class="secondary" style="margin: 4px 0 0">
@@ -2747,7 +2762,7 @@ var q = class extends U {
     `;
 	}
 	_renderEntryActions(e, t) {
-		return e.is_system || !t ? C : x`
+		return e.is_system || !t ? S : b`
       <div class="row">
         <button
           type="button"
@@ -2765,26 +2780,26 @@ var q = class extends U {
 	}
 	_renderIncoming(e) {
 		let t = e.device.identity;
-		return x`
+		return b`
       <h3 style="margin-top: 16px">Incoming</h3>
       <p class="secondary">What reaches this device from somewhere else.</p>
-      ${this._incomingState === "loading" ? x`<p class="secondary">Reading every device to find what controls this one.</p>` : this._incomingState === "error" ? x`<p class="secondary">
+      ${this._incomingState === "loading" ? b`<p class="secondary">Reading every device to find what controls this one.</p>` : this._incomingState === "error" ? b`<p class="secondary">
               The other devices could not all be read, so this list may be short.
-            </p>` : C}
+            </p>` : S}
       ${this._renderIncomingList(t)}
     `;
 	}
 	_renderIncomingList(e) {
 		let t = (this._incoming ?? []).filter((t) => t.target.identity === e);
-		return this._incomingState === "loading" ? x`` : t.length === 0 ? x`<p class="secondary">Nothing controls this device over the radio.</p>` : x`
+		return this._incomingState === "loading" ? b`` : t.length === 0 ? b`<p class="secondary">Nothing controls this device over the radio.</p>` : b`
       <ul class="list">
-        ${t.map((e) => x`
+        ${t.map((e) => b`
             <li>
               <div class="row">
-                <span class="grow">${jt(e.source)}</span>
+                <span class="grow">${Mt(e.source)}</span>
                 <span class="chip muted">group ${e.emitter_group}</span>
-                <span class="chip muted">${L(e.feature)}</span>
-                ${e.is_system ? x`<span class="chip muted">System link</span>` : C}
+                <span class="chip muted">${I(e.feature)}</span>
+                ${e.is_system ? b`<span class="chip muted">System link</span>` : S}
               </div>
               <p class="secondary" style="margin: 4px 0 0">
                 ${e.rule_name ?? (e.is_system ? "System link" : "Not managed by any rule")}
@@ -2796,7 +2811,7 @@ var q = class extends U {
 	}
 	_renderSettings(e) {
 		let t = Object.entries(e.settings);
-		return t.length === 0 ? C : x`
+		return t.length === 0 ? S : b`
       <h3 style="margin-top: 16px">Association settings</h3>
       <p class="secondary">
         The device settings a rule can write. The value is what was last read from the device.
@@ -2810,7 +2825,7 @@ var q = class extends U {
             </tr>
           </thead>
           <tbody>
-            ${t.map(([e, t]) => x`
+            ${t.map(([e, t]) => b`
                 <tr>
                   <td>${e}</td>
                   <td class="mono">${String(t)}</td>
@@ -2831,7 +2846,7 @@ var q = class extends U {
 			try {
 				this._devices = await this.api.listDevices() ?? [], this._error = null;
 			} catch (e) {
-				this._error = N(this.hass, M.from(e));
+				this._error = M(this.hass, j.from(e));
 			} finally {
 				this._loading = !1;
 			}
@@ -2846,7 +2861,7 @@ var q = class extends U {
 			try {
 				this._detail = await this.api.getDevice(e), this._error = null;
 			} catch (e) {
-				this._error = N(this.hass, M.from(e));
+				this._error = M(this.hass, j.from(e));
 			} finally {
 				this._busy = !1;
 			}
@@ -2864,7 +2879,7 @@ var q = class extends U {
 				let n = await this.api.refreshDevice(t, e);
 				this._detail = n, this._confidence = e ? n.deep_verified ? "confirmed" : "unconfirmed" : "cached", this._error = null, this._linkIndex = [], this._incomingState = "idle", this._loadIncoming();
 			} catch (e) {
-				this._error = N(this.hass, M.from(e));
+				this._error = M(this.hass, j.from(e));
 			} finally {
 				this._busy = !1;
 			}
@@ -2890,7 +2905,7 @@ var q = class extends U {
 			try {
 				await this.api.setUnmanagedIgnored([e.fingerprint], t), t ? this._ignored.add(e.fingerprint) : this._ignored.delete(e.fingerprint), this.requestUpdate(), this._error = null;
 			} catch (e) {
-				this._error = N(this.hass, M.from(e));
+				this._error = M(this.hass, j.from(e));
 			} finally {
 				this._busy = !1;
 			}
@@ -2907,35 +2922,35 @@ var q = class extends U {
 		this._load(), this._selectedId !== null && this._select(this._selectedId);
 	}
 };
-P([A()], q.prototype, "_devices", void 0), P([A()], q.prototype, "_detail", void 0), P([A()], q.prototype, "_selectedId", void 0), P([A()], q.prototype, "_search", void 0), P([A()], q.prototype, "_loading", void 0), P([A()], q.prototype, "_busy", void 0), P([A()], q.prototype, "_error", void 0), P([A()], q.prototype, "_confidence", void 0), P([A()], q.prototype, "_incoming", void 0), P([A()], q.prototype, "_incomingState", void 0), P([A()], q.prototype, "_planOpen", void 0), P([A()], q.prototype, "_planScope", void 0), P([A()], q.prototype, "_planRemove", void 0), P([A()], q.prototype, "_planHeading", void 0), q = P([O("device-links-devices")], q);
+N([k()], q.prototype, "_devices", void 0), N([k()], q.prototype, "_detail", void 0), N([k()], q.prototype, "_selectedId", void 0), N([k()], q.prototype, "_search", void 0), N([k()], q.prototype, "_loading", void 0), N([k()], q.prototype, "_busy", void 0), N([k()], q.prototype, "_error", void 0), N([k()], q.prototype, "_confidence", void 0), N([k()], q.prototype, "_incoming", void 0), N([k()], q.prototype, "_incomingState", void 0), N([k()], q.prototype, "_planOpen", void 0), N([k()], q.prototype, "_planScope", void 0), N([k()], q.prototype, "_planRemove", void 0), N([k()], q.prototype, "_planHeading", void 0), q = N([D("device-links-devices")], q);
 //#endregion
 //#region src/views/overview.ts
-var Rt = [
+var Bt = [
 	"blocked",
 	"drift",
 	"pending",
 	"unknown"
-], zt = [
+], Vt = [
 	"in_sync",
 	"drift",
 	"pending",
 	"blocked",
 	"disabled",
 	"unknown"
-], J = class extends U {
+], J = class extends H {
 	constructor(...e) {
 		super(...e), this._profile = null, this._rules = [], this._devices = [], this._jobs = [], this._loading = !0, this._error = null, this._verifying = !1, this._verifiedAt = null, this._verifiedDevices = 0, this._planOpen = !1, this._planHeading = "Plan and apply";
 	}
 	static {
-		this.styles = H;
+		this.styles = V;
 	}
 	connectedCallback() {
 		super.connectedCallback(), this._load();
 	}
 	render() {
-		return x`
+		return b`
       <div class="content">
-        ${this._error === null ? C : x`<div class="notice error" role="alert">${this._error}</div>`}
+        ${this._error === null ? S : b`<div class="notice error" role="alert">${this._error}</div>`}
         ${this._renderHeader()}
         ${this._renderAttention()}
         ${this._renderActivity()}
@@ -2955,19 +2970,19 @@ var Rt = [
 	}
 	_renderHeader() {
 		let e = this._stateCounts();
-		return x`
+		return b`
       <div class="card">
         <div class="spread">
           <div class="grow">
             <h2>${this._profile?.name ?? "No profile is active"}</h2>
             <p class="secondary">
-              ${this._profile === null ? "Activate a profile in the Profiles tab, or make one there." : `${V(this._profile.rules, "rule")}, ${this._profile.enabled_rules} enabled.`}
+              ${this._profile === null ? "Activate a profile in the Profiles tab, or make one there." : `${B(this._profile.rules, "rule")}, ${this._profile.enabled_rules} enabled.`}
             </p>
             <div class="chips">
-              ${zt.map((t) => (e.get(t) ?? 0) === 0 ? C : x`<span class="chip ${wt(t)}" title=${Tt(t)}>
-                      ${B(t)} ${e.get(t)}
+              ${Vt.map((t) => (e.get(t) ?? 0) === 0 ? S : b`<span class="chip ${Tt(t)}" title=${Et(t)}>
+                      ${z(t)} ${e.get(t)}
                     </span>`)}
-              ${this._loading ? x`<span class="chip muted">Loading</span>` : this._rules.length === 0 ? x`<span class="chip muted">No rules yet</span>` : C}
+              ${this._loading ? b`<span class="chip muted">Loading</span>` : this._rules.length === 0 ? b`<span class="chip muted">No rules yet</span>` : S}
             </div>
           </div>
           <div class="row">
@@ -2980,32 +2995,32 @@ var Rt = [
           </div>
         </div>
         <p class="secondary" style="margin: 12px 0 0">
-          ${this._verifiedAt === null ? "Verify reads every device in the active profile and changes nothing." : `Verified ${It(this._verifiedAt)}: ${V(this._verifiedDevices, "device")} re-read.`}
+          ${this._verifiedAt === null ? "Verify reads every device in the active profile and changes nothing." : `Verified ${zt(this._verifiedAt)}: ${B(this._verifiedDevices, "device")} re-read.`}
         </p>
       </div>
     `;
 	}
 	_renderAttention() {
-		let e = this._rules.filter((e) => Rt.includes(e.state)), t = this._devices.filter((e) => !e.available);
-		return e.length === 0 && t.length === 0 ? x`
+		let e = this._rules.filter((e) => Bt.includes(e.state)), t = this._devices.filter((e) => !e.available);
+		return e.length === 0 && t.length === 0 ? b`
         <div class="card">
           <h3>Needs attention</h3>
           <p class="secondary">
             ${this._loading ? "Looking." : "Nothing. Every rule holds what it asks for, and every device answered."}
           </p>
         </div>
-      ` : x`
+      ` : b`
       <div class="card">
         <h3>Needs attention</h3>
         <ul class="list">
-          ${e.slice().sort((e, t) => Rt.indexOf(e.state) - Rt.indexOf(t.state)).map((e) => this._renderAttentionRule(e))}
-          ${t.length === 0 ? C : x`
+          ${e.slice().sort((e, t) => Bt.indexOf(e.state) - Bt.indexOf(t.state)).map((e) => this._renderAttentionRule(e))}
+          ${t.length === 0 ? S : b`
                 <li>
                   <div class="spread">
                     <div class="grow">
                       <div class="row">
                         <span class="chip warn">Not answering</span>
-                        <strong>${V(t.length, "device")}</strong>
+                        <strong>${B(t.length, "device")}</strong>
                       </div>
                       <p class="secondary" style="margin: 4px 0 0">
                         ${t.map((e) => e.name).join(", ")}. Their links are
@@ -3023,16 +3038,16 @@ var Rt = [
     `;
 	}
 	_renderAttentionRule(e) {
-		return x`
+		return b`
       <li>
         <div class="spread">
           <div class="grow">
             <div class="row">
-              <span class="chip ${wt(e.state)}">${B(e.state)}</span>
+              <span class="chip ${Tt(e.state)}">${z(e.state)}</span>
               <strong>${e.rule.name}</strong>
             </div>
             <p class="secondary" style="margin: 4px 0 0">
-              ${Tt(e.state)}
+              ${Et(e.state)}
               ${e.links_total > 0 ? ` ${e.links_in_sync} of ${e.links_total} links are in place.` : ""}
             </p>
           </div>
@@ -3053,7 +3068,7 @@ var Rt = [
     `;
 	}
 	_renderActivity() {
-		return x`
+		return b`
       <div class="card">
         <div class="spread">
           <h3>Recent activity</h3>
@@ -3061,9 +3076,9 @@ var Rt = [
             See all
           </button>
         </div>
-        ${this._jobs.length === 0 ? x`<p class="secondary">Nothing has been applied yet.</p>` : x`
+        ${this._jobs.length === 0 ? b`<p class="secondary">Nothing has been applied yet.</p>` : b`
               <ul class="list">
-                ${this._jobs.slice(0, 5).map((e) => x`
+                ${this._jobs.slice(0, 5).map((e) => b`
                     <li>
                       <button
                         type="button"
@@ -3071,12 +3086,12 @@ var Rt = [
                         @click=${() => this.goTo("activity", e.id)}
                       >
                         <span class="row">
-                          <span class="chip ${Dt(e.status)}">
-                            ${Et(e.status)}
+                          <span class="chip ${Ot(e.status)}">
+                            ${Dt(e.status)}
                           </span>
                           <span class="grow truncate">${e.scope}</span>
-                          <span class="secondary">${V(e.total, "link")}</span>
-                          <span class="secondary">${Ft(e.created_at, this.hass?.language)}</span>
+                          <span class="secondary">${B(e.total, "link")}</span>
+                          <span class="secondary">${Rt(e.created_at, this.hass?.language)}</span>
                         </span>
                       </button>
                     </li>
@@ -3099,7 +3114,7 @@ var Rt = [
 				let r = (e.profiles ?? []).find((e) => e.is_active) ?? null;
 				this._profile = r, this._rules = r === null ? [] : (await this.api.getProfile(r.id)).rules ?? [], this._error = null;
 			} catch (e) {
-				this._error = N(this.hass, M.from(e));
+				this._error = M(this.hass, j.from(e));
 			} finally {
 				this._loading = !1;
 			}
@@ -3117,7 +3132,7 @@ var Rt = [
 				let e = await this.api.verify();
 				this._verifiedDevices = e.devices, this._verifiedAt = (/* @__PURE__ */ new Date()).toISOString(), await this._load();
 			} catch (e) {
-				this._error = N(this.hass, M.from(e));
+				this._error = M(this.hass, j.from(e));
 			} finally {
 				this._verifying = !1;
 			}
@@ -3133,23 +3148,23 @@ var Rt = [
 		this._load();
 	}
 };
-P([A()], J.prototype, "_profile", void 0), P([A()], J.prototype, "_rules", void 0), P([A()], J.prototype, "_devices", void 0), P([A()], J.prototype, "_jobs", void 0), P([A()], J.prototype, "_loading", void 0), P([A()], J.prototype, "_error", void 0), P([A()], J.prototype, "_verifying", void 0), P([A()], J.prototype, "_verifiedAt", void 0), P([A()], J.prototype, "_verifiedDevices", void 0), P([A()], J.prototype, "_planOpen", void 0), P([A()], J.prototype, "_planScope", void 0), P([A()], J.prototype, "_planHeading", void 0), J = P([O("device-links-overview")], J);
+N([k()], J.prototype, "_profile", void 0), N([k()], J.prototype, "_rules", void 0), N([k()], J.prototype, "_devices", void 0), N([k()], J.prototype, "_jobs", void 0), N([k()], J.prototype, "_loading", void 0), N([k()], J.prototype, "_error", void 0), N([k()], J.prototype, "_verifying", void 0), N([k()], J.prototype, "_verifiedAt", void 0), N([k()], J.prototype, "_verifiedDevices", void 0), N([k()], J.prototype, "_planOpen", void 0), N([k()], J.prototype, "_planScope", void 0), N([k()], J.prototype, "_planHeading", void 0), J = N([D("device-links-overview")], J);
 //#endregion
 //#region src/views/profiles.ts
-var Y = class extends U {
+var Y = class extends H {
 	constructor(...e) {
 		super(...e), this._profiles = [], this._loading = !0, this._busy = !1, this._error = null, this._sheet = "none", this._subject = null, this._text = "", this._exported = "", this._planOpen = !1, this._plan = null, this._planHeading = "Plan and apply";
 	}
 	static {
-		this.styles = H;
+		this.styles = V;
 	}
 	connectedCallback() {
 		super.connectedCallback(), this._load();
 	}
 	render() {
-		return x`
+		return b`
       <div class="content">
-        ${this._error === null ? C : x`<div class="notice error" role="alert">${this._error}</div>`}
+        ${this._error === null ? S : b`<div class="notice error" role="alert">${this._error}</div>`}
         <div class="card">
           <div class="spread">
             <div class="grow">
@@ -3186,29 +3201,29 @@ var Y = class extends U {
     `;
 	}
 	_renderList() {
-		return this._loading ? x`<p class="secondary">Loading.</p>` : this._profiles.length === 0 ? x`<p class="empty">No profiles yet.</p>` : x`
+		return this._loading ? b`<p class="secondary">Loading.</p>` : this._profiles.length === 0 ? b`<p class="empty">No profiles yet.</p>` : b`
       <ul class="list">
         ${this._profiles.map((e) => this._renderRow(e))}
       </ul>
     `;
 	}
 	_renderRow(e) {
-		return x`
+		return b`
       <li>
         <div class="spread">
           <div class="grow">
             <div class="row">
               <strong>${e.name}</strong>
-              ${e.is_active ? x`<span class="chip ok">Active</span>` : C}
+              ${e.is_active ? b`<span class="chip ok">Active</span>` : S}
             </div>
             <p class="secondary" style="margin: 4px 0 0">
-              ${V(e.rules, "rule")}, ${e.enabled_rules} enabled.
+              ${B(e.rules, "rule")}, ${e.enabled_rules} enabled.
             </p>
           </div>
           <div class="row">
-            ${e.is_active ? x`<button type="button" class="outlined" @click=${() => this.goTo("rules")}>
+            ${e.is_active ? b`<button type="button" class="outlined" @click=${() => this.goTo("rules")}>
                   Open rules
-                </button>` : x`<button
+                </button>` : b`<button
                   type="button"
                   class="primary"
                   ?disabled=${this._busy}
@@ -3241,7 +3256,7 @@ var Y = class extends U {
     `;
 	}
 	_renderSheets() {
-		return x`
+		return b`
       <dl-dialog
         .open=${this._sheet === "create"}
         .narrow=${this.narrow}
@@ -3343,7 +3358,7 @@ var Y = class extends U {
 			try {
 				this._profiles = (await this.api.listProfiles()).profiles ?? [], this._error = null;
 			} catch (e) {
-				this._error = N(this.hass, M.from(e));
+				this._error = M(this.hass, j.from(e));
 			} finally {
 				this._loading = !1;
 			}
@@ -3360,7 +3375,7 @@ var Y = class extends U {
 		try {
 			await e();
 		} catch (e) {
-			this._error = N(this.hass, M.from(e));
+			this._error = M(this.hass, j.from(e));
 		} finally {
 			this._busy = !1;
 		}
@@ -3369,7 +3384,7 @@ var Y = class extends U {
 		let e = this._text.trim();
 		await this._run(async () => {
 			await this.api.createProfile({
-				id: Bt(),
+				id: Ht(),
 				name: e,
 				rules: []
 			}), this._closeSheet(), await this._load();
@@ -3415,8 +3430,8 @@ var Y = class extends U {
 		this._load();
 	}
 };
-P([A()], Y.prototype, "_profiles", void 0), P([A()], Y.prototype, "_loading", void 0), P([A()], Y.prototype, "_busy", void 0), P([A()], Y.prototype, "_error", void 0), P([A()], Y.prototype, "_sheet", void 0), P([A()], Y.prototype, "_subject", void 0), P([A()], Y.prototype, "_text", void 0), P([A()], Y.prototype, "_exported", void 0), P([A()], Y.prototype, "_planOpen", void 0), P([A()], Y.prototype, "_plan", void 0), P([A()], Y.prototype, "_planHeading", void 0), Y = P([O("device-links-profiles")], Y);
-function Bt() {
+N([k()], Y.prototype, "_profiles", void 0), N([k()], Y.prototype, "_loading", void 0), N([k()], Y.prototype, "_busy", void 0), N([k()], Y.prototype, "_error", void 0), N([k()], Y.prototype, "_sheet", void 0), N([k()], Y.prototype, "_subject", void 0), N([k()], Y.prototype, "_text", void 0), N([k()], Y.prototype, "_exported", void 0), N([k()], Y.prototype, "_planOpen", void 0), N([k()], Y.prototype, "_plan", void 0), N([k()], Y.prototype, "_planHeading", void 0), Y = N([D("device-links-profiles")], Y);
+function Ht() {
 	let e = globalThis.crypto?.randomUUID?.();
 	return e ? e.replace(/-/g, "") : `profile${Date.now().toString(36)}`;
 }
@@ -3428,20 +3443,20 @@ var X = [
 	"targets",
 	"behaviour",
 	"review"
-], Vt = {
+], Ut = {
 	template: "What should this do?",
 	source: "Which control drives it?",
 	targets: "What should it control?",
 	behaviour: "How should it behave?",
 	review: "What this will do"
-}, Ht = [
+}, Wt = [
 	"on_off",
 	"level_set",
 	"level_hold",
 	"scene",
 	"color",
 	"status_report"
-], Ut = {
+], Gt = {
 	remote: {
 		features: [
 			"on_off",
@@ -3480,7 +3495,32 @@ var X = [
 		direction: "one_way",
 		mirror: "leave"
 	}
-}, Wt = [
+}, Kt = [
+	{
+		value: "on_only",
+		needs: "scene_id",
+		label: "Only pass on, never off",
+		help: "An association carries on and off together, so Home Assistant does this part: it hears the button press and turns the targets on."
+	},
+	{
+		value: "off_only",
+		needs: "scene_id",
+		label: "Only pass off, never on",
+		help: "The same the other way round. Home Assistant hears the press and turns the targets off."
+	},
+	{
+		value: "self_load",
+		needs: "scene_id",
+		label: "Also turn off this device's own load",
+		help: "A device cannot be in its own association group, so Home Assistant turns this device's own load off when the button is pressed. Add the device to the targets as well."
+	},
+	{
+		value: "button_led",
+		needs: "indicator_id",
+		label: "Keep this button's LED in sync with the target",
+		help: "Nothing on the radio can address one button's LED, so Home Assistant watches the target and lights the button to match."
+	}
+], qt = [
 	{
 		value: "leave",
 		label: "Leave the device's own setting alone",
@@ -3497,7 +3537,7 @@ var X = [
 		help: "Writes the device's mirror setting so only the targets respond."
 	}
 ];
-function Gt(e) {
+function Jt(e) {
 	let { device: t, endpoint: n, emitter_id: r } = e.source;
 	return t === "" || r === "" || n === null || e.targets.length === 0 ? null : {
 		...e,
@@ -3508,12 +3548,12 @@ function Gt(e) {
 		}
 	};
 }
-var Z = class extends D {
+var Z = class extends E {
 	constructor(...e) {
-		super(...e), this.components = null, this.narrow = !1, this.open = !1, this.devices = [], this.rule = null, this.initialTemplate = null, this._draft = null, this._step = "template", this._sourceDetail = null, this._loadingSource = !1, this._compiled = null, this._validating = !1, this._saving = !1, this._error = null, this._search = "";
+		super(...e), this.components = null, this.narrow = !1, this.open = !1, this.devices = [], this.rule = null, this.initialTemplate = null, this.hybridAllowed = !1, this._draft = null, this._step = "template", this._sourceDetail = null, this._loadingSource = !1, this._compiled = null, this._validating = !1, this._saving = !1, this._error = null, this._search = "";
 	}
 	static {
-		this.styles = [H, o`
+		this.styles = [V, o`
       .steps {
         display: flex;
         gap: 4px;
@@ -3593,7 +3633,7 @@ var Z = class extends D {
 		super.disconnectedCallback(), clearTimeout(this._validateTimer);
 	}
 	render() {
-		return x`
+		return b`
       <dl-dialog
         .open=${this.open}
         .narrow=${this.narrow}
@@ -3607,19 +3647,19 @@ var Z = class extends D {
 	}
 	_renderStepper() {
 		let e = this._draft;
-		if (e === null) return x`<p class="secondary">Loading.</p>`;
+		if (e === null) return b`<p class="secondary">Loading.</p>`;
 		let t = X.indexOf(this._step);
-		return x`
-      ${this.narrow ? x`<p class="secondary">
-            Step ${t + 1} of ${X.length}: ${Vt[this._step]}
-          </p>` : x`<ol class="steps">
-            ${X.map((e, t) => x`
+		return b`
+      ${this.narrow ? b`<p class="secondary">
+            Step ${t + 1} of ${X.length}: ${Ut[this._step]}
+          </p>` : b`<ol class="steps">
+            ${X.map((e, t) => b`
                 <li aria-current=${e === this._step ? "step" : "false"}>
-                  ${t + 1}. ${Vt[e]}
+                  ${t + 1}. ${Ut[e]}
                 </li>
               `)}
           </ol>`}
-      ${this._error === null ? C : x`<div class="notice error" role="alert">${this._error}</div>`}
+      ${this._error === null ? S : b`<div class="notice error" role="alert">${this._error}</div>`}
       ${this._renderStep(e)}
     `;
 	}
@@ -3633,60 +3673,60 @@ var Z = class extends D {
 		}
 	}
 	_renderTemplateStep(e) {
-		return x`
+		return b`
       <div class="template-grid">
-        ${Object.keys(Ut).map((t) => x`
+        ${Object.keys(Gt).map((t) => b`
             <button
               type="button"
               class="template-card"
               aria-pressed=${e.template === t ? "true" : "false"}
               @click=${() => this._chooseTemplate(t)}
             >
-              <strong>${z(t)}</strong>
-              <span class="secondary">${Ct(t)}</span>
+              <strong>${R(t)}</strong>
+              <span class="secondary">${wt(t)}</span>
             </button>
           `)}
       </div>
     `;
 	}
 	_chooseTemplate(e) {
-		let t = Ut[e];
+		let t = Gt[e];
 		this._update({
 			template: e,
 			features: [...t.features],
 			direction: t.direction,
 			mirror_source: t.mirror,
-			name: this._draft?.name || z(e)
+			name: this._draft?.name || R(e)
 		}), this._step = "source";
 	}
 	_renderSourceStep(e) {
 		let t = this._deviceFor(e.source.device);
-		return t === null ? x`
+		return t === null ? b`
         ${this._renderSearch()}
         <div class="picker">${this._renderDeviceList(this._sourceCandidates(), (e) => this._chooseSource(e))}</div>
-      ` : x`
+      ` : b`
       <div class="row" style="margin-bottom: 12px">
         <strong>${t.name}</strong>
-        <span class="chip muted">${R(t.backend)}</span>
+        <span class="chip muted">${L(t.backend)}</span>
         <button type="button" class="link" @click=${() => this._clearSource()}>
           Choose a different device
         </button>
       </div>
-      ${this._loadingSource ? x`<p class="secondary">Reading what this device offers.</p>` : this._renderEmitters(e)}
+      ${this._loadingSource ? b`<p class="secondary">Reading what this device offers.</p>` : this._renderEmitters(e)}
     `;
 	}
 	_renderEmitters(e) {
 		let t = this._sourceDetail?.emitters ?? [];
-		return t.length === 0 ? x`<p class="secondary">
+		return t.length === 0 ? b`<p class="secondary">
         This device reports no controls that can drive another device.
-      </p>` : x`
+      </p>` : b`
       <div>
         ${t.map((t) => this._renderEmitter(e, t))}
       </div>
     `;
 	}
 	_renderEmitter(e, t) {
-		if (t.is_lifeline) return x`
+		if (t.is_lifeline) return b`
         <div class="emitter unavailable">
           <div class="row">
             <strong>${t.label}</strong>
@@ -3699,7 +3739,7 @@ var Z = class extends D {
         </div>
       `;
 		let n = this._usage(t), r = e.source.emitter_id === t.emitter_id, i = Object.keys(t.actions);
-		return x`
+		return b`
       <button
         type="button"
         class="emitter"
@@ -3708,24 +3748,24 @@ var Z = class extends D {
       >
         <div class="row">
           <strong>${t.label}</strong>
-          ${n === null ? C : x`<span class="chip ${n.free === 0 ? "warn" : "muted"}">
+          ${n === null ? S : b`<span class="chip ${n.free === 0 ? "warn" : "muted"}">
                 ${n.used} of ${n.capacity} used in group ${n.group}
               </span>`}
-          ${t.semantics === "unknown" ? x`<span class="chip warn">Unverified</span>` : C}
+          ${t.semantics === "unknown" ? b`<span class="chip warn">Unverified</span>` : S}
         </div>
         <div class="chips" style="margin-top: 6px">
-          ${i.map((e) => x`<span class="chip">
-              ${Lt(this.components, St(e))}${L(e)}
+          ${i.map((e) => b`<span class="chip">
+              ${K(this.components, Ct(e))}${I(e)}
             </span>`)}
         </div>
-        ${n !== null && n.free === 0 ? x`<p class="secondary" style="margin: 6px 0 0">
+        ${n !== null && n.free === 0 ? b`<p class="secondary" style="margin: 6px 0 0">
               This group is full. Anything added here is blocked until an entry comes off it.
-            </p>` : C}
+            </p>` : S}
       </button>
     `;
 	}
 	_usage(e) {
-		return At(e, this._sourceDetail?.links ?? []);
+		return jt(e, this._sourceDetail?.links ?? []);
 	}
 	_sourceCandidates() {
 		return this._filtered(this.devices.filter((e) => e.emitters > 0 && e.device_id !== null));
@@ -3753,7 +3793,7 @@ var Z = class extends D {
 			try {
 				this._sourceDetail = await this.api.getDevice(e.device_id);
 			} catch (e) {
-				this._error = N(this.hass, M.from(e));
+				this._error = M(this.hass, j.from(e));
 			} finally {
 				this._loadingSource = !1;
 			}
@@ -3774,18 +3814,18 @@ var Z = class extends D {
 	}
 	_renderTargetsStep(e) {
 		let t = new Set(e.targets.map((e) => e.device)), n = this._filtered(this.devices.filter((t) => t.identity !== e.source.device)), r = this._selectedEmitter(e), i = r === null ? null : this._usage(r);
-		return x`
-      ${i !== null && t.size > i.free ? x`<div class="notice warn">
+		return b`
+      ${i !== null && t.size > i.free ? b`<div class="notice warn">
             <p>
-              ${V(i.free, "entry", "entries")} free in group ${i.group}, and
-              ${V(t.size, "target")} chosen. The ones that do not fit are blocked
+              ${B(i.free, "entry", "entries")} free in group ${i.group}, and
+              ${B(t.size, "target")} chosen. The ones that do not fit are blocked
               rather than written, and the plan will say which.
             </p>
-          </div>` : C}
+          </div>` : S}
       ${this._renderSearch()}
       <div class="picker">
         <ul class="list">
-          ${n.map((e) => x`
+          ${n.map((e) => b`
               <li>
                 <label class="choice">
                   <input
@@ -3795,18 +3835,18 @@ var Z = class extends D {
                   />
                   <span class="grow">
                     <span>${e.name}</span>
-                    <span class="chip muted">${R(e.backend)}</span>
-                    ${e.receiving_endpoint === null ? C : x`<span class="chip muted">
+                    <span class="chip muted">${L(e.backend)}</span>
+                    ${e.receiving_endpoint === null ? S : b`<span class="chip muted">
                           Endpoint ${e.receiving_endpoint}
                         </span>`}
-                    ${e.available ? C : x`<span class="chip warn">Not answering</span>`}
-                    ${e.is_long_range ? x`<span class="chip error">Long Range</span>` : C}
+                    ${e.available ? S : b`<span class="chip warn">Not answering</span>`}
+                    ${e.is_long_range ? b`<span class="chip error">Long Range</span>` : S}
                   </span>
                 </label>
               </li>
             `)}
         </ul>
-        ${n.length === 0 ? x`<p class="empty">No device matches that search.</p>` : C}
+        ${n.length === 0 ? b`<p class="empty">No device matches that search.</p>` : S}
       </div>
     `;
 	}
@@ -3821,7 +3861,7 @@ var Z = class extends D {
 	}
 	_renderBehaviourStep(e) {
 		let t = this._selectedEmitter(e), n = t?.actions ?? {};
-		return x`
+		return b`
       <label class="field" style="margin-bottom: 16px">
         <span>Name</span>
         <input
@@ -3832,9 +3872,9 @@ var Z = class extends D {
       </label>
 
       <h3>What it sends</h3>
-      ${Ht.map((r) => {
+      ${Wt.map((r) => {
 			let i = n[r], a = i !== void 0;
-			return x`
+			return b`
           <label class="choice ${a ? "" : "disabled"}">
             <input
               type="checkbox"
@@ -3843,8 +3883,8 @@ var Z = class extends D {
               @change=${(e) => this._toggleFeature(r, e)}
             />
             <span>
-              <span>${L(r)}</span>
-              ${a ? x`<span class="secondary"> (group ${i})</span>` : x`<span class="secondary">
+              <span>${I(r)}</span>
+              ${a ? b`<span class="secondary"> (group ${i})</span>` : b`<span class="secondary">
                     ${t === null ? " (choose a control first)" : ` (${t.label} does not send this)`}
                   </span>`}
             </span>
@@ -3876,7 +3916,7 @@ var Z = class extends D {
       </label>
 
       <h3 style="margin-top: 16px">The control's own load</h3>
-      ${Wt.map((t) => x`
+      ${qt.map((t) => b`
           <label class="choice">
             <input
               type="radio"
@@ -3891,13 +3931,57 @@ var Z = class extends D {
           </label>
         `)}
       ${this._renderSettingPreview()}
+      ${this._renderHybridSection(e)}
     `;
+	}
+	_renderHybridSection(e) {
+		if (!this.hybridAllowed) return S;
+		let t = this._selectedEmitter(e), n = Kt.filter((e) => t !== null && t[e.needs] !== null);
+		return b`
+      <h3 style="margin-top: 16px">
+        Run in Home Assistant <span class="chip warn">HA-executed</span>
+      </h3>
+      <p class="secondary">
+        These are the parts no radio can carry. Home Assistant does them, so they stop
+        working while Home Assistant is off or restarting. The rest of this rule is written
+        into the devices and keeps working either way.
+      </p>
+      ${n.length === 0 ? b`<p class="secondary">
+            ${t === null ? "Choose a control first." : `${t.label} does not report a scene number or a button LED that Device Links knows how to use, so none of these can be offered for it.`}
+          </p>` : n.map((t) => this._renderHybridChoice(e, t))}
+    `;
+	}
+	_renderHybridChoice(e, t) {
+		let n = {
+			on_only: "off_only",
+			off_only: "on_only"
+		};
+		return b`
+      <label class="choice">
+        <input
+          type="checkbox"
+          .checked=${e.hybrid.includes(t.value)}
+          @change=${(e) => this._toggleHybrid(t.value, n[t.value], e)}
+        />
+        <span>
+          <span>${t.label}</span>
+          <span class="chip warn">HA-executed</span>
+          <span class="secondary" style="display: block">${t.help}</span>
+        </span>
+      </label>
+    `;
+	}
+	_toggleHybrid(e, t, n) {
+		let r = this._draft;
+		if (r === null) return;
+		let i = n.target.checked, a = r.hybrid.filter((n) => n !== e && n !== t);
+		i && a.push(e), this._update({ hybrid: a });
 	}
 	_renderSettingPreview() {
 		let e = this._compiled?.settings ?? [];
-		return e.length === 0 ? C : x`
+		return e.length === 0 ? S : b`
       <div class="notice">
-        ${e.map((e) => x`<p>
+        ${e.map((e) => b`<p>
             This writes parameter ${e.parameter}
             ${e.bitmask === null ? "" : `(bitmask ${e.bitmask})`} on the control
             to ${e.value}.
@@ -3913,53 +3997,73 @@ var Z = class extends D {
 	}
 	_renderReviewStep(e) {
 		let t = this._compiled;
-		return x`
+		return b`
       <div class="notice">
         <p>
-          <strong>${e.name}</strong>, ${z(e.template)}, from
+          <strong>${e.name}</strong>, ${R(e.template)}, from
           ${this._nameOf(e.source.device)} to
           ${e.targets.map((e) => this._nameOf(e.device)).join(", ") || "nothing yet"}.
         </p>
       </div>
-      ${this._validating ? x`<p class="secondary">Compiling.</p>` : C}
-      ${t === null ? C : this._renderDiagnostics(t)}
-      ${t === null ? C : this._renderCompiled(t)}
+      ${this._validating ? b`<p class="secondary">Compiling.</p>` : S}
+      ${t === null ? S : this._renderDiagnostics(t)}
+      ${t === null ? S : this._renderCompiled(t)}
     `;
 	}
 	_renderDiagnostics(e) {
-		return x`
-      ${e.errors.map((e) => x`<div class="notice error" role="alert">
-          <p><strong>Problem.</strong> ${Ze(this.hass, e)}</p>
+		return b`
+      ${e.errors.map((e) => b`<div class="notice error" role="alert">
+          <p><strong>Problem.</strong> ${Qe(this.hass, e)}</p>
         </div>`)}
-      ${e.warnings.map((e) => x`<div class="notice warn" role="status">
-          <p><strong>Warning.</strong> ${Ze(this.hass, e)}</p>
+      ${e.warnings.map((e) => b`<div class="notice warn" role="status">
+          <p><strong>Warning.</strong> ${Qe(this.hass, e)}</p>
         </div>`)}
-      ${e.errors.length > 0 ? x`<p class="secondary">
+      ${e.errors.length > 0 ? b`<p class="secondary">
             This rule compiles to no links, so there is nothing to apply. You can still save
             it: it will show as blocked in the rules table until whatever is wrong is fixed.
-          </p>` : C}
+          </p>` : S}
     `;
 	}
 	_renderCompiled(e) {
-		return e.links.length === 0 ? x`<p>No links.</p>` : x`
-      <h3>${V(e.links.length, "link")}</h3>
+		return e.links.length === 0 ? b`
+        <p>No links written to devices.</p>
+        ${this._renderHybridLegs(e)}
+      ` : b`
+      <h3>${B(e.links.length, "link")}</h3>
       <ul class="list">
-        ${e.links.map((e) => x`<li>${Mt(e)}</li>`)}
+        ${e.links.map((e) => b`<li>${Nt(e)}</li>`)}
       </ul>
-      ${e.settings.length === 0 ? C : x`
+      ${e.settings.length === 0 ? S : b`
             <h3 style="margin-top: 12px">Device settings</h3>
             <ul class="list">
-              ${e.settings.map((e) => x`<li>
+              ${e.settings.map((e) => b`<li>
                   ${e.capability}: parameter ${e.parameter}
                   ${e.bitmask === null ? "" : `(bitmask ${e.bitmask})`} set to
                   ${e.value}
                 </li>`)}
             </ul>
           `}
+      ${this._renderHybridLegs(e)}
+    `;
+	}
+	_renderHybridLegs(e) {
+		return e.hybrid_legs.length === 0 ? S : b`
+      <h3 style="margin-top: 12px">
+        ${B(e.hybrid_legs.length, "HA-executed leg")}
+      </h3>
+      <p class="secondary">
+        Run by Home Assistant, not written to a device. These stop working while Home
+        Assistant is off; everything above keeps working.
+      </p>
+      <ul class="list">
+        ${e.hybrid_legs.map((e) => b`<li>
+            <span class="chip warn">HA-executed</span> ${Ft(e)}
+          </li>`)}
+      </ul>
     `;
 	}
 	_renderSearch() {
-		return x`
+		return b`
       <label class="field" style="margin-bottom: 8px">
         <span>Search devices</span>
         <input
@@ -3973,16 +4077,16 @@ var Z = class extends D {
     `;
 	}
 	_renderDeviceList(e, t) {
-		return e.length === 0 ? x`<p class="empty">No device matches that search.</p>` : x`
+		return e.length === 0 ? b`<p class="empty">No device matches that search.</p>` : b`
       <ul class="list">
-        ${e.map((e) => x`
+        ${e.map((e) => b`
             <li>
               <button type="button" class="selectable" @click=${() => t(e)}>
                 <span class="row">
                   <span class="grow">${e.name}</span>
-                  <span class="chip muted">${R(e.backend)}</span>
-                  <span class="chip muted">${V(e.emitters, "control")}</span>
-                  ${e.available ? C : x`<span class="chip warn">Not answering</span>`}
+                  <span class="chip muted">${L(e.backend)}</span>
+                  <span class="chip muted">${B(e.emitters, "control")}</span>
+                  ${e.available ? S : b`<span class="chip warn">Not answering</span>`}
                 </span>
               </button>
             </li>
@@ -4005,10 +4109,10 @@ var Z = class extends D {
 	}
 	_renderActions() {
 		let e = this._draft, t = X.indexOf(this._step);
-		if (e === null) return x`<button type="button" class="outlined" @click=${this._close}>Close</button>`;
+		if (e === null) return b`<button type="button" class="outlined" @click=${this._close}>Close</button>`;
 		if (this._step === "review") {
 			let e = (this._compiled?.errors.length ?? 0) > 0;
-			return x`
+			return b`
         <button type="button" class="outlined" @click=${() => this._goTo(t - 1)}>Back</button>
         <button type="button" class="outlined" ?disabled=${this._saving} @click=${() => this._save(!1)}>
           ${e ? "Save anyway" : "Save"}
@@ -4024,9 +4128,9 @@ var Z = class extends D {
         </button>
       `;
 		}
-		return x`
+		return b`
       <button type="button" class="outlined" @click=${this._close}>Cancel</button>
-      ${t === 0 ? C : x`<button type="button" class="outlined" @click=${() => this._goTo(t - 1)}>
+      ${t === 0 ? S : b`<button type="button" class="outlined" @click=${() => this._goTo(t - 1)}>
             Back
           </button>`}
       <button
@@ -4054,16 +4158,17 @@ var Z = class extends D {
 	}
 	_begin() {
 		if (this._error = null, this._compiled = null, this._search = "", this._sourceDetail = null, this.rule === null) {
-			let e = this.initialTemplate ?? "remote", t = Ut[e];
+			let e = this.initialTemplate ?? "remote", t = Gt[e];
 			this._draft = {
-				id: Kt(),
-				name: this.initialTemplate === null ? "" : z(e),
+				id: Yt(),
+				name: this.initialTemplate === null ? "" : R(e),
 				template: e,
 				backend: "zwave",
 				enabled: !0,
 				direction: t.direction,
 				mirror_source: t.mirror,
 				features: [...t.features],
+				hybrid: [],
 				source: {
 					device: "",
 					endpoint: null,
@@ -4076,6 +4181,7 @@ var Z = class extends D {
 		this._draft = {
 			...this.rule,
 			features: [...this.rule.features],
+			hybrid: [...this.rule.hybrid ?? []],
 			targets: [...this.rule.targets]
 		}, this._step = "template";
 		let e = this._deviceFor(this.rule.source.device);
@@ -4093,7 +4199,7 @@ var Z = class extends D {
 	_validate() {
 		let e = this._draft;
 		if (!this.api || e === null) return;
-		let t = Gt(e);
+		let t = Jt(e);
 		if (t === null) {
 			this._compiled = null;
 			return;
@@ -4101,7 +4207,7 @@ var Z = class extends D {
 		this._validating = !0, this.api.validateRule(t).then((e) => {
 			this._compiled = e, this._error = null;
 		}).catch((e) => {
-			this._error = N(this.hass, M.from(e));
+			this._error = M(this.hass, j.from(e));
 		}).finally(() => {
 			this._validating = !1;
 		});
@@ -4109,7 +4215,7 @@ var Z = class extends D {
 	async _save(e) {
 		let t = this._draft;
 		if (!this.api || t === null) return;
-		let n = Gt(t);
+		let n = Jt(t);
 		if (n === null) {
 			this._error = "This rule still needs a control and at least one target.";
 			return;
@@ -4125,7 +4231,7 @@ var Z = class extends D {
 				composed: !0
 			}));
 		} catch (e) {
-			this._error = N(this.hass, M.from(e));
+			this._error = M(this.hass, j.from(e));
 		} finally {
 			this._saving = !1;
 		}
@@ -4137,33 +4243,33 @@ var Z = class extends D {
 		}));
 	}
 };
-P([k({ attribute: !1 })], Z.prototype, "hass", void 0), P([k({ attribute: !1 })], Z.prototype, "api", void 0), P([k({ attribute: !1 })], Z.prototype, "components", void 0), P([k({ type: Boolean })], Z.prototype, "narrow", void 0), P([k({ type: Boolean })], Z.prototype, "open", void 0), P([k({ attribute: !1 })], Z.prototype, "devices", void 0), P([k({ attribute: !1 })], Z.prototype, "rule", void 0), P([k({ type: String })], Z.prototype, "profileId", void 0), P([k({ attribute: !1 })], Z.prototype, "initialTemplate", void 0), P([A()], Z.prototype, "_draft", void 0), P([A()], Z.prototype, "_step", void 0), P([A()], Z.prototype, "_sourceDetail", void 0), P([A()], Z.prototype, "_loadingSource", void 0), P([A()], Z.prototype, "_compiled", void 0), P([A()], Z.prototype, "_validating", void 0), P([A()], Z.prototype, "_saving", void 0), P([A()], Z.prototype, "_error", void 0), P([A()], Z.prototype, "_search", void 0), Z = P([O("dl-rule-editor")], Z);
-function Kt() {
+N([O({ attribute: !1 })], Z.prototype, "hass", void 0), N([O({ attribute: !1 })], Z.prototype, "api", void 0), N([O({ attribute: !1 })], Z.prototype, "components", void 0), N([O({ type: Boolean })], Z.prototype, "narrow", void 0), N([O({ type: Boolean })], Z.prototype, "open", void 0), N([O({ attribute: !1 })], Z.prototype, "devices", void 0), N([O({ attribute: !1 })], Z.prototype, "rule", void 0), N([O({ type: String })], Z.prototype, "profileId", void 0), N([O({ attribute: !1 })], Z.prototype, "initialTemplate", void 0), N([O({ type: Boolean })], Z.prototype, "hybridAllowed", void 0), N([k()], Z.prototype, "_draft", void 0), N([k()], Z.prototype, "_step", void 0), N([k()], Z.prototype, "_sourceDetail", void 0), N([k()], Z.prototype, "_loadingSource", void 0), N([k()], Z.prototype, "_compiled", void 0), N([k()], Z.prototype, "_validating", void 0), N([k()], Z.prototype, "_saving", void 0), N([k()], Z.prototype, "_error", void 0), N([k()], Z.prototype, "_search", void 0), Z = N([D("dl-rule-editor")], Z);
+function Yt() {
 	let e = globalThis.crypto?.randomUUID?.();
 	return e ? e.replace(/-/g, "") : `rule${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 }
 //#endregion
 //#region src/views/rules.ts
-var qt = [
+var Xt = [
 	"remote",
 	"virtual_3way",
 	"scene_button",
 	"off_all",
 	"status_feedback",
 	"custom"
-], Jt = [
+], Zt = [
 	"in_sync",
 	"drift",
 	"pending",
 	"blocked",
 	"disabled",
 	"unknown"
-], Q = class extends U {
+], Q = class extends H {
 	constructor(...e) {
-		super(...e), this._profile = null, this._rules = [], this._devices = [], this._templates = [...qt], this._emitterLabels = {}, this._loading = !0, this._error = null, this._search = "", this._backendFilter = "", this._stateFilter = "", this._editorOpen = !1, this._editing = null, this._editorTemplate = null, this._planOpen = !1, this._planHeading = "Plan and apply", this._confirmDelete = null, this._staged = null, this._appliedDuringPlan = !1;
+		super(...e), this._profile = null, this._rules = [], this._devices = [], this._templates = [...Xt], this._emitterLabels = {}, this._loading = !0, this._error = null, this._search = "", this._backendFilter = "", this._stateFilter = "", this._editorOpen = !1, this._editing = null, this._editorTemplate = null, this._planOpen = !1, this._planHeading = "Plan and apply", this._confirmDelete = null, this._staged = null, this._appliedDuringPlan = !1;
 	}
 	static {
-		this.styles = H;
+		this.styles = V;
 	}
 	connectedCallback() {
 		super.connectedCallback(), this._load();
@@ -4176,9 +4282,9 @@ var qt = [
 		}
 	}
 	render() {
-		return x`
+		return b`
       <div class="content">
-        ${this._error === null ? C : x`<div class="notice error" role="alert">${this._error}</div>`}
+        ${this._error === null ? S : b`<div class="notice error" role="alert">${this._error}</div>`}
         <div class="card">
           ${this._renderToolbar()}
           ${this._renderBody()}
@@ -4194,6 +4300,7 @@ var qt = [
         .devices=${this._devices}
         .rule=${this._editing}
         .initialTemplate=${this._editorTemplate}
+        .hybridAllowed=${this.hybridAllowed}
         @dl-editor-closed=${this._closeEditor}
         @dl-rule-saved=${this._onSaved}
       ></dl-rule-editor>
@@ -4211,12 +4318,12 @@ var qt = [
     `;
 	}
 	_renderToolbar() {
-		return x`
+		return b`
       <div class="spread">
         <div class="grow">
           <h2>Rules</h2>
           <p class="secondary">
-            ${this._profile === null ? "No profile is active, so no rule is in force." : `In ${this._profile.name}. ${V(this._rules.length, "rule")}.`}
+            ${this._profile === null ? "No profile is active, so no rule is in force." : `In ${this._profile.name}. ${B(this._rules.length, "rule")}.`}
           </p>
         </div>
         <button type="button" class="primary" @click=${() => this._openEditor(null)}>
@@ -4258,17 +4365,17 @@ var qt = [
 		}}
           >
             <option value="">Any</option>
-            ${Jt.map((e) => x`<option value=${e}>${B(e)}</option>`)}
+            ${Zt.map((e) => b`<option value=${e}>${z(e)}</option>`)}
           </select>
         </label>
       </div>
     `;
 	}
 	_renderBody() {
-		if (this._loading) return x`<p class="secondary">Loading.</p>`;
+		if (this._loading) return b`<p class="secondary">Loading.</p>`;
 		if (this._rules.length === 0) return this._renderEmpty();
 		let e = this._filtered();
-		return e.length === 0 ? x`<p class="empty">No rule matches those filters.</p>` : this.narrow ? x`<ul class="list">${e.map((e) => this._renderCard(e))}</ul>` : x`
+		return e.length === 0 ? b`<p class="empty">No rule matches those filters.</p>` : this.narrow ? b`<ul class="list">${e.map((e) => this._renderCard(e))}</ul>` : b`
       <div class="scroll-x">
         <table>
           <thead>
@@ -4291,12 +4398,12 @@ var qt = [
 	}
 	_renderCard(e) {
 		let t = e.rule;
-		return x`
+		return b`
       <li>
         <div class="row">
           <strong class="grow">${t.name}</strong>
-          <span class="chip ${wt(e.state)}" title=${Tt(e.state)}>
-            ${B(e.state)}
+          <span class="chip ${Tt(e.state)}" title=${Et(e.state)}>
+            ${z(e.state)}
           </span>
         </div>
         <p class="secondary" style="margin: 4px 0">
@@ -4305,9 +4412,9 @@ var qt = [
           ${t.targets.map((e) => this._nameOf(e.device)).join(", ")}
         </p>
         <div class="chips" style="margin-bottom: 8px">
-          <span class="chip muted">${z(t.template)}</span>
-          ${t.features.map((e) => x`<span class="chip">
-              ${Lt(this.components, St(e))}${L(e)}
+          <span class="chip muted">${R(t.template)}</span>
+          ${t.features.map((e) => b`<span class="chip">
+              ${K(this.components, Ct(e))}${I(e)}
             </span>`)}
         </div>
         <label class="choice">
@@ -4335,13 +4442,13 @@ var qt = [
 	}
 	_renderRow(e) {
 		let t = e.rule;
-		return x`
+		return b`
       <tr>
         <td>
           <strong>${t.name}</strong>
           <div class="chips" style="margin-top: 4px">
-            <span class="chip muted">${z(t.template)}</span>
-            <span class="chip muted">${R(t.backend)}</span>
+            <span class="chip muted">${R(t.template)}</span>
+            <span class="chip muted">${L(t.backend)}</span>
           </div>
         </td>
         <td>
@@ -4350,22 +4457,22 @@ var qt = [
         </td>
         <td>
           <div class="chips">
-            ${t.targets.map((e) => x`<span class="chip">${this._nameOf(e.device)}</span>`)}
+            ${t.targets.map((e) => b`<span class="chip">${this._nameOf(e.device)}</span>`)}
           </div>
         </td>
         <td>
           <div class="chips">
-            ${t.features.map((e) => x`<span class="chip" title=${L(e)}>
-                ${Lt(this.components, St(e))}${L(e)}
+            ${t.features.map((e) => b`<span class="chip" title=${I(e)}>
+                ${K(this.components, Ct(e))}${I(e)}
               </span>`)}
           </div>
-          ${t.direction === "two_way" ? x`<span class="secondary">Two way</span>` : C}
+          ${t.direction === "two_way" ? b`<span class="secondary">Two way</span>` : S}
         </td>
         <td>
-          <span class="chip ${wt(e.state)}" title=${Tt(e.state)}>
-            ${B(e.state)}
+          <span class="chip ${Tt(e.state)}" title=${Et(e.state)}>
+            ${z(e.state)}
           </span>
-          ${e.links_total > 0 ? x`<div class="secondary">${e.links_in_sync} of ${e.links_total} links</div>` : C}
+          ${e.links_total > 0 ? b`<div class="secondary">${e.links_in_sync} of ${e.links_total} links</div>` : S}
         </td>
         <td>
           <label class="choice">
@@ -4399,21 +4506,21 @@ var qt = [
     `;
 	}
 	_renderEmpty() {
-		return x`
+		return b`
       <p>No rules yet. Start from what you want the control to do.</p>
       <div
         class="chips"
         style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px"
       >
-        ${this._templates.map((e) => x`
+        ${this._templates.map((e) => b`
             <button
               type="button"
               class="selectable"
               style="border-color: var(--divider-color, rgba(0, 0, 0, 0.12))"
               @click=${() => this._openEditor(null, e)}
             >
-              <strong>${z(e)}</strong>
-              <div class="secondary">${Ct(e)}</div>
+              <strong>${R(e)}</strong>
+              <div class="secondary">${wt(e)}</div>
             </button>
           `)}
       </div>
@@ -4421,7 +4528,7 @@ var qt = [
 	}
 	_renderDeleteConfirm() {
 		let e = this._confirmDelete;
-		return x`
+		return b`
       <dl-dialog
         .open=${e !== null}
         .narrow=${this.narrow}
@@ -4479,7 +4586,7 @@ var qt = [
 				let r = (e.profiles ?? []).find((e) => e.is_active) ?? null;
 				this._profile = r, this._rules = r === null ? [] : (await this.api.getProfile(r.id)).rules ?? [], this._error = null, this._loadEmitterLabels();
 			} catch (e) {
-				this._error = N(this.hass, M.from(e));
+				this._error = M(this.hass, j.from(e));
 			} finally {
 				this._loading = !1;
 			}
@@ -4522,7 +4629,7 @@ var qt = [
 				wasEnabled: r
 			}, this._appliedDuringPlan = !1, await this._load(), this._openPlan({ rule_ids: [e.rule.id] }, `${n ? "Enable" : "Disable"} ${e.rule.name}`);
 		} catch (e) {
-			this._error = N(this.hass, M.from(e)), await this._load();
+			this._error = M(this.hass, j.from(e)), await this._load();
 		}
 	}
 	_openPlan(e, t) {
@@ -4539,7 +4646,7 @@ var qt = [
 				enabled: n.wasEnabled
 			}, this._profile?.id);
 		} catch (e) {
-			this._error = N(this.hass, M.from(e));
+			this._error = M(this.hass, j.from(e));
 		}
 		this._appliedDuringPlan = !1, this._load();
 	}
@@ -4556,17 +4663,17 @@ var qt = [
 			try {
 				await this.api.deleteRule(e.rule.id, this._profile?.id), await this._load();
 			} catch (e) {
-				this._error = N(this.hass, M.from(e));
+				this._error = M(this.hass, j.from(e));
 			}
 		}
 	}
 };
-P([A()], Q.prototype, "_profile", void 0), P([A()], Q.prototype, "_rules", void 0), P([A()], Q.prototype, "_devices", void 0), P([A()], Q.prototype, "_templates", void 0), P([A()], Q.prototype, "_emitterLabels", void 0), P([A()], Q.prototype, "_loading", void 0), P([A()], Q.prototype, "_error", void 0), P([A()], Q.prototype, "_search", void 0), P([A()], Q.prototype, "_backendFilter", void 0), P([A()], Q.prototype, "_stateFilter", void 0), P([A()], Q.prototype, "_editorOpen", void 0), P([A()], Q.prototype, "_editing", void 0), P([A()], Q.prototype, "_editorTemplate", void 0), P([A()], Q.prototype, "_planOpen", void 0), P([A()], Q.prototype, "_planScope", void 0), P([A()], Q.prototype, "_planHeading", void 0), P([A()], Q.prototype, "_confirmDelete", void 0), Q = P([O("device-links-rules")], Q);
+N([k()], Q.prototype, "_profile", void 0), N([k()], Q.prototype, "_rules", void 0), N([k()], Q.prototype, "_devices", void 0), N([k()], Q.prototype, "_templates", void 0), N([k()], Q.prototype, "_emitterLabels", void 0), N([k()], Q.prototype, "_loading", void 0), N([k()], Q.prototype, "_error", void 0), N([k()], Q.prototype, "_search", void 0), N([k()], Q.prototype, "_backendFilter", void 0), N([k()], Q.prototype, "_stateFilter", void 0), N([k()], Q.prototype, "_editorOpen", void 0), N([k()], Q.prototype, "_editing", void 0), N([k()], Q.prototype, "_editorTemplate", void 0), N([k()], Q.prototype, "_planOpen", void 0), N([k()], Q.prototype, "_planScope", void 0), N([k()], Q.prototype, "_planHeading", void 0), N([k()], Q.prototype, "_confirmDelete", void 0), Q = N([D("device-links-rules")], Q);
 //#endregion
 //#region src/panel.ts
-var Yt = "0.0.1", $ = class extends D {
+var Qt = "0.0.1", $ = class extends E {
 	constructor(...e) {
-		super(...e), this.narrow = !1, this.componentLoader = () => at(), this._components = null, this._selected = null, this._api = null;
+		super(...e), this.narrow = !1, this.componentLoader = () => ot(), this._components = null, this._selected = null, this._api = null;
 	}
 	static {
 		this.styles = o`
@@ -4644,7 +4751,7 @@ var Yt = "0.0.1", $ = class extends D {
   `;
 	}
 	get tab() {
-		return lt(this.route?.path);
+		return ut(this.route?.path);
 	}
 	get api() {
 		return this._api;
@@ -4659,31 +4766,31 @@ var Yt = "0.0.1", $ = class extends D {
 		e.has("hass") && this._openClient();
 	}
 	_openClient() {
-		this.hass && (this._api === null ? this._api = new et(this.hass) : this._api.hass = this.hass);
+		this.hass && (this._api === null ? this._api = new tt(this.hass) : this._api.hass = this.hass);
 	}
 	async _loadComponents() {
 		this._components === null && (this._components = await this.componentLoader());
 	}
 	render() {
-		return x`
+		return b`
       ${this._renderBar()}
       ${this._renderVersionBanner()}
-      ${this._components === null ? x`<div class="loading">Loading Home Assistant components</div>` : this._renderView()}
+      ${this._components === null ? b`<div class="loading">Loading Home Assistant components</div>` : this._renderView()}
     `;
 	}
 	_renderBar() {
 		let e = this._components;
-		return e?.has("ha-top-app-bar-fixed") ? x`
+		return e?.has("ha-top-app-bar-fixed") ? b`
       <ha-top-app-bar-fixed>
-        ${e.has("ha-menu-button") ? x`<ha-menu-button
+        ${e.has("ha-menu-button") ? b`<ha-menu-button
               slot="navigationIcon"
               .hass=${this.hass}
               .narrow=${this.narrow}
-            ></ha-menu-button>` : C}
+            ></ha-menu-button>` : S}
         <div slot="title">Device Links</div>
         ${this._renderTabs()}
       </ha-top-app-bar-fixed>
-    ` : x`
+    ` : b`
         <header class="plain-bar">
           <span>Device Links</span>
         </header>
@@ -4692,9 +4799,9 @@ var Yt = "0.0.1", $ = class extends D {
 	}
 	_renderTabs() {
 		let e = this._components;
-		return !e?.has("ha-tab-group") || !e.has("ha-tab-group-tab") ? x`
+		return !e?.has("ha-tab-group") || !e.has("ha-tab-group-tab") ? b`
         <nav class="plain-tabs" aria-label="Device Links sections">
-          ${I.map((e) => x`
+          ${F.map((e) => b`
               <button
                 type="button"
                 aria-current=${e.id === this.tab ? "page" : "false"}
@@ -4704,16 +4811,16 @@ var Yt = "0.0.1", $ = class extends D {
               </button>
             `)}
         </nav>
-      ` : x`
+      ` : b`
       <ha-tab-group slot="tabs" aria-label="Device Links sections">
-        ${I.map((t) => x`
+        ${F.map((t) => b`
             <ha-tab-group-tab
               slot="nav"
               panel=${t.id}
               .active=${t.id === this.tab}
               @click=${() => this._selectTab(t.id)}
             >
-              ${this.narrow && e.has("ha-icon") ? x`<ha-icon .icon=${t.icon} aria-label=${t.label}></ha-icon>` : t.label}
+              ${this.narrow && e.has("ha-icon") ? b`<ha-icon .icon=${t.icon} aria-label=${t.label}></ha-icon>` : t.label}
             </ha-tab-group-tab>
           `)}
       </ha-tab-group>
@@ -4734,19 +4841,22 @@ var Yt = "0.0.1", $ = class extends D {
 		let e = this.panel?.config?.version;
 		return typeof e == "string" && e ? e : null;
 	}
+	get hybridAllowed() {
+		return this.panel?.config?.hybrid_legs === !0;
+	}
 	get versionMismatch() {
 		let e = this.backendVersion;
 		return e !== null && e !== "0.0.1";
 	}
 	_renderVersionBanner() {
-		if (!this.versionMismatch) return C;
-		let e = `Device Links was updated to ${this.backendVersion} while this page was open. This panel is still running version ${Yt}. Reload the page to pick up the new one.`;
-		return this._components?.has("ha-alert") ? x`
+		if (!this.versionMismatch) return S;
+		let e = `Device Links was updated to ${this.backendVersion} while this page was open. This panel is still running version ${Qt}. Reload the page to pick up the new one.`;
+		return this._components?.has("ha-alert") ? b`
         <ha-alert class="banner" alert-type="info" title="A newer version is installed">
           ${e}
           <button type="button" slot="action" @click=${() => this._reload()}>Reload</button>
         </ha-alert>
-      ` : x`
+      ` : b`
       <div class="banner-plain" role="status">
         <span>${e}</span>
         <button type="button" @click=${() => this._reload()}>Reload</button>
@@ -4757,27 +4867,28 @@ var Yt = "0.0.1", $ = class extends D {
 		location.reload();
 	}
 	_renderView() {
-		let e = I.find((e) => e.id === this.tab) ?? I[0];
-		return e ? Ke`
-      <${We(e.tagName)}
+		let e = F.find((e) => e.id === this.tab) ?? F[0];
+		return e ? qe`
+      <${Ge(e.tagName)}
         class="view"
         .hass=${this.hass}
         .api=${this._api}
         .components=${this._components}
         .narrow=${this.narrow}
         .selected=${this._selected}
+        .hybridAllowed=${this.hybridAllowed}
         @dl-navigate=${this._onNavigate}
-      ></${We(e.tagName)}>
-    ` : x`<div class="loading">No view is registered.</div>`;
+      ></${Ge(e.tagName)}>
+    ` : b`<div class="loading">No view is registered.</div>`;
 	}
 	_onNavigate(e) {
 		let t = e.detail;
 		t?.tab && this._selectTab(t.tab, t.select ?? null);
 	}
 };
-P([k({ attribute: !1 })], $.prototype, "hass", void 0), P([k({
+N([O({ attribute: !1 })], $.prototype, "hass", void 0), N([O({
 	type: Boolean,
 	reflect: !0
-})], $.prototype, "narrow", void 0), P([k({ attribute: !1 })], $.prototype, "route", void 0), P([k({ attribute: !1 })], $.prototype, "panel", void 0), P([k({ attribute: !1 })], $.prototype, "componentLoader", void 0), P([A()], $.prototype, "_components", void 0), P([A()], $.prototype, "_selected", void 0), $ = P([O("device-links-panel")], $);
+})], $.prototype, "narrow", void 0), N([O({ attribute: !1 })], $.prototype, "route", void 0), N([O({ attribute: !1 })], $.prototype, "panel", void 0), N([O({ attribute: !1 })], $.prototype, "componentLoader", void 0), N([k()], $.prototype, "_components", void 0), N([k()], $.prototype, "_selected", void 0), $ = N([D("device-links-panel")], $);
 //#endregion
-export { Yt as BUNDLE_VERSION, $ as DeviceLinksPanel };
+export { Qt as BUNDLE_VERSION, $ as DeviceLinksPanel };

@@ -53,6 +53,10 @@ export function emitter(overrides: Partial<Emitter> = {}): Emitter {
     is_lifeline: false,
     grouping: "button",
     semantics: "unknown",
+    // The two facts only a curated device profile can supply, and the reason the hybrid
+    // opt-ins are offered for this control at all.
+    scene_id: 2,
+    indicator_id: 68,
     ...overrides,
   };
 }
@@ -66,6 +70,10 @@ export function lifelineEmitter(): Emitter {
     is_lifeline: true,
     grouping: "lifeline",
     semantics: null,
+    // A lifeline is not a button, so it has neither a scene number nor an LED, and no
+    // hybrid opt-in may ever be offered for it.
+    scene_id: null,
+    indicator_id: null,
   });
 }
 
@@ -136,6 +144,7 @@ export function ruleData(overrides: Partial<RuleData> = {}): RuleData {
     direction: "one_way",
     mirror_source: "off",
     features: ["on_off"],
+    hybrid: [],
     source: { device: SOURCE, endpoint: 0, emitter_id: "button_2" },
     targets: [{ device: TARGET, endpoint: null }],
     ...overrides,
