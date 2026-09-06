@@ -319,3 +319,14 @@ async def test_a_rule_a_backend_no_longer_knows_still_loads(hass: HomeAssistant)
     await DeviceLinksStore(hass).async_save(state)
 
     assert (await DeviceLinksStore(hass).async_load()) == state
+
+
+async def test_which_rules_have_been_applied_survives_a_restart(hass: HomeAssistant) -> None:
+    """Drift is measured from the last successful apply, and a restart un-applies nothing.
+
+    Without this, every rule would read as pending after a restart and drift would stop
+    being reported exactly when somebody is most likely looking for it.
+    """
+    await DeviceLinksStore(hass).async_save(StoredState(applied_rule_ids=frozenset({"rule-1"})))
+
+    assert (await DeviceLinksStore(hass).async_load()).applied_rule_ids == frozenset({"rule-1"})

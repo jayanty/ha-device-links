@@ -25,7 +25,7 @@ two call sites is a cap that is missing at the other.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 import logging
 from typing import Any, Final
 
@@ -128,9 +128,19 @@ class StoredState:
 
     profiles: tuple[Profile, ...] = ()
     active_profile_id: str | None = None
+
+    # Unmanaged links the user dismissed (FR-A5), so a link they said they did not care
+    # about is not re-flagged after every restart.
     ignored_unmanaged: frozenset[str] = frozenset()
+
+    # Rules that have been applied successfully at least once. Drift is defined against
+    # the last successful apply (FR-A5), so this is what separates "was written and is now
+    # gone" from "was never written yet". It is stored because a restart un-applies
+    # nothing, and a restart that reset every rule to pending would stop reporting drift
+    # exactly when somebody is most likely looking for it.
+    applied_rule_ids: frozenset[str] = frozenset()
     snapshots: tuple[Snapshot, ...] = ()
-    jobs: tuple[JobSummary, ...] = field(default=())
+    jobs: tuple[JobSummary, ...] = ()
 
     @property
     def active_profile(self) -> Profile | None:
@@ -249,6 +259,7 @@ def _state_to_data(state: StoredState) -> dict[str, Any]:
         "profiles": [profile_to_data(profile, keep_local_ids=True) for profile in state.profiles],
         "active_profile_id": state.active_profile_id,
         "ignored_unmanaged": sorted(state.ignored_unmanaged),
+        "applied_rule_ids": sorted(state.applied_rule_ids),
         "snapshots": [_snapshot_to_data(snapshot) for snapshot in state.snapshots],
         "jobs": [_job_to_data(job) for job in state.jobs],
     }
@@ -266,6 +277,7 @@ def _state_from_data(data: Mapping[str, Any]) -> StoredState:
             profiles=tuple(profile_from_data(raw) for raw in data.get("profiles", ())),
             active_profile_id=data.get("active_profile_id"),
             ignored_unmanaged=frozenset(data.get("ignored_unmanaged", ())),
+            applied_rule_ids=frozenset(data.get("applied_rule_ids", ())),
             snapshots=tuple(_snapshot_from_data(raw) for raw in data.get("snapshots", ())),
             jobs=tuple(_job_from_data(raw) for raw in data.get("jobs", ())),
         )
