@@ -17,11 +17,11 @@
         "title": "Device Links options",
         "description": "Both of these are off to begin with, because each turns a deliberate act into an automatic one.",
         "data": {
-          "auto_apply_on_profile_switch": "Apply immediately when the active profile changes",
+          "auto_apply_on_profile_switch": "Apply immediately when the Active profile select is used",
           "enable_raw_services": "Enable the raw Z-Wave association services"
         },
         "data_description": {
-          "auto_apply_on_profile_switch": "Off by default: switching profile opens a plan for you to look at, and applying it is a separate press. Turn this on only if you want a profile switch to write to your devices straight away.",
+          "auto_apply_on_profile_switch": "Off by default: choosing a profile opens a plan and applying it is a separate press. This is about the Active profile select entity, which has nowhere to show a plan; the panel always shows one before it writes anything, whatever this is set to.",
           "enable_raw_services": "Expert tools. They add and remove one association group entry directly, with no rule and no plan behind them, and they still refuse to touch a lifeline. Leave them off unless you are scripting or debugging."
         }
       }

@@ -34,7 +34,7 @@ from .rule_entity import async_handle_of_device
 from .serialize import Serializer
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Iterator, Mapping, Sequence
 
     from homeassistant.helpers.device_registry import DeviceEntry
 
@@ -53,7 +53,12 @@ TO_REDACT: Final = {"home_id", "ieee", "dsk", "network_key", "s2_access_control_
 # A Z-Wave DSK is eight groups of five digits. Scrubbed by shape rather than by where it
 # was expected: nothing stores one, and a device name or a raw backend error is exactly the
 # sort of place one would turn up if it ever did.
-_DSK: Final = re.compile(r"\b\d{5}(?:-\d{5}){3,7}\b")
+_DSK: Final = re.compile(r"\b\d{5}(?:-\d{5}){3,7}\b|\b\d{40}\b")
+
+# A device identity, wherever one is embedded in text: `<backend>:<address>`, which is how
+# a job scope and a link fingerprint carry one. The backend names are spelled out rather
+# than matched loosely, so this cannot start redacting a timestamp.
+_IDENTITY: Final = re.compile(rf"(?:{'|'.join(str(backend) for backend in BackendId)}):[^|,\s\"]+")
 
 # A Z-Wave address, by shape rather than by value: `zwave:<home id>:<node id>` as an
 # identity, and the same thing inside a link fingerprint. The values above cover this
@@ -104,7 +109,7 @@ async def async_get_config_entry_diagnostics(
         else {
             "id": profile.id,
             "name": profile.name,
-            "rules": [_rule_detail(runtime, rule) for rule in profile.rules],
+            "rules": _rule_details(runtime, profile.rules),
         },
         "profiles": [
             serializer.profile(candidate, active_profile_id=state.active_profile_id)
@@ -154,7 +159,7 @@ async def async_get_device_diagnostics(
         "links": [] if observed is None else [serializer.link(link) for link in observed.links],
         "settings": {} if observed is None else dict(observed.settings),
         "deep_verified": observed is not None and observed.deep_verified,
-        "rules": [_rule_detail(runtime, rule) for rule in rules],
+        "rules": _rule_details(runtime, rules),
         "job_results": [
             {"job_id": job.id, "created_at": job.created_at, **_result(result)}
             for job in coordinator.state.jobs
@@ -180,23 +185,40 @@ def _deployment(runtime: DeviceLinksRuntimeData) -> dict[str, Any] | None:
     }
 
 
-def _rule_detail(runtime: DeviceLinksRuntimeData, rule: Rule) -> dict[str, Any]:
+def _rule_details(runtime: DeviceLinksRuntimeData, rules: Sequence[Rule]) -> list[dict[str, Any]]:
+    """Return these rules with what each wants and what is really on the devices.
+
+    The two things every rule is judged against, the drift states and the fingerprints the
+    devices are holding, are worked out once for the whole list rather than once per rule:
+    both walk every device, and a house with forty rules would otherwise walk them forty
+    times to produce one file.
+    """
+    coordinator = runtime.coordinator
+    present = _present_fingerprints(runtime)
+    states = coordinator.drift_state()
+    return [_rule_detail(runtime, rule, present, states) for rule in rules]
+
+
+def _rule_detail(
+    runtime: DeviceLinksRuntimeData,
+    rule: Rule,
+    present: set[str],
+    states: Mapping[str, Any],
+) -> dict[str, Any]:
     """Return one rule with what it wants and what is really on the devices.
 
     Per link rather than per rule, because "three of four" is the difference between a
     fault in one group and a device that has stopped listening, and a report that only
     said `drift` makes the person reading it ask for this list next.
     """
-    coordinator = runtime.coordinator
-    compiled = coordinator.compiled_for(rule.id)
-    present = _present_fingerprints(runtime)
+    compiled = runtime.coordinator.compiled_for(rule.id)
     return {
         "id": rule.id,
         "name": rule.name,
         "template": str(rule.template),
         "backend": str(rule.backend),
         "enabled": rule.enabled,
-        "state": str(coordinator.drift_state().get(rule.id, "unknown")),
+        "state": str(states.get(rule.id, "unknown")),
         "source": rule.source.device.identity,
         "targets": [target.device.identity for target in rule.targets],
         "warnings": []
@@ -277,6 +299,9 @@ def _secrets(runtime: DeviceLinksRuntimeData) -> list[str]:
     address) cannot be half-replaced and leave the rest legible.
     """
     found: set[str] = set()
+    for identity in _identities(runtime):
+        backend, _, protocol_id = identity.partition(":")
+        found.add(protocol_id.partition(":")[0] if backend == BackendId.ZWAVE else protocol_id)
     for handle in _handles(runtime):
         if handle.backend is BackendId.ZWAVE:
             # `<home id>:<node id>`: the home id names the network and the node id names a
@@ -289,7 +314,27 @@ def _secrets(runtime: DeviceLinksRuntimeData) -> list[str]:
             # An IEEE address and a Matter node id are the whole address and identify a
             # device globally rather than within a network, so all of it goes.
             found.add(handle.protocol_id)
-    return sorted(found, key=len, reverse=True)
+    return sorted(found - {""}, key=len, reverse=True)
+
+
+def _identities(runtime: DeviceLinksRuntimeData) -> Iterator[str]:
+    """Yield every device identity the dump can carry that no handle accounts for.
+
+    A job summary outlives the rule and the device it was about: its scope names device
+    identities and every result carries a fingerprint built from one, and neither is
+    reachable from a handle once the profile that made the job is deleted. A snapshot names
+    the devices it covers for the same reason it exists, which includes ones that held
+    nothing. Read out by shape, so this keeps working for a protocol whose adapter does not
+    exist yet: an identity is a backend name and an address, and both halves are known.
+    """
+    coordinator = runtime.coordinator
+    for job in coordinator.state.jobs:
+        yield from _IDENTITY.findall(job.scope)
+        for result in job.results:
+            yield from _IDENTITY.findall(result.fingerprint)
+    for snapshot in coordinator.state.snapshots:
+        for device in snapshot.devices:
+            yield from _IDENTITY.findall(device)
 
 
 def _handles(runtime: DeviceLinksRuntimeData) -> Iterator[DeviceHandle]:

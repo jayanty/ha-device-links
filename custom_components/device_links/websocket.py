@@ -757,16 +757,20 @@ async def _verify(hass: HomeAssistant, connection: ActiveConnection, msg: dict[s
     """Re-read the devices in scope from the devices themselves. Never writes."""
     entry, runtime = _runtime(hass)
     coordinator = runtime.coordinator
-    identities = sorted(coordinator.identities_in_scope(_scope(hass, entry, msg)))
+    scope = _scope(hass, entry, msg)
+    identities = sorted(coordinator.identities_in_scope(scope))
     for identity in identities:
         handle = coordinator.handle_for(identity)
         if handle is not None:
             await coordinator.async_refresh(handle, deep=True)
+    states = coordinator.drift_state()
+    if scope.rule_ids:
+        states = {rule_id: state for rule_id, state in states.items() if rule_id in scope.rule_ids}
     connection.send_result(
         msg["id"],
         {
             "devices": len(identities),
-            "rules": {rule_id: str(state) for rule_id, state in coordinator.drift_state().items()},
+            "rules": {rule_id: str(state) for rule_id, state in sorted(states.items())},
         },
     )
 

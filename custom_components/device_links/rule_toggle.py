@@ -69,9 +69,18 @@ class RuleToggleLimiter:
         # rule id -> the state the last executed toggle carried, so a coalesced burst that
         # ends where it started can be recognised and cost nothing.
         self._executed: dict[str, bool] = {}
+        # Whether the config entry is going away. A cooldown callback that was already
+        # dispatched when shutdown ran finishes after it, and would otherwise start a fresh
+        # timer that nothing is left to cancel: the entry is gone, so it fires at a
+        # discarded coordinator and survives a reload, which is the leak this module's
+        # docstring rules out.
+        self._shut_down = False
 
     async def async_request(self, rule_id: str, *, enabled: bool) -> None:
         """Ask for a rule to be enabled or disabled, subject to the rate limit."""
+        if self._shut_down:
+            _LOGGER.debug("rule %s was toggled while unloading, so nothing was done", rule_id)
+            return
         if rule_id in self._cooldowns:
             self._pending[rule_id] = enabled
             _LOGGER.debug(
@@ -107,6 +116,7 @@ class RuleToggleLimiter:
         A timer that outlives the config entry fires at a runner that has been shut down
         and a store that is being discarded, and it survives a reload.
         """
+        self._shut_down = True
         for cancel in self._cooldowns.values():
             cancel()
         self._cooldowns.clear()
@@ -139,6 +149,8 @@ class RuleToggleLimiter:
 
     def _start_cooldown(self, rule_id: str) -> None:
         """Start the window during which further toggles of this rule only coalesce."""
+        if self._shut_down:
+            return
         self._cooldowns[rule_id] = async_call_later(
             self._hass, self._min_interval, partial(self._async_cooldown_elapsed, rule_id)
         )

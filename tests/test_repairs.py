@@ -27,6 +27,7 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
+from custom_components.device_links.backends.zwave import ZWaveBackend
 from custom_components.device_links.const import DOMAIN
 from custom_components.device_links.models import Backend as BackendId
 from custom_components.device_links.repairs import (
@@ -377,3 +378,72 @@ async def test_our_repairs_module_can_live_beside_the_repairs_integration(
     await break_the_backend(hass, device_links_entry, monkeypatch)
 
     assert issue(hass, f"{ISSUE_BACKEND_UNAVAILABLE}_zwave") is not None
+
+
+async def test_no_rule_is_called_stranded_because_a_backend_never_answered(
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    zwave_js_devices: dict[int, dr.DeviceEntry],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """E19 and E4 are different faults, and an entry that starts blind must not confuse them.
+
+    A device list is only ever built from a read that worked. An entry set up while Z-Wave
+    JS is restarting therefore knows about no devices at all, and the naive question "is
+    this rule's device on the network" would answer no for every rule in the profile,
+    beside the E1 issue that is the real fault.
+    """
+
+    async def _no_answer(self: object) -> Any:
+        raise TimeoutError("the driver did not answer")
+
+    # Patched on the class, before setup: the point is an entry whose first read failed,
+    # which is the state that leaves it knowing about no devices at all.
+    monkeypatch.setattr(ZWaveBackend, "async_devices", _no_answer)
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=DOMAIN, title="Device Links")
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert not entry.runtime_data.coordinator.devices
+    activate(entry, a_profile(a_rule()))
+    await hass.async_block_till_done()
+
+    assert issue(hass, f"{ISSUE_BACKEND_UNAVAILABLE}_zwave") is not None
+    assert issue(hass, ISSUE_RULES_MISSING_DEVICES) is None
+
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+async def test_applying_again_at_a_sleeping_node_does_not_restart_the_clock(
+    hass: HomeAssistant, device_links_entry: MockConfigEntry
+) -> None:
+    """E5's countdown is about the write, not about the last time somebody pressed Apply.
+
+    A rule applied nightly against a battery device that has stopped waking would never
+    reach a day if each apply reset the clock, which is exactly the device this issue is
+    about.
+    """
+    activate(device_links_entry, a_profile(a_rule()))
+    await hass.async_block_till_done()
+    fingerprint = a_pending_fingerprint(device_links_entry)
+    coordinator = device_links_entry.runtime_data.coordinator
+
+    coordinator.async_update_state(
+        replace(
+            coordinator.state,
+            jobs=tuple(
+                JobSummary(
+                    id=f"job-{hours}",
+                    created_at=(dt_util.utcnow() - timedelta(hours=hours)).isoformat(),
+                    scope="all",
+                    status="completed",
+                    results=(JobLinkResult(fingerprint=fingerprint, status="pending_wakeup"),),
+                )
+                for hours in (30, 2)
+            ),
+        )
+    )
+    await hass.async_block_till_done()
+
+    assert issue(hass, f"{ISSUE_PENDING_WAKEUP}_zwave:3538613642:36") is not None

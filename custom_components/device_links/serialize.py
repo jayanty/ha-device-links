@@ -26,11 +26,14 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant, callback
 
+from .coordinator import RuleState
 from .models import Diagnostic, Link, ObservedLink, PlanOp
 from .rule_entity import async_upstream_device
 from .yaml_io import rule_to_data
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from . import DeviceLinksConfigEntry
     from .compiler import CompiledRule
     from .models import (
@@ -63,6 +66,11 @@ class Serializer:
         self._device_ids: dict[str, str | None] = {}
         profile = self._coordinator.active_profile
         self._rule_names = {} if profile is None else {rule.id: rule.name for rule in profile.rules}
+        # What every rule is judged against, worked out on first use and then kept for the
+        # rest of this request: it walks every device, and a profile listing is every rule.
+        # Lazily rather than here, so that constructing a serializer costs nothing and a
+        # caller that builds one before it changes something still gets the change.
+        self._drift: Mapping[str, RuleState] | None = None
 
     # Devices.
 
@@ -245,7 +253,7 @@ class Serializer:
     @callback
     def rule(self, rule: Rule) -> dict[str, Any]:
         """Return one rule with what it is currently doing, for the rule list."""
-        states = self._coordinator.drift_state()
+        states = self._drift_state()
         total, in_sync = self._coordinator.rule_link_counts(rule.id)
         return {
             "rule": rule_to_data(rule),
@@ -253,6 +261,12 @@ class Serializer:
             "links_total": total,
             "links_in_sync": in_sync,
         }
+
+    def _drift_state(self) -> Mapping[str, RuleState]:
+        """Return what every rule of the active profile is doing, asked once per request."""
+        if self._drift is None:
+            self._drift = self._coordinator.drift_state()
+        return self._drift
 
     @callback
     def profile(self, profile: Profile, *, active_profile_id: str | None) -> dict[str, Any]:

@@ -43,6 +43,7 @@ from custom_components.device_links.models import (
     Template,
     ZigbeeFingerprint,
 )
+from custom_components.device_links.storage import JobLinkResult, JobSummary
 from tests.conftest import CONTROLLER, a_profile, a_rule, activate
 from tests.factories import HOME_ID
 from tests.fakes.zwave import FakeDriver
@@ -385,3 +386,43 @@ async def test_the_home_id_is_hidden_in_a_job_history_that_outlived_its_profile(
 
     assert result["jobs"], "the job history is what this test is about"
     assert HOME_ID not in json.dumps(result)
+
+
+async def test_an_address_that_only_the_job_history_remembers_is_hidden(
+    hass: HomeAssistant, hass_client: ClientSessionGenerator, applied: MockConfigEntry
+) -> None:
+    """A job outlives the rule and the device it was about, and still names both.
+
+    Its scope carries device identities and every result carries a fingerprint built from
+    one, so a history is the last place an address hides after the profile that made it is
+    deleted. Asserted with a Zigbee address, which is the whole of the secret and has no
+    shape a Z-Wave rule would catch.
+    """
+    coordinator = applied.runtime_data.coordinator
+    handle = a_zigbee_handle()
+    coordinator.async_update_state(
+        replace(
+            coordinator.state,
+            profiles=(),
+            active_profile_id=None,
+            jobs=(
+                JobSummary(
+                    id="an-old-job",
+                    created_at="2026-09-01T12:00:00+00:00",
+                    scope=f"devices:{handle.identity}",
+                    status="completed",
+                    results=(
+                        JobLinkResult(
+                            fingerprint=f"zigbee2mqtt|{handle.identity}|2|1|matter:1||on_off",
+                            status="applied",
+                        ),
+                    ),
+                ),
+            ),
+        )
+    )
+
+    result = await get_diagnostics_for_config_entry(hass, hass_client, applied)
+
+    assert result["jobs"], "the job history is what this test is about"
+    assert IEEE not in json.dumps(result)

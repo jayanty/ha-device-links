@@ -10,7 +10,9 @@ them, at whatever time of day they were curious, with no dialog and nothing to c
 selecting activates the profile and opens a plan (FR-E1), which is a read-only description
 of the work the switch implies, and applying it is a separate, deliberate act. Auto-apply
 exists as an option because somebody may genuinely want it, and it is off unless they say
-so.
+so. That option is read here and nowhere else on purpose: the panel and the WebSocket
+command behind it always show the plan first (Decision D18), and this is the one control
+that has nowhere to show one.
 
 Options are profile names rather than ids, because a name is what the user wrote and an id
 is what the panel generated. Nothing enforces that two profiles have different names, so a

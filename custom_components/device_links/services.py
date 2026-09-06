@@ -561,7 +561,7 @@ async def _async_zwave_get_associations(call: ServiceCall) -> ServiceResponse:
         "device": handle.identity,
         "name": handle.name_at_authoring,
         "available": coordinator.is_available(handle.identity),
-        "groups": [groups[key] for key in sorted(groups, key=int)],
+        "groups": [groups[key] for key in sorted(groups, key=_group_order)],
     }
 
 
@@ -684,7 +684,7 @@ def _raw_link(
                 "groups": ", ".join(
                     sorted(
                         {group_id for emitter in emitters for group_id in emitter.group_ids},
-                        key=int,
+                        key=_group_order,
                     )
                 ),
             },
@@ -756,6 +756,16 @@ def _raise_for(result: LinkResult, link: Link) -> None:
             "group": link.emitter_group,
         },
     )
+
+
+def _group_order(group: str) -> tuple[int, int, str]:
+    """Return a sort key for a group id that is a number on Z-Wave and may not be elsewhere.
+
+    Numbers in numeric order, anything else after them in name order. Sorting a group id
+    with `int` directly is right for every group a Z-Wave device reports and raises a bare
+    `ValueError` the first time a protocol that names its groups reaches this code.
+    """
+    return (0, int(group), "") if group.isdigit() else (1, 0, group)
 
 
 def _node_id_of(handle: DeviceHandle) -> int | None:

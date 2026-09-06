@@ -10,6 +10,11 @@ across a house (FR-E1), and the raw services write to an association group with 
 and no plan behind them (Decision D14). An option that exists only in code is one nobody
 can turn on, which is why this flow exists at all; saving reloads the entry, which is what
 makes the raw services appear and disappear without a restart.
+
+Auto-apply is deliberately about the Active profile select and nothing else. Decision D18
+says the plan dialog is always shown, so the panel and the WebSocket command it calls open
+a plan whatever this is set to; the select is the one surface with nowhere to show one, and
+this option is the answer for somebody who wants it to act anyway.
 """
 
 from __future__ import annotations

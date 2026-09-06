@@ -73,6 +73,11 @@ PENDING_WAKEUP_AFTER: Final = timedelta(hours=24)
 # that needs a clock is a day long, and a check that costs nothing is still a wake-up.
 RECHECK_INTERVAL: Final = timedelta(hours=1)
 
+# What a job records for a write a sleeping node has not taken yet. A string rather than
+# the executor's enum for the same reason storage keeps one: a history that could not be
+# read back because a member was renamed is worse than useless.
+PENDING_WAKEUP_STATUS: Final = "pending_wakeup"
+
 # Where the file is, as the user has to be able to find it.
 STORAGE_PATH: Final = f".storage/{STORAGE_KEY}"
 
@@ -237,18 +242,24 @@ def _pending_wakeups(runtime: DeviceLinksRuntimeData, wanted: dict[str, _Issue])
 
 
 def _pending_since(coordinator: DeviceLinksCoordinator) -> Mapping[str, datetime]:
-    """Return when each queued write was queued, by fingerprint.
+    """Return when each queued write started waiting, by fingerprint.
 
-    The latest job to mention a fingerprint is the one that counts, exactly as the
-    coordinator decides whether it is still pending: a later apply that landed answers an
-    earlier one that was queued.
+    The start of the run it is in, not the last job to mention it. Pressing Apply queues
+    the same write again at a node that is still asleep, and dating it from the latest job
+    would restart the clock every time: a rule applied nightly against a battery device
+    that has stopped waking would never reach a day, which is exactly the device E5 is
+    about. A result that is not `pending_wakeup` ends the run, because the write landed (or
+    failed, which is reported as a failure rather than as waiting).
     """
     now = dt_util.utcnow()
     since: dict[str, datetime] = {}
     for job in coordinator.state.jobs:
         queued = dt_util.parse_datetime(job.created_at) or now
         for result in job.results:
-            since[result.fingerprint] = queued
+            if result.status == PENDING_WAKEUP_STATUS:
+                since.setdefault(result.fingerprint, queued)
+            else:
+                since.pop(result.fingerprint, None)
     return since
 
 
@@ -263,15 +274,25 @@ def _missing_devices(runtime: DeviceLinksRuntimeData, wanted: dict[str, _Issue])
     A registry entry can be missing for a device that is perfectly alive (Zigbee and
     Matter handles cannot be resolved to one at all yet), and an issue that fired for that
     would be wrong on every install that has one.
+
+    Nothing is asked at all of a backend that is not answering, which is the difference
+    between E19 and E4. A device list is only ever built from a read that worked, so an
+    entry that came up while Z-Wave JS was restarting knows about no devices whatsoever,
+    and asking "is this rule's device on the network" of that state would name every rule
+    in the profile, beside the E1 issue that is the actual fault. That is the report that
+    teaches somebody to dismiss this one.
     """
     coordinator = runtime.coordinator
     profile = coordinator.active_profile
     if profile is None:
         return
+    availability = coordinator.backend_availability
     rules: set[str] = set()
     devices: set[str] = set()
     for rule in profile.rules:
         for handle in (rule.source.device, *(target.device for target in rule.targets)):
+            if not availability.get(handle.backend, False):
+                continue
             if coordinator.handle_for(handle.identity) is None:
                 rules.add(rule.id)
                 devices.add(handle.name_at_authoring)

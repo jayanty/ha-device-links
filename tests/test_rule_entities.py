@@ -460,6 +460,50 @@ async def test_a_pending_toggle_does_not_survive_an_unload(
     )
 
 
+async def test_a_deferred_toggle_interrupted_by_an_unload_arms_nothing_new(
+    hass: HomeAssistant, device_links_entry: MockConfigEntry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one timer `async_shutdown` cannot cancel is the one that starts after it.
+
+    A deferred toggle whose window closes just as the entry unloads is inside an await when
+    the shutdown runs, and it would then open the next window from the far side of it: a
+    timer nothing is left to cancel, firing at a coordinator that has been discarded, and
+    surviving a reload. That is the leak this module's docstring rules out, so it is worth
+    a white-box test rather than a hopeful one.
+    """
+    activate(device_links_entry, a_profile(a_rule()))
+    await hass.async_block_till_done()
+    runtime = device_links_entry.runtime_data
+    toggles = runtime.toggles
+    await toggles.async_request(RULE_ID, enabled=False)
+    await toggles.async_request(RULE_ID, enabled=True)
+    assert toggles.is_rate_limited(RULE_ID)
+
+    async def _unload_mid_apply(*args: object, **kwargs: object) -> None:
+        toggles.async_shutdown()
+
+    monkeypatch.setattr(runtime.runner, "async_apply", _unload_mid_apply)
+    await let_time_pass(hass, TOGGLE_MIN_INTERVAL_SECONDS + 1)
+
+    assert toggles._cooldowns == {}
+
+
+async def test_a_toggle_that_arrives_during_an_unload_does_nothing(
+    hass: HomeAssistant, device_links_entry: MockConfigEntry
+) -> None:
+    """A service call already scheduled when the unload began must not start a job."""
+    activate(device_links_entry, a_profile(a_rule()))
+    await hass.async_block_till_done()
+    runtime = device_links_entry.runtime_data
+    runtime.toggles.async_shutdown()
+    jobs_before = len(runtime.coordinator.state.jobs)
+
+    await runtime.toggles.async_request(RULE_ID, enabled=False)
+
+    assert len(runtime.coordinator.state.jobs) == jobs_before
+    assert runtime.coordinator.is_rule_enabled(RULE_ID, default=True) is True
+
+
 # --------------------------------------------------------------------------------------
 # What the entities say
 # --------------------------------------------------------------------------------------
