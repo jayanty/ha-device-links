@@ -21,8 +21,12 @@ All notable changes to this project are documented here. The format follows
   after, everything that would be lost, and the whole plan, before anything is
   written. A device that leaves the network with a same-model replacement waiting,
   or that comes back answering as a different model, raises a Repairs issue
-  offering the flow. Reachable over the WebSocket API; the panel wizard is still
-  to come.
+  offering the flow. The panel wizard landed in Phase 2C (open item T59): choose
+  the device that has gone, choose the replacement, map each control when the
+  models differ, and read every rule before and after with everything that would
+  be lost, before the plan dialog opens. A swap that would leave a rule doing less
+  than it was asked to cannot be confirmed without ticking a box next to the list
+  of what is lost, which is the whole reason `accept_lossy` exists.
 - Hybrid legs (Phase 2C, FR-H1 to FR-H3, Decision D3): the three intents no radio
   can carry, executed by Home Assistant and labelled HA-executed on every screen
   that shows one. Off for the whole integration until the option is turned on, and

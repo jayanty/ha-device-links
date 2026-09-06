@@ -128,6 +128,11 @@ export class HarnessBackend {
         // No loop in the harness's house: every rule here leaves the mirror setting
         // alone, so no device relays what it receives and no cycle can run away.
         return { profile: PROFILES[0], rules: this.rules, loops: [] };
+      case "swap/candidates":
+        // Every device the harness's rules name is on its network, so nothing needs
+        // replacing. That is the ordinary state of a house and the empty list the wizard
+        // has to render honestly rather than as a loading spinner that never ends.
+        return { replacements: [] };
       case "profiles/diff":
         // The harness holds one set of rules under two profile names, so the honest
         // answer is that nothing differs: what this exercises is the empty case, which

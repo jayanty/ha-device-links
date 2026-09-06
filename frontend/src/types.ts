@@ -566,6 +566,88 @@ export interface JobStarted {
   status: JobStatus | "running" | "nothing_to_do";
 }
 
+// --------------------------------------------------------------------------------------
+// Device swap (FR-S1 to FR-S3).
+// --------------------------------------------------------------------------------------
+
+/** `swap.MappingBasis`, why one control was proposed to take over from another. */
+export type MappingBasis = "same_emitter_id" | "same_features" | "chosen" | "unmapped";
+
+/** `Serializer.replacement`: a device the rules name that looks replaced. */
+export interface SwapReplacement {
+  old: DeviceRow;
+  changed_in_place: boolean;
+  rule_ids: string[];
+  candidates: DeviceRow[];
+}
+
+/**
+ * `Serializer._mapping`: one control on the old device and what would take over from it.
+ *
+ * `basis` is how confident the pre-fill is, and the two confident answers are not the same
+ * claim: the ids agreeing says which physical control this is, and the features agreeing
+ * says only that one control happens to fit. Present them differently.
+ */
+export interface SwapMapping {
+  old_emitter_id: string;
+  new_emitter_id: string | null;
+  new_label: string | null;
+  new_endpoint: number | null;
+  basis: MappingBasis;
+  features_needed: Feature[];
+  features_carried: Feature[];
+}
+
+/** `Serializer._rewrite`: one rule as it stands and as the swap would leave it. */
+export interface SwapRewrite {
+  rule_id: string;
+  name: string;
+  before: RuleData;
+  after: RuleData;
+  is_lossy: boolean;
+  losses: Diagnostic[];
+  notes: Diagnostic[];
+  errors: Diagnostic[];
+}
+
+/** `Serializer.proposal`: everything one swap would do, before any of it is done. */
+export interface SwapProposal {
+  old: DeviceRow;
+  new: DeviceRow;
+  same_model: boolean;
+  is_lossy: boolean;
+  is_applicable: boolean;
+  unmapped: string[];
+  errors: Diagnostic[];
+  mappings: SwapMapping[];
+  rewrites: SwapRewrite[];
+}
+
+/**
+ * `swap/preview`: the whole swap, and the two questions the plan alone cannot answer.
+ *
+ * `old_reachable` is separate from the plan on purpose. A device that is gone has no work
+ * in the plan, which without this reads as a swap with nothing to clean up rather than as
+ * entries still sitting in a device nobody can reach. `new_reachable` is the more dangerous
+ * half: nothing is planned for a device that cannot be read, so a swap onto one would strip
+ * the old switch and write nothing to the new.
+ */
+export interface SwapPreview {
+  proposal: SwapProposal;
+  plan: Plan;
+  old_listed: boolean;
+  old_reachable: boolean;
+  new_reachable: boolean;
+  removes: string[];
+}
+
+/** `swap/apply`: the job it started, and the rules it rewrote whether or not it wrote. */
+export interface SwapApplied {
+  job_id: string | null;
+  status: JobStatus | "running" | "nothing_to_do";
+  rules_rewritten: string[];
+}
+
 /** One intent a rule can be authored with. Names and descriptions are translation keys. */
 export interface TemplateRow {
   id: TemplateId;
