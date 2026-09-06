@@ -265,6 +265,9 @@
     "zigbee_foreign_group": {
       "message": "The Zigbee group {target} was not created by Device Links, so the {cluster} binding from {device} was not written to it. Only groups named with the dl_ prefix are ours to use."
     },
+    "zigbee_group_failed": {
+      "message": "The Zigbee group {group} could not be set up, so the {cluster} binding from {device} to {target} was not written. Check Zigbee2MQTT and apply again."
+    },
     "zigbee_no_response": {
       "message": "The Zigbee bridge did not answer within {seconds} seconds, so it is not known whether the {cluster} binding from {device} to {target} was made. Look at the device again, or apply once more: an apply that is already done writes nothing."
     },

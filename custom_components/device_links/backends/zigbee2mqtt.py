@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import count
 import json
 import logging
@@ -175,6 +175,10 @@ class ZigbeeBackend:
         self._unsubscribes: list[Callable[[], None]] = []
         self._listeners: list[Callable[[str], None]] = []
         self._transactions = count(1)
+
+        # Managed groups this backend used but did not create, so E24's warning is said
+        # once per group rather than on every apply.
+        self._adopted: set[str] = set()
 
         # Whether a write of ours has happened that the bridge has not yet republished
         # `bridge/devices` for. What a deep read waits on; see `async_observed`.
@@ -608,11 +612,281 @@ class ZigbeeBackend:
             )
         if present is adding:
             return LinkResult(status=LinkResultStatus.ALREADY_PRESENT)
-        if adding:
-            refusal = self._capability_refusal(link)
-            if refusal is not None:
-                return LinkResult(status=LinkResultStatus.BLOCKED, reason=refusal)
-        return await self._request_binding(link, adding=adding)
+        if not adding:
+            return await self._unbind(link)
+        refusal = self._capability_refusal(link)
+        if refusal is not None:
+            return LinkResult(status=LinkResultStatus.BLOCKED, reason=refusal)
+        return await self._bind(link)
+
+    # Managed groups (Decision D5).
+    #
+    # Unicast to several targets sends the command once per target, sequentially, and fills
+    # the source's binding table, so a one-to-many rule goes through one managed Zigbee
+    # group instead. Three rules decide the shape of everything below:
+    #
+    # 1. **A group is created only when a control already drives something else.** The first
+    #    target of a rule is a plain binding, because a group per rule would fill a user's
+    #    Zigbee2MQTT with entries that buy them nothing, and unicast to one target is the
+    #    better write anyway.
+    # 2. **Nothing that is already on the device is moved into a group.** The obvious design
+    #    is to migrate the first target into the group when the second arrives, and it is
+    #    wrong: this adapter cannot tell a binding a rule of ours wrote from one the user
+    #    made by hand in Zigbee2MQTT years ago (ownership lives in the coordinator, by
+    #    fingerprint), so migrating would eventually swallow somebody's own binding and
+    #    delete it when the rule went. So the first target stays a plain binding and the
+    #    rest go through the group: two binding table entries for any number of targets,
+    #    and never a write to an entry that might not be ours.
+    # 3. **A group without the `dl_` prefix is never created, never read for membership and
+    #    never deleted.** The prefix is the only thing that says which groups are ours, and
+    #    `zigbee_protocol` raises `ForeignGroupError` from the payload builders themselves,
+    #    so nothing here can route around it.
+    #
+    # What is missing, and is not missing by accident: nothing drives the lifecycle of a
+    # group whose rule was deleted while Home Assistant was down. The `Backend` protocol
+    # writes one link at a time and never sees a rule, so this layer cannot know a rule has
+    # stopped existing. `async_drop_managed_group` and `managed_group_rule_ids` are the two
+    # halves of the answer for whoever does know; wiring them up is a deliberate decision
+    # about the protocol rather than a quiet special case. See docs/open-items.md T41.
+
+    async def _bind(self, link: Link) -> LinkResult:
+        """Write one binding, through this rule's managed group when the rule needs one."""
+        group_name = self._group_for(link)
+        if group_name is None:
+            return await self._request_binding(link, adding=True)
+        return await self._bind_through_group(link, group_name)
+
+    async def _unbind(self, link: Link) -> LinkResult:
+        """Take one binding off, whether it is a plain binding or a group membership."""
+        if self._plain_binding(link) is not None:
+            return await self._request_binding(link, adding=False)
+        group = self._group_holding(link)
+        if group is None:
+            # Nothing on the device answers to this link. `_write` already established that
+            # something does, so this can only be a group that vanished between the two.
+            return LinkResult(status=LinkResultStatus.ALREADY_PRESENT)
+        return await self._unbind_through_group(link, group)
+
+    def _group_for(self, link: Link) -> str | None:
+        """Return the managed group this link should go through, or None for a plain bind.
+
+        None when the link has no rule (a raw service call owns no group), when it already
+        names a group as its target, or when this control drives nothing else yet.
+        """
+        if link.rule_id is None or zp.group_id_of(link.target.handle) is not None:
+            return None
+        name = zp.managed_group_name(link.rule_id)
+        if self._group_binding(link, name) is not None:
+            return name
+        return name if self._peer_bindings(link) else None
+
+    async def _bind_through_group(self, link: Link, name: str) -> LinkResult:
+        """Put this link's target into the rule's group, and bind the group if it is not.
+
+        The order matters: the member goes in before the group is bound, so a failure
+        half way leaves a group that drives nothing rather than a group binding that drives
+        an empty group. The first is inert; the second is a control that does nothing and
+        looks connected.
+
+        NOTE: modelled, never observed. Assumption A2, issue #6.
+        """
+        group_id = await self._ensure_group(name)
+        if group_id is None:
+            return self._group_failure(link, name)
+        target = self._device(link.target.handle)
+        member = zp.group_member_payload(
+            friendly_name=name,
+            device_name=str(target["friendly_name"]),
+            endpoint=link.target.endpoint if link.target.endpoint is not None else 1,
+            transaction=self._next_transaction(),
+        )
+        if not await self._group_request(zp.GROUP_MEMBER_ADD_REQUEST, member):
+            return self._group_failure(link, name)
+        if self._group_binding(link, name) is not None:
+            return LinkResult(status=LinkResultStatus.APPLIED)
+        return await self._request_binding(_to_group(link, group_id, name), adding=True)
+
+    async def _unbind_through_group(self, link: Link, group: zp.Group) -> LinkResult:
+        """Take this link's target out of the rule's group, and drop the group when it empties.
+
+        NOTE: modelled, never observed. Assumption A2, issue #6.
+        """
+        name = str(group["friendly_name"])
+        target = self._device(link.target.handle)
+        member = zp.group_member_payload(
+            friendly_name=name,
+            device_name=str(target["friendly_name"]),
+            endpoint=link.target.endpoint if link.target.endpoint is not None else 1,
+            transaction=self._next_transaction(),
+        )
+        if not await self._group_request(zp.GROUP_MEMBER_REMOVE_REQUEST, member):
+            return self._group_failure(link, name)
+        remaining = self._state.groups.get(int(group["id"]))
+        if remaining is not None and remaining["members"]:
+            return LinkResult(status=LinkResultStatus.APPLIED)
+        if not await self._remove_group(name):
+            return self._group_failure(link, name)
+        return LinkResult(status=LinkResultStatus.APPLIED)
+
+    async def _ensure_group(self, name: str) -> int | None:
+        """Return this managed group's id, creating it if the bridge does not have it.
+
+        E24: a managed group somebody deleted in Zigbee2MQTT is put back on the next apply.
+        A group with this name that we did not create is **adopted rather than taken over**:
+        the `dl_` prefix is the only thing that says a group is ours, so a name carrying it
+        is ours by the only test there is, and what is said about it is a warning rather
+        than a refusal. Nothing about its existing membership is disturbed, here or
+        anywhere: only the one member a link names is ever added or removed.
+        """
+        _refuse_foreign(name)
+        existing = self._group_named(name)
+        if existing is not None:
+            if name not in self._adopted:
+                self._adopted.add(name)
+                _LOGGER.warning(
+                    "the Zigbee group %s already existed on %s and was not created by this "
+                    "session, so it is being used as it is: its other members are left alone",
+                    name,
+                    self._base,
+                )
+            return int(existing["id"])
+        created = await self._group_request(
+            zp.GROUP_ADD_REQUEST,
+            zp.group_add_payload(friendly_name=name, transaction=self._next_transaction()),
+        )
+        if not created:
+            return None
+        made = self._group_named(name)
+        return None if made is None else int(made["id"])
+
+    async def _remove_group(self, name: str) -> bool:
+        """Delete one managed group, and say whether the bridge accepted it."""
+        _refuse_foreign(name)
+        self._adopted.discard(name)
+        return await self._group_request(
+            zp.GROUP_REMOVE_REQUEST,
+            zp.group_remove_payload(friendly_name=name, transaction=self._next_transaction()),
+        )
+
+    async def async_drop_managed_group(self, rule_id: str) -> bool:
+        """Delete the managed group belonging to one rule, and say whether there was one.
+
+        The answer to "a rule was deleted while Home Assistant was down". Deleting the group
+        drops every binding that pointed at it, which is what makes it a whole answer rather
+        than half of one.
+
+        Nothing in core calls this: the `Backend` protocol writes one link at a time and
+        never sees a rule, so this layer cannot know a rule has stopped existing. It is here
+        so that whoever does know has something to call. See docs/open-items.md T41.
+
+        NOTE: modelled, never observed. Assumption A2, issue #6.
+        """
+        name = zp.managed_group_name(rule_id)
+        if self._group_named(name) is None:
+            return False
+        self._devices_stale = True
+        return await self._remove_group(name)
+
+    def managed_group_rule_ids(self) -> frozenset[str]:
+        """Return the rule ids the managed groups on this bridge belong to.
+
+        Groups without the `dl_` prefix are not listed, because they are not ours and
+        knowing about them is the first step to acting on them.
+        """
+        return frozenset(
+            str(group["friendly_name"]).removeprefix(zp.MANAGED_GROUP_PREFIX)
+            for group in self._state.groups.values()
+            if zp.is_managed_group_name(str(group["friendly_name"]))
+        )
+
+    async def _group_request(self, topic: str, payload: Mapping[str, object]) -> bool:
+        """Send one group request and say whether the bridge carried it out."""
+        self._devices_stale = True
+        response = await self._request(topic, payload)
+        if response is None or not response.succeeded:
+            _LOGGER.debug("group request on %s was not carried out: %s", topic, response)
+            return False
+        return True
+
+    def _group_failure(self, link: Link, name: str) -> LinkResult:
+        """Report a link that could not be written because its group could not be managed."""
+        return LinkResult(
+            status=LinkResultStatus.FAILED,
+            reason=Diagnostic(
+                "zigbee_group_failed", {**_binding_placeholders(link), "group": name}
+            ),
+        )
+
+    def _group_named(self, name: str) -> zp.Group | None:
+        """Return one group by friendly name, or None when the bridge does not list it."""
+        return next(
+            (group for group in self._state.groups.values() if str(group["friendly_name"]) == name),
+            None,
+        )
+
+    def _bindings_from(self, link: Link) -> list[zp.ParsedBinding]:
+        """Return every binding written from this link's source endpoint and cluster."""
+        source = self._device(link.source)
+        return [
+            binding
+            for binding in zp.parse_bindings(source)
+            if binding.endpoint == link.source_endpoint and binding.cluster == link.emitter_group
+        ]
+
+    def _peer_bindings(self, link: Link) -> list[zp.ParsedBinding]:
+        """Return the plain bindings this control already drives, the bridge's own aside.
+
+        The coordinator bindings are Zigbee2MQTT's reporting setup rather than anything a
+        user asked for, so a control whose only other binding is one of those is a control
+        that drives nothing and needs no group.
+        """
+        return [
+            binding
+            for binding in self._bindings_from(link)
+            if binding.group_id is None and binding.target_ieee != self._state.coordinator_ieee
+        ]
+
+    def _plain_binding(self, link: Link) -> zp.ParsedBinding | None:
+        """Return the plain binding that expresses this link, if there is one."""
+        return next(
+            (
+                binding
+                for binding in self._bindings_from(link)
+                if binding.target_ieee == link.target.handle.protocol_id
+                and binding.target_endpoint == link.target.endpoint
+            ),
+            None,
+        )
+
+    def _group_binding(self, link: Link, name: str) -> zp.ParsedBinding | None:
+        """Return this control's binding to the named managed group, if there is one."""
+        group = self._group_named(name)
+        if group is None:
+            return None
+        return next(
+            (
+                binding
+                for binding in self._bindings_from(link)
+                if binding.group_id == int(group["id"])
+            ),
+            None,
+        )
+
+    def _group_holding(self, link: Link) -> zp.Group | None:
+        """Return the managed group this control is bound to that holds this link's target."""
+        member = {
+            "ieee_address": link.target.handle.protocol_id,
+            "endpoint": link.target.endpoint,
+        }
+        for binding in self._bindings_from(link):
+            if binding.group_id is None:
+                continue
+            group = self._state.groups.get(binding.group_id)
+            if group is None or not zp.is_managed_group_name(str(group["friendly_name"])):
+                continue
+            if any(dict(entry) == member for entry in group["members"]):
+                return group
+        return None
 
     async def _request_binding(self, link: Link, *, adding: bool) -> LinkResult:
         """Send one bind or unbind and turn the answer into a result.
@@ -753,8 +1027,12 @@ class ZigbeeBackend:
             target=self._target_name(link),
             target_endpoint=link.target.endpoint,
             clusters=(link.emitter_group,),
-            transaction=f"dl-{next(self._transactions)}",
+            transaction=self._next_transaction(),
         )
+
+    def _next_transaction(self) -> str:
+        """Return an id no other in-flight request of this backend is using."""
+        return f"dl-{next(self._transactions)}"
 
     def _target_name(self, link: Link) -> str:
         """Return what the request calls this link's target: a device name or a group name."""
@@ -993,6 +1271,31 @@ class ZigbeeBackend:
             return None
         entry = self._entry_of(device)
         return None if entry is None else entry.wake_instruction
+
+
+def _to_group(link: Link, group_id: int, friendly_name: str) -> Link:
+    """Return the same link with its target replaced by the managed group standing for it.
+
+    What actually reaches the bridge for a one-to-many rule: the binding names the group,
+    and the group holds the targets. The link's identity is untouched, because this copy
+    exists only to build one request.
+    """
+    return replace(
+        link,
+        target=LinkTarget(handle=zp.group_handle(group_id, friendly_name), endpoint=None),
+    )
+
+
+def _refuse_foreign(name: str) -> None:
+    """Refuse to act on a group Device Links did not create.
+
+    Deliberately redundant with the same check inside `zigbee_protocol`'s payload builders.
+    The two protect the same thing from different directions, and the cost of the second is
+    one line: a group without the prefix is somebody's own work, and the whole feature is
+    only safe to ship because nothing can reach one.
+    """
+    if not zp.is_managed_group_name(name):
+        raise zp.ForeignGroupError(f"{name!r} is not a group Device Links created")
 
 
 def _binding_placeholders(link: Link) -> dict[str, str]:
