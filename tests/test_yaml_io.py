@@ -385,3 +385,16 @@ def test_a_stored_link_missing_a_field_says_which_one() -> None:
 
     with pytest.raises(ProfileFormatError, match="feature"):
         observed_link_from_data(data)
+
+
+def test_a_rules_features_are_written_in_a_fixed_order() -> None:
+    """A frozenset has no order of its own, so one is imposed before it is written.
+
+    Without the sort this is a file that can differ from itself between two processes with
+    nothing changed, which is exactly the churn that makes tracking an export in git
+    pointless. The literal below is the file, not an implementation detail: it is what a
+    diff shows.
+    """
+    text = dump_profile(Profile(id="p", name="P", rules=(_rule(),)))
+
+    assert "    features:\n    - level_hold\n    - on_off\n" in text
