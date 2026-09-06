@@ -22,12 +22,13 @@ something was removed after setup, and Task 6's Repairs issue (E1) is what turns
 into an explanation.
 
 **Unload is the mirror of setup, in reverse order.** The platforms come down first, so no
-entity can call into a runner that is being shut down; then the event bridge, so no bus
-event announces a job nobody asked for; then the rate limiter's timers, so no deferred
-toggle starts a job during teardown; then the runner, which waits for writes already on
-the radio; then the coordinator, which drops the backend subscriptions. Every one of those
-has a listener or a timer behind it, and a single one left behind fires after a reload
-against an object that no longer exists.
+entity can call into a runner that is being shut down; then the rate limiter's timers, so
+no deferred toggle starts a job during teardown; then the runner, which waits for writes
+already on the radio; then the event bridge, so the job the runner just interrupted is
+still announced (the Activity view is the only record of a job that wrote and stopped);
+and last the coordinator, which drops the backend subscriptions. Every one of those has a
+listener or a timer behind it, and a single one left behind fires after a reload against
+an object that no longer exists.
 """
 
 from __future__ import annotations
@@ -162,19 +163,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry) 
 
     events = DeviceLinksEventBridge(hass, entry, coordinator)
     runner = JobRunner(coordinator, on_finished=events.async_job_finished)
-    entry.runtime_data = DeviceLinksRuntimeData(
-        coordinator=coordinator,
-        runner=runner,
-        toggles=RuleToggleLimiter(hass, coordinator, runner),
-        events=events,
-        backends=backends,
-        backend_info=backend_info,
-        version=await _async_version(hass),
-        deployment=await hass.async_add_executor_job(read_deployment),
-        profiles=profiles,
-    )
-    events.async_setup()
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    try:
+        entry.runtime_data = DeviceLinksRuntimeData(
+            coordinator=coordinator,
+            runner=runner,
+            toggles=RuleToggleLimiter(hass, coordinator, runner),
+            events=events,
+            backends=backends,
+            backend_info=backend_info,
+            version=await _async_version(hass),
+            deployment=await hass.async_add_executor_job(read_deployment),
+            profiles=profiles,
+        )
+        events.async_setup()
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    except Exception:
+        # `async_setup_entry` already subscribed to every backend, and Home Assistant does
+        # not call `async_unload_entry` for an entry that failed to set up. Without this,
+        # a platform that would not load leaves those subscriptions and the debounced
+        # refresh timer running for the life of the process, and a later reload adds a
+        # second set on top of them.
+        events.async_shutdown()
+        await coordinator.async_shutdown()
+        raise
     _LOGGER.info(
         "Device Links is set up with the %s backend(s)",
         ", ".join(sorted(str(backend_id) for backend_id in backends)),
@@ -192,9 +203,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry)
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
     runtime = entry.runtime_data
-    runtime.events.async_shutdown()
     runtime.toggles.async_shutdown()
     await runtime.runner.async_shutdown()
+    runtime.events.async_shutdown()
     await runtime.coordinator.async_shutdown()
     return True
 

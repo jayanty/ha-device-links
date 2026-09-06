@@ -694,6 +694,10 @@ async def test_the_status_sensor_says_applying_while_a_job_is_writing_that_rule(
     assert seen, "the job wrote nothing, so nothing was ever being applied"
     assert all(RULE_ID in rule_ids for rule_ids in seen)
     assert runtime.runner.active_rule_ids == frozenset(), "a finished job is still applying"
+    # The state written last during a job is the one written from inside it, when the job
+    # was still running. Without an update on the way out, the sensor is left saying
+    # `applying` until something unrelated happens to change.
+    assert hass.states.get(status_of(hass, device_links_entry)).state == "in_sync"
 
 
 async def test_clearing_the_active_profile_takes_every_rule_entity_with_it(

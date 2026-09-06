@@ -425,11 +425,17 @@ class JobRunner:
         )
         self._job = job
         _LOGGER.info("job %s starting: %s items, scope %s", job.id, len(job.ops), job.scope)
+        # `active_rule_ids` is this runner's own published state and a rule status sensor
+        # reads it, so both edges have to be announced. Without the second one the last
+        # state written during a job is the one written from inside it, which says
+        # `applying` and stays saying it until something else happens to change.
+        self._coordinator.async_update_listeners()
         try:
             return await self._run(job, plan, scope, remove_unmanaged)
         finally:
             self._job = None
             job.finished.set()
+            self._coordinator.async_update_listeners()
 
     @callback
     def async_cancel(self) -> None:

@@ -777,3 +777,21 @@ async def test_a_deep_refresh_asks_the_device_rather_than_the_driver_cache(
     await coordinator.async_refresh(handle(36), deep=True)
 
     assert backend.deep_reads == 1
+
+
+async def test_unsubscribing_an_entity_listener_twice_is_safe(
+    coordinator: DeviceLinksCoordinator,
+) -> None:
+    """Same contract as the refresh hold's release: idempotent, so a `finally` is safe.
+
+    An entity unsubscribes in `async_will_remove_from_hass`, and Home Assistant can reach
+    that path more than once for an entity that is being torn down while a reload is
+    already under way.
+    """
+    unsubscribe = coordinator.async_add_listener(lambda: None)
+    assert coordinator.listener_count == 1
+
+    unsubscribe()
+    unsubscribe()
+
+    assert coordinator.listener_count == 0

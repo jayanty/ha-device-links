@@ -20,6 +20,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -195,3 +196,38 @@ async def test_nothing_is_torn_down_when_a_platform_refuses_to_unload(
 
     assert await async_unload_entry(hass, device_links_entry) is False
     assert runtime.coordinator.listener_count > 0, "the coordinator was torn down anyway"
+
+
+async def test_a_platform_that_fails_to_set_up_leaves_nothing_subscribed(
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    zwave_js_devices: dict[int, dr.DeviceEntry],
+    zwave_driver: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Home Assistant does not unload an entry that never loaded, so setup has to.
+
+    By the time the platforms are forwarded, every backend is already subscribed and the
+    coordinator's debounced refresh is armed. A failure past that point would otherwise
+    leave both running for the life of the process, and the next reload would add a second
+    set on top.
+    """
+
+    async def refuse(*args: object, **kwargs: object) -> None:
+        raise HomeAssistantError("the switch platform would not load")
+
+    monkeypatch.setattr(hass.config_entries, "async_forward_entry_setups", refuse)
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=DOMAIN, title="Device Links")
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.SETUP_ERROR
+    assert not hass.states.async_entity_ids("sensor"), "entities survived a failed setup"
+    # The subscription is one "value updated" listener per node on the driver, so this is
+    # the state the leak would be visible in: nothing left listening to the radio.
+    assert not [
+        node
+        for node in zwave_driver.controller.nodes.values()
+        if node._listeners.get("value updated")
+    ], "a backend subscription outlived a setup that failed"

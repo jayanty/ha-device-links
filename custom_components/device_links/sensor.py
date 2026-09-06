@@ -185,10 +185,16 @@ class ActiveProfileStatusSensor(DeviceLinksEntity, SensorEntity):
     def native_value(self) -> str:
         """Return the worst state any rule of the active profile is in.
 
+        A job in flight wins over everything, for the same reason it does on a per-rule
+        sensor: what is on the devices is mid-change, and calling that in sync or drifted
+        is a statement about a state that has not settled.
+
         No profile and no rules both read `unknown` rather than `in_sync`: an empty
         profile has not converged on anything, and saying it has would be a claim about a
         house nobody has described yet.
         """
+        if self.runtime.runner.active_rule_ids:
+            return "applying"
         states = list(self.coordinator.drift_state().values())
         if not states:
             return str(RuleState.UNKNOWN)
