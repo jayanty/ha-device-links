@@ -31,6 +31,7 @@ Two divergences from S7 as written, both recorded in `docs/open-items.md` sectio
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntryState
@@ -520,6 +521,42 @@ async def test_a_swap_plans_nothing_for_a_rule_it_is_not_about(
 # --------------------------------------------------------------------------------------
 # What the swap refuses to do
 # --------------------------------------------------------------------------------------
+
+
+async def test_a_swap_of_a_disabled_rule_rewrites_it_and_writes_nothing(
+    hass: HomeAssistant, client: Any, zwave_js_devices: dict[int, dr.DeviceEntry]
+) -> None:
+    """Disabling is not deleting (FR-R5), so the intent moves even when no link does.
+
+    A disabled rule contributes nothing to the desired state, and the device it named is
+    gone, so there is nothing on any radio for this swap to change. The rule still has to
+    follow the hardware: re-enabling it later should write links to the switch that is in
+    the wall, not to the one that was taken out of it.
+    """
+    profile = imported_profile()
+    await import_profile(
+        client,
+        replace(profile, rules=tuple(rule.with_enabled(False) for rule in profile.rules)),
+    )
+
+    result = await preview(client, zwave_js_devices)
+    applied = await call(
+        client,
+        "swap/apply",
+        old_identity=old_identity(),
+        new_device_id=zwave_js_devices[REPLACEMENT].id,
+        plan_token=result["plan"]["token"],
+    )
+    await hass.async_block_till_done()
+
+    assert result["plan"]["is_empty"]
+    assert applied["status"] == "nothing_to_do"
+    assert applied["job_id"] is None
+    assert sorted(applied["rules_rewritten"]) == ["bedroom-drives-ceiling", "ceiling-paddle"]
+    stored = await call(client, "profiles/get", profile_id="ceiling")
+    rules = {row["rule"]["id"]: row["rule"] for row in stored["rules"]}
+    assert rules["ceiling-paddle"]["source"]["device"] == handle(REPLACEMENT).identity
+    assert rules["ceiling-paddle"]["enabled"] is False
 
 
 async def test_a_swap_cannot_be_applied_without_a_plan_somebody_looked_at(

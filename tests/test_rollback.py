@@ -154,6 +154,24 @@ async def test_a_stale_token_is_refused_rather_than_applied(
     assert group_of(zwave_driver, CONTROLLER, 2) == [MAIN_LIGHTS], "a refusal wrote something"
 
 
+async def test_a_rollback_is_refused_while_a_job_is_already_running(
+    hass: HomeAssistant, client: Any, applied: str, zwave_driver: FakeDriver
+) -> None:
+    """Two applies driving one mesh at once is what E16 exists to prevent."""
+    zwave_driver.controller.refresh_delay_seconds = 0.3
+    preview = await call(client, "snapshots/rollback", snapshot_id=applied)
+    await call(
+        client, "snapshots/rollback", snapshot_id=applied, plan_token=preview["plan"]["token"]
+    )
+
+    error = await refused(
+        client, "snapshots/rollback", snapshot_id=applied, plan_token=preview["plan"]["token"]
+    )
+    await hass.async_block_till_done()
+
+    assert error["translation_key"] == "job_running"
+
+
 async def test_a_snapshot_that_is_no_longer_kept_is_refused(client: Any, applied: str) -> None:
     """Only the last 20 are kept, so an id from an old Activity view can be gone."""
     error = await refused(client, "snapshots/rollback", snapshot_id="not-a-snapshot")
@@ -236,8 +254,15 @@ async def test_a_rollback_onto_the_state_it_already_describes_does_nothing(
     await hass.async_block_till_done()
 
     again = await call(client, "snapshots/rollback", snapshot_id=applied)
+    confirmed = await call(
+        client, "snapshots/rollback", snapshot_id=applied, plan_token=again["plan"]["token"]
+    )
 
     assert again["plan"]["is_empty"]
+    # Confirmed anyway, which has to be answerable rather than a job that writes nothing:
+    # a caller cannot know it is empty until it has asked, and the answer says so.
+    assert confirmed["status"] == "nothing_to_do"
+    assert confirmed["job_id"] is None
 
 
 # --------------------------------------------------------------------------------------
