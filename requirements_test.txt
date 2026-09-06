@@ -13,3 +13,8 @@ hypothesis
 mypy
 ruff
 voluptuous-stubs
+
+# Type stubs for PyYAML, so `mypy --strict` really checks `yaml_io.py` rather than
+# treating every yaml call as Any. Test-only: the integration itself imports yaml from the
+# copy Home Assistant already ships, and its manifest requirements list stays empty.
+types-PyYAML
