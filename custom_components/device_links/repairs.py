@@ -193,6 +193,13 @@ def _pending_wakeups(runtime: DeviceLinksRuntimeData, wanted: dict[str, _Issue])
 
     Per device rather than per link, because waking a device answers every write queued at
     it, and four issues about one remote is four times the noise for one action.
+
+    A queued write whose rule has since been deleted is not reported, and that is a
+    limitation rather than a decision: a job records fingerprints, and the device a
+    fingerprint belongs to is only knowable here by matching it against what the active
+    profile compiles to. Nothing is lost by it: when the device wakes, the write lands, and
+    the link it made shows up as unmanaged on the next read, which is what a link nobody
+    has a rule for is.
     """
     coordinator = runtime.coordinator
     pending = coordinator.pending_link_fingerprints()
