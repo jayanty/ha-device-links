@@ -11,12 +11,15 @@ and they get corrected together when G2 runs.
 from __future__ import annotations
 
 from dataclasses import replace
+import json
+from typing import Any
 
 import pytest
 
 from custom_components.device_links.backends import zigbee_protocol as zp
 from custom_components.device_links.models import Backend as BackendId
 from custom_components.device_links.models import Emitter, Feature, ZigbeeFingerprint
+from custom_components.device_links.profile_db import ZigbeeProfileEntry, load_profiles
 from tests.factories import (
     AUX_IEEE,
     COORDINATOR_IEEE,
@@ -460,3 +463,127 @@ def _emitter(ieee: str, emitter_id: str) -> Emitter:
     """Return one derived emitter of a captured device by id."""
     emitters = zp.derive_emitters(zigbee_device(ieee))
     return next(emitter for emitter in emitters if emitter.emitter_id == emitter_id)
+
+
+# --------------------------------------------------------------------------------------
+# Curated entries over the derivation
+# --------------------------------------------------------------------------------------
+
+
+def _entry(*emitters: dict[str, Any], **overrides: Any) -> ZigbeeProfileEntry:
+    """Build one curated Zigbee entry through the real loader, not by hand.
+
+    Through `load_profiles`, so a test cannot construct an entry the validator would have
+    refused and prove something about a shape that can never be loaded.
+    """
+    document = {
+        "devices": [
+            {
+                "backend": "zigbee2mqtt",
+                "model": "VZM31-SN",
+                "manufacturer": "Inovelli",
+                "fingerprints": [{"vendor": "Inovelli", "model": "VZM31-SN"}],
+                "emitters": list(emitters),
+                **overrides,
+            }
+        ]
+    }
+    return load_profiles({"t.json": json.dumps(document)}).zigbee_entries[0]
+
+
+PADDLE = {
+    "emitter_id": "paddle",
+    "label": "Paddle",
+    "kind": "paddle",
+    "endpoint": 2,
+    "actions": {"on_off": "genOnOff", "level_set": "genLevelCtrl", "level_hold": "genLevelCtrl"},
+}
+CONFIG_BUTTON = {
+    "emitter_id": "config_button",
+    "label": "Config button",
+    "kind": "config_button",
+    "endpoint": 3,
+    "actions": {"on_off": "genOnOff"},
+}
+
+
+def test_a_curated_entry_supplies_the_label_and_keeps_the_derived_id() -> None:
+    """Adding an entry for a model whose derivation was right must not rename its controls."""
+    controls = zp.resolve_controls(zigbee_device(AUX_IEEE), _entry(PADDLE))
+
+    assert [(c.emitter.emitter_id, c.emitter.label, c.endpoint) for c in controls] == [
+        ("ep2", "Paddle", 2)
+    ]
+    assert controls[0].emitter.grouping == zp.GROUPING_PROFILE_DB
+
+
+def test_a_curated_emitter_that_regroups_is_named_by_the_entry() -> None:
+    """Endpoint 2 drives both clusters, so an entry naming only one is a different control."""
+    on_off_only = {**PADDLE, "actions": {"on_off": "genOnOff"}}
+
+    [control] = zp.resolve_controls(zigbee_device(AUX_IEEE), _entry(on_off_only))
+
+    assert control.emitter.emitter_id == "paddle"
+    assert control.emitter.group_ids == ("genOnOff",)
+
+
+def test_an_emitter_naming_an_endpoint_this_device_does_not_have_is_dropped() -> None:
+    """Two VZM31-SN switches in the capture are on software 2.00 and have no endpoint 3.
+
+    Dropped one emitter at a time rather than setting the whole entry aside, because the
+    contradiction is a fact about that firmware and not a mistake in the entry: those two
+    devices still get a correct paddle.
+    """
+    warnings: list[str] = []
+
+    controls = zp.resolve_controls(
+        zigbee_device(OLD_FIRMWARE_IEEE), _entry(PADDLE, CONFIG_BUTTON), warnings=warnings
+    )
+
+    assert [control.endpoint for control in controls] == [2]
+    assert any("does not report" in warning for warning in warnings)
+
+
+def test_an_emitter_naming_a_cluster_the_endpoint_does_not_drive_is_dropped() -> None:
+    warnings: list[str] = []
+    wrong = {**PADDLE, "endpoint": 1, "actions": {"on_off": "genOnOff"}}
+
+    controls = zp.resolve_controls(zigbee_device(AUX_IEEE), _entry(wrong), warnings=warnings)
+
+    assert [control.emitter.emitter_id for control in controls] == ["ep2", "ep3"]
+    assert any("does not drive" in warning for warning in warnings)
+
+
+def test_an_emitter_claiming_a_feature_its_cluster_cannot_carry_is_dropped() -> None:
+    warnings: list[str] = []
+    wrong = {**PADDLE, "actions": {"scene": "genOnOff"}}
+
+    controls = zp.resolve_controls(zigbee_device(AUX_IEEE), _entry(wrong), warnings=warnings)
+
+    assert [control.emitter.emitter_id for control in controls] == ["ep2", "ep3"]
+    assert any("cannot carry it" in warning for warning in warnings)
+
+
+def test_an_entry_with_nothing_usable_left_falls_back_to_the_derivation() -> None:
+    """An entry that has said nothing about this device must not leave it with no controls."""
+    nonsense = {**PADDLE, "endpoint": 9}
+
+    controls = zp.resolve_controls(zigbee_device(AUX_IEEE), _entry(nonsense))
+
+    assert [control.emitter.emitter_id for control in controls] == ["ep2", "ep3"]
+    assert controls[0].emitter.grouping == zp.GROUPING_ENDPOINT
+
+
+def test_a_semantics_marker_is_carried_onto_the_emitter() -> None:
+    """The compiler refuses Off-all on an emitter marked unknown, whatever the protocol."""
+    marked = {**CONFIG_BUTTON, "semantics": "unknown"}
+
+    controls = zp.resolve_controls(zigbee_device(AUX_IEEE), _entry(PADDLE, marked))
+
+    assert controls[1].emitter.semantics == "unknown"
+
+
+def test_with_no_entry_the_derivation_stands() -> None:
+    assert zp.resolve_controls(zigbee_device(AUX_IEEE)) == zp.derive_controls(
+        zigbee_device(AUX_IEEE)
+    )

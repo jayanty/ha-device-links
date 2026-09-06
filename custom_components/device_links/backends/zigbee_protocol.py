@@ -43,6 +43,7 @@ from custom_components.device_links.models import (
     Feature,
     ZigbeeFingerprint,
 )
+from custom_components.device_links.profile_db import ZigbeeProfileEmitter, ZigbeeProfileEntry
 
 # Cluster names exactly as Zigbee2MQTT spells them in `clusters.input`, `clusters.output`
 # and on every binding. They are the Zigbee cluster names, not ours, and they are what
@@ -314,8 +315,22 @@ def receivable_features(device: Device) -> frozenset[Feature]:
     return frozenset(found)
 
 
-def derive_emitters(device: Device, *, warnings: list[str] | None = None) -> list[Emitter]:
-    """Return the controls this device offers, one emitter per endpoint that drives something.
+@dataclass(frozen=True, slots=True)
+class Control:
+    """One control of a device: the emitter the compiler sees, and where it drives from.
+
+    The endpoint is not on `Emitter`, because a Z-Wave control has no endpoint and the
+    compiler must not learn about one. It is carried here instead, because the adapter needs
+    it twice: to name the emitter an observed binding belongs to, and to check that a link's
+    source endpoint really drives the cluster it claims.
+    """
+
+    emitter: Emitter
+    endpoint: int
+
+
+def derive_controls(device: Device, *, warnings: list[str] | None = None) -> list[Control]:
+    """Return the controls this device offers, one per endpoint that drives something.
 
     One emitter per endpoint rather than per cluster, because an endpoint is the physical
     control: the Inovelli paddle is endpoint 2 and it drives `genOnOff` and `genLevelCtrl`
@@ -323,7 +338,7 @@ def derive_emitters(device: Device, *, warnings: list[str] | None = None) -> lis
     to `warnings`, so `genOta` and `greenPower` never reach a user as a control they could
     pick and then find does nothing.
     """
-    emitters: list[Emitter] = []
+    controls: list[Control] = []
     for endpoint in endpoint_ids(device):
         reported = device["endpoints"][str(endpoint)]
         actions = {
@@ -338,15 +353,104 @@ def derive_emitters(device: Device, *, warnings: list[str] | None = None) -> lis
                     "none of which Device Links can bind, so it is not offered as a control"
                 )
             continue
-        emitters.append(
-            _emitter(
-                emitter_id=f"ep{endpoint}",
-                label=reported.get("name") or f"Endpoint {endpoint}",
-                actions=actions,
-                grouping=GROUPING_ENDPOINT,
+        controls.append(
+            Control(
+                emitter=_emitter(
+                    emitter_id=f"ep{endpoint}",
+                    label=reported.get("name") or f"Endpoint {endpoint}",
+                    actions=actions,
+                    grouping=GROUPING_ENDPOINT,
+                ),
+                endpoint=endpoint,
             )
         )
-    return emitters
+    return controls
+
+
+def derive_emitters(device: Device, *, warnings: list[str] | None = None) -> list[Emitter]:
+    """Return just the emitters of `derive_controls`, for a caller with no endpoint to place."""
+    return [control.emitter for control in derive_controls(device, warnings=warnings)]
+
+
+def resolve_controls(
+    device: Device,
+    entry: ZigbeeProfileEntry | None = None,
+    *,
+    warnings: list[str] | None = None,
+) -> list[Control]:
+    """Return a device's controls, preferring a curated entry over the generic derivation.
+
+    A curated entry contributes the label, the kind of control it is, and any semantics
+    marker; it does not restate what the device already reports, because the device is the
+    better authority. An emitter that names an endpoint the device does not have, a cluster
+    that endpoint does not drive, or a feature that cluster cannot carry, is dropped with the
+    contradiction appended to `warnings`.
+
+    **Dropped one emitter at a time, which is where this differs from the Z-Wave path.**
+    There, an entry that contradicts the device is set aside whole, because its group numbers
+    are what reach the radio and an entry shown to be wrong about one of them has not earned
+    trust in the rest. Here the contradiction is nearly always a fact about the firmware
+    rather than a mistake in the entry: two of the nine VZM31-SN switches in the G1 capture
+    are on software 2.00 and report no endpoint 3 at all, while endpoint 2 is exactly as the
+    entry describes it. Setting the whole entry aside would cost those two devices a correct
+    paddle to punish the entry for describing a config button they do not have. If every
+    emitter is dropped, the entry has said nothing usable and the generic derivation stands.
+
+    A curated emitter covering exactly the endpoint and clusters a derived one covers is the
+    same control described twice, so it keeps the derived id: adding a curated entry for a
+    model whose derivation was already right must not rename controls out from under the
+    rules already written against them.
+    """
+    derived = derive_controls(device, warnings=warnings)
+    if entry is None:
+        return derived
+    derived_ids = {
+        (control.endpoint, frozenset(control.emitter.group_ids)): control.emitter.emitter_id
+        for control in derived
+    }
+    curated: list[Control] = []
+    for profile_emitter in entry.emitters:
+        conflicts = _emitter_conflicts(profile_emitter, device)
+        if conflicts:
+            if warnings is not None:
+                warnings.extend(conflicts)
+            continue
+        clusters = frozenset(profile_emitter.actions.values())
+        curated.append(
+            Control(
+                emitter=_emitter(
+                    emitter_id=derived_ids.get(
+                        (profile_emitter.endpoint, clusters), profile_emitter.emitter_id
+                    ),
+                    label=profile_emitter.label,
+                    actions=profile_emitter.actions,
+                    grouping=GROUPING_PROFILE_DB,
+                    semantics=profile_emitter.semantics,
+                ),
+                endpoint=profile_emitter.endpoint,
+            )
+        )
+    if not curated:
+        return derived
+    return sorted(curated, key=lambda control: control.endpoint)
+
+
+def _emitter_conflicts(profile_emitter: ZigbeeProfileEmitter, device: Device) -> list[str]:
+    """Return every way this curated emitter disagrees with what the device reports."""
+    conflicts: list[str] = []
+    endpoint = profile_emitter.endpoint
+    for feature, cluster in sorted(profile_emitter.actions.items()):
+        named = (
+            f"profile entry maps {profile_emitter.emitter_id}.{feature} to {cluster} "
+            f"on endpoint {endpoint}"
+        )
+        if endpoint_of(device, endpoint) is None:
+            conflicts.append(f"{named}, which this device does not report")
+        elif not emits(device, endpoint, cluster):
+            conflicts.append(f"{named}, which that endpoint does not drive")
+        elif feature not in features_of_cluster(cluster):
+            conflicts.append(f"{named}, which cannot carry it")
+    return conflicts
 
 
 def _emitter(

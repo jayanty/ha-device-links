@@ -300,6 +300,20 @@ class FakeBridge:
         """Return one group by name, or None when the bridge has no such group."""
         return self._group_named(friendly_name)
 
+    def add_binding(
+        self, friendly_name: str, endpoint: int, cluster: str, target: Mapping[str, Any]
+    ) -> None:
+        """Put a binding on a device without going through a request, and republish.
+
+        How a test sets up a starting state, as against exercising the request path. It
+        republishes, because a change the bridge did not announce is a change no subscriber
+        would ever see.
+        """
+        self.bindings_of(friendly_name, endpoint).append(
+            {"cluster": cluster, "target": dict(target)}
+        )
+        self._republish(zp.DEVICES_TOPIC)
+
     def rename(self, ieee_address: str, friendly_name: str) -> None:
         """Rename a device the way a user would, which is what E23 is about."""
         for device in self.devices:
