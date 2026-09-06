@@ -180,10 +180,18 @@ class ZigbeeBackend:
         # using a group somebody else made is said once and never about one of our own.
         self._created: set[str] = set()
 
-        # Whether a write of ours has happened that the bridge has not yet republished
-        # `bridge/devices` for. What a deep read waits on; see `async_observed`.
+        # Whoever is waiting for the retained device list to arrive, which is only ever
+        # `async_start`: it has to be the device list specifically, because a backend that
+        # came up on the strength of the group list would come up knowing no devices.
         self._awaiting_devices: list[asyncio.Future[None]] = []
-        self._devices_stale = False
+
+        # Whether a write of ours has happened that the bridge has not yet republished
+        # anything for. What a deep read waits on; see `async_observed`. **Either** retained
+        # topic answers it, because either can be what a write of ours changed: a bind
+        # republishes `bridge/devices` and a membership change republishes `bridge/groups`,
+        # and a managed group's membership is half of what an observed link is made of.
+        self._awaiting_state: list[asyncio.Future[None]] = []
+        self._state_stale = False
 
         # E26 wants a bridge going offline logged once rather than on every read.
         self._reported_offline = False
@@ -232,10 +240,11 @@ class ZigbeeBackend:
             if not pending.future.done():
                 pending.future.cancel()
         self._pending.clear()
-        for waiter in self._awaiting_devices:
-            if not waiter.done():
-                waiter.cancel()
-        self._awaiting_devices.clear()
+        for waiting in (self._awaiting_devices, self._awaiting_state):
+            for waiter in waiting:
+                if not waiter.done():
+                    waiter.cancel()
+            waiting.clear()
 
     # Messages in.
 
@@ -288,11 +297,7 @@ class ZigbeeBackend:
         self._state.coordinator_ieee = next(
             (ieee for ieee, device in devices.items() if zp.is_coordinator(device)), None
         )
-        self._devices_stale = False
-        for waiter in self._awaiting_devices:
-            if not waiter.done():
-                waiter.set_result(None)
-        self._awaiting_devices.clear()
+        self._state_arrived(self._awaiting_devices)
         for ieee in changed:
             self._notify(f"{BackendId.ZIGBEE2MQTT}:{ieee}")
 
@@ -305,6 +310,7 @@ class ZigbeeBackend:
         if not isinstance(parsed, list):
             return
         self._state.groups = _as_groups(parsed)
+        self._state_arrived([])
 
     def _on_state(self, parsed: object) -> None:
         """Follow the bridge up and down, saying so once each way (E26)."""
@@ -411,7 +417,7 @@ class ZigbeeBackend:
             if not self._state.online:
                 skipped = SKIPPED_BRIDGE_OFFLINE
             else:
-                verified = await self._await_devices()
+                verified = await self._await_state()
                 timed_out = not verified
                 device = self._device(handle)
         return ObservedDevice(
@@ -423,31 +429,48 @@ class ZigbeeBackend:
             deep_verify_skipped_reason=skipped,
         )
 
-    async def _await_devices(self) -> bool:
-        """Wait for the bridge to republish its devices, if it owes us one.
+    def _state_arrived(self, also: list[asyncio.Future[None]]) -> None:
+        """Note that the bridge has republished, and wake whatever was waiting for it."""
+        self._state_stale = False
+        for waiting in (self._awaiting_state, also):
+            for waiter in waiting:
+                if not waiter.done():
+                    waiter.set_result(None)
+            waiting.clear()
+
+    async def _await_state(self) -> bool:
+        """Wait for the bridge to republish, if it owes us a republish.
 
         Nothing to wait for when no write of ours is outstanding: the retained payload we
         hold is the bridge's current view, and waiting for a message that is not coming
         would spend the whole timeout to learn what is already known.
+
+        A wait that times out lowers the flag on its way out, which is the difference
+        between one slow read and every read afterwards being slow. What the flag means is
+        "we are still expecting a republish", and once we have stopped expecting it we are
+        not: the next read's claim is only ever that this is the bridge's current view, and
+        after giving up that is as true as it will get. Reporting the read that waited as
+        unconfirmed is the whole of what is owed to the user.
         """
-        if not self._devices_stale:
+        if not self._state_stale:
             return True
         waiter: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-        self._awaiting_devices.append(waiter)
+        self._awaiting_state.append(waiter)
         try:
             async with asyncio.timeout(self._refresh_timeout):
                 await waiter
         except TimeoutError:
             _LOGGER.debug(
-                "the bridge on %s did not republish its devices within %ss, so this read may "
-                "not yet show the last write",
+                "the bridge on %s did not republish within %ss, so this read may not yet "
+                "show the last write",
                 self._base,
                 self._refresh_timeout,
             )
+            self._state_stale = False
             return False
         finally:
-            if waiter in self._awaiting_devices:
-                self._awaiting_devices.remove(waiter)
+            if waiter in self._awaiting_state:
+                self._awaiting_state.remove(waiter)
         return True
 
     def _observed_links(self, handle: DeviceHandle, device: zp.Device) -> list[ObservedLink]:
@@ -785,7 +808,7 @@ class ZigbeeBackend:
         name = zp.managed_group_name(rule_id)
         if self._group_named(name) is None:
             return False
-        self._devices_stale = True
+        self._state_stale = True
         return await self._remove_group(name)
 
     def managed_group_rule_ids(self) -> frozenset[str]:
@@ -802,7 +825,7 @@ class ZigbeeBackend:
 
     async def _group_request(self, topic: str, payload: Mapping[str, object]) -> bool:
         """Send one group request and say whether the bridge carried it out."""
-        self._devices_stale = True
+        self._state_stale = True
         response = await self._request(topic, payload)
         if response is None or not response.succeeded:
             _LOGGER.debug("group request on %s was not carried out: %s", topic, response)
@@ -899,8 +922,8 @@ class ZigbeeBackend:
         topic = zp.BIND_REQUEST if adding else zp.UNBIND_REQUEST
         # Set before publishing rather than after, because the bridge republishes
         # `bridge/devices` before it answers: a flag raised afterwards would be raised
-        # after the message that clears it and would never come down.
-        self._devices_stale = True
+        # after the message that lowers it and would never come down.
+        self._state_stale = True
         response = await self._request(topic, payload)
         if response is None:
             return self._no_response(link)
@@ -981,10 +1004,10 @@ class ZigbeeBackend:
         A bridge that answered and wrote nothing has nothing to republish, so a later deep
         read must not spend its whole timeout waiting for a message that is not coming. A
         request that got no answer at all leaves the flag up, deliberately: that is the case
-        where the write may have landed and the read really should wait.
+        where the write may have landed and the read really should wait, once.
         """
         if not response.written:
-            self._devices_stale = False
+            self._state_stale = False
 
     async def _request(self, topic: str, payload: Mapping[str, object]) -> zp.BridgeResponse | None:
         """Publish one request and wait for the response carrying its transaction id.

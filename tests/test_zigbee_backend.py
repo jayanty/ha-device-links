@@ -13,6 +13,7 @@ import logging
 import pytest
 
 from custom_components.device_links.backends import zigbee_protocol as zp
+from custom_components.device_links.backends.base import Backend
 from custom_components.device_links.backends.zigbee2mqtt import (
     SKIPPED_BRIDGE_OFFLINE,
     ZigbeeBackend,
@@ -620,3 +621,72 @@ def _link(*, target_ieee: str, source_endpoint: int = 2) -> Link:
         emitter_group=zp.GEN_ON_OFF,
         rule_id=None,
     )
+
+
+async def test_the_backend_satisfies_the_backend_protocol(backend: ZigbeeBackend) -> None:
+    """The Phase 2A exit criterion, asked of the runtime-checkable protocol itself."""
+    assert isinstance(backend, Backend)
+
+
+async def test_a_read_after_a_wait_that_timed_out_is_not_slow_for_ever(
+    bridge: FakeBridge,
+) -> None:
+    """The flag means "we are still expecting a republish", and after giving up we are not.
+
+    Left up, one lost request would make every deep verify afterwards wait the whole
+    refresh timeout and report `unconfirmed`, for the life of the config entry, until some
+    unrelated change on the network happened to republish.
+    """
+    backend = await _lost(bridge)
+    await backend.async_add_link(_link(target_ieee=LIGHT_IEEE))
+    assert (await backend.async_observed(_handle(AUX_IEEE), deep=True)).deep_verify_timed_out
+
+    again = await backend.async_observed(_handle(AUX_IEEE), deep=True)
+
+    assert again.deep_verified is True
+    assert again.deep_verify_timed_out is False
+
+
+async def test_a_republished_group_list_answers_a_wait_as_well_as_a_device_list(
+    bridge: FakeBridge,
+) -> None:
+    """A membership change republishes `bridge/groups` and nothing else.
+
+    A managed group's membership is half of what an observed link is made of, so a deep
+    read owed a republish has to accept either topic. Waiting only for `bridge/devices`
+    would report every group-only write as unconfirmed.
+    """
+    backend = await _lost(bridge, refresh_timeout=30.0)
+    await backend.async_add_link(_link(target_ieee=LIGHT_IEEE))
+    waiting = asyncio.create_task(backend.async_observed(_handle(AUX_IEEE), deep=True))
+    await asyncio.sleep(0)
+
+    bridge.add_group("dl_x", 1)
+
+    assert (await waiting).deep_verified is True
+
+
+async def test_startup_still_waits_for_the_device_list_and_not_for_anything_else(
+    bridge: FakeBridge,
+) -> None:
+    """A backend that came up on the group list would come up knowing no devices."""
+    only_groups = _GroupsOnlyClient(bridge)
+    backend = ZigbeeBackend(client=only_groups, startup_timeout=0.05)
+
+    with pytest.raises(ZigbeeBackendError, match="did not arrive"):
+        await backend.async_start()
+
+
+class _GroupsOnlyClient:
+    """A broker that delivers the group list and never the device list."""
+
+    def __init__(self, bridge: FakeBridge) -> None:
+        self.bridge = bridge
+
+    async def async_publish(self, topic: str, payload: str) -> None:
+        return
+
+    async def async_subscribe(self, topic: str, callback: object) -> object:
+        if topic.endswith(zp.DEVICES_TOPIC):
+            return lambda: None
+        return await self.bridge.async_subscribe(topic, callback)  # type: ignore[arg-type]
