@@ -599,3 +599,25 @@ def _parts_event(node_id: int, endpoint: int, cluster: int, attribute: int) -> A
             self.attribute_id = attribute
 
     return _Attribute()
+
+
+async def test_two_subscribers_are_each_told_once(
+    backend: MatterBackend, fabric: FakeMatterClient
+) -> None:
+    """A shared listener list plus a client registration each is a doubled notification."""
+    first: list[str] = []
+    second: list[str] = []
+    remove = backend.subscribe(first.append)
+    backend.subscribe(second.append)
+
+    fabric.notify("attribute_updated", {"node_id": KITCHEN_ACCENT})
+
+    assert first == [f"matter:{KITCHEN_ACCENT}"]
+    assert second == [f"matter:{KITCHEN_ACCENT}"]
+
+    remove()
+    fabric.notify("attribute_updated", {"node_id": KITCHEN_ACCENT})
+
+    assert first == [f"matter:{KITCHEN_ACCENT}"]
+    assert second == [f"matter:{KITCHEN_ACCENT}"] * 2
+    assert fabric.subscription_count == 1

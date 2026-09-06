@@ -696,17 +696,39 @@ async def test_a_removal_leaves_a_binding_somebody_else_wrote_alone(
     assert fabric.bindings_of(KITCHEN_ACCENT, 2) == [theirs]
 
 
-async def test_a_removal_from_a_node_that_is_asleep_is_pending(
+async def test_a_removal_from_a_source_that_is_asleep_is_pending(
     backend: MatterBackend, fabric: FakeMatterClient
 ) -> None:
+    """The binding is on the source, so a source that is not answering stops everything."""
     await backend.async_add_link(link())
-    fabric.go_offline(SPARE_EVE)
+    fabric.go_offline(KITCHEN_ACCENT)
     fabric.writes.clear()
 
     result = await backend.async_remove_link(link())
 
     assert result.status is LinkResultStatus.PENDING_WAKEUP
     assert fabric.write_count == 0
+
+
+async def test_a_removal_whose_target_will_not_answer_still_takes_the_binding_off(
+    backend: MatterBackend, fabric: FakeMatterClient
+) -> None:
+    """The target is only needed to narrow the grant, and that never fails a removal.
+
+    What is left behind is a permission that permits nothing, and the next removal of the
+    same link tries to narrow it again.
+    """
+    await backend.async_add_link(link())
+    fabric.unresponsive.add(SPARE_EVE)
+    fabric.writes.clear()
+
+    result = await backend.async_remove_link(link())
+
+    assert result.status is LinkResultStatus.APPLIED
+    assert fabric.bindings_of(KITCHEN_ACCENT, 2) == []
+    assert any(entry.subjects == (KITCHEN_ACCENT,) for entry in fabric.acl_of(SPARE_EVE)), (
+        "the grant is left behind, because the device it is on is not answering"
+    )
 
 
 async def test_the_controllers_own_subject_is_never_what_a_grant_names(
@@ -793,3 +815,36 @@ async def test_a_check_of_a_control_with_nowhere_to_keep_a_link_says_that(
     assert not check.ok
     assert check.reason is not None
     assert check.reason.translation_key == "matter_no_binding_cluster"
+
+
+async def test_a_binding_to_a_node_that_has_left_the_fabric_can_still_be_removed(
+    backend: MatterBackend, fabric: FakeMatterClient
+) -> None:
+    """The leftover somebody most wants gone, and it lives entirely on the source.
+
+    A removal that insisted on reading the departed device would leave the entry on the
+    switch with nothing in the product able to take it off.
+    """
+    built = link()
+    await backend.async_add_link(built)
+    fabric.remove_node(SPARE_EVE)
+    fabric.writes.clear()
+
+    result = await backend.async_remove_link(built)
+
+    assert result.status is LinkResultStatus.APPLIED
+    assert fabric.bindings_of(KITCHEN_ACCENT, 2) == []
+
+
+async def test_adding_a_link_to_a_node_that_has_left_the_fabric_is_still_refused(
+    backend: MatterBackend, fabric: FakeMatterClient
+) -> None:
+    """The other half of the asymmetry: an add has to reach the target to grant access."""
+    built = link()
+    fabric.remove_node(SPARE_EVE)
+
+    result = await backend.async_add_link(built)
+
+    assert result.status is LinkResultStatus.BLOCKED
+    assert result.reason is not None
+    assert result.reason.translation_key == "matter_unknown_device"

@@ -147,7 +147,6 @@ class MatterBackend:
         # What has been read off each node, by node id. Kept because a Matter attribute read
         # goes to the device: see the module docstring.
         self._views: dict[int, mp.Node] = {}
-        self._listeners: list[Callable[[str], None]] = []
 
     # Reading.
 
@@ -448,7 +447,7 @@ class MatterBackend:
         refusal = self._absolute_refusal(link)
         if refusal is not None:
             return LinkResult(status=LinkResultStatus.BLOCKED, reason=refusal)
-        source = await self._readable(link)
+        source = await self._readable(link, adding=adding)
         if isinstance(source, LinkResult):
             return source
         present = self._is_present(link, source)
@@ -461,18 +460,24 @@ class MatterBackend:
             return LinkResult(status=LinkResultStatus.BLOCKED, reason=refusal)
         return await self._bind(link, source)
 
-    async def _readable(self, link: Link) -> mp.Node | LinkResult:
+    async def _readable(self, link: Link, *, adding: bool) -> mp.Node | LinkResult:
         """Return the source node as it reads now, or the result of not being able to.
 
-        Both nodes are read, because a binding needs the source to write to and the target to
-        check against, and a link naming a node that has left the fabric must be refused
-        rather than attempted. The source is re-read rather than taken from the cache: this
-        is the moment its Binding list decides something, and another controller may have
-        changed it since.
+        The source is re-read rather than taken from the cache: this is the moment its
+        Binding list decides something, and another controller may have changed it since.
+
+        **The target is required to answer only for an add**, and that asymmetry is the
+        point. A binding whose target has been decommissioned is exactly the leftover
+        somebody wants to take off their switch, and it lives entirely on the source: a
+        removal that insisted on reading the departed device would leave the entry on the
+        switch with nothing in the product able to remove it. The access grant on that
+        target goes with the device, and `_revoke` fails to read it and says so in the log
+        rather than in the result.
         """
         try:
             source = await self._view(self._node_id(link.source), refresh=True)
-            await self._view(self._node_id(link.target.handle))
+            if adding:
+                await self._view(self._node_id(link.target.handle))
         except MatterNodeUnavailableError:
             return self._pending(link)
         except MatterBackendError:
@@ -843,11 +848,15 @@ class MatterBackend:
 
         There is no debounce, unlike the Z-Wave adapter, because there is nothing expensive
         behind the callback to protect: the coordinator has its own.
+
+        Each subscription owns its callback and its client registration, rather than sharing
+        a list of listeners: a second subscriber would otherwise be told about every event
+        twice, once through each registration.
         """
-        self._listeners.append(callback)
         subscription = _Subscription()
 
         def _on_event(event: object, data: object) -> None:
+            del event
             if not subscription.live:
                 return
             node_id = _node_id_of_event(data)
@@ -856,15 +865,12 @@ class MatterBackend:
             path = _path_of_event(data)
             if path is not None and _is_ours(path):
                 self._views.pop(node_id, None)
-            for listener in list(self._listeners):
-                listener(f"{BackendId.MATTER}:{node_id}")
+            callback(f"{BackendId.MATTER}:{node_id}")
 
         remove = self._client.subscribe_events(callback=_on_event)
 
         def _unsubscribe() -> None:
             subscription.live = False
-            if callback in self._listeners:
-                self._listeners.remove(callback)
             remove()
 
         return _unsubscribe
