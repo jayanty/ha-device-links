@@ -61,6 +61,7 @@ from .executor import JobRunner
 from .models import Backend as BackendId
 from .models import Plan
 from .profile_db import ProfileDatabase, load_profiles
+from .repairs import async_clear_issues, async_raise_storage_issue, async_setup_repairs
 from .rule_toggle import RuleToggleLimiter
 from .services import (
     async_setup_raw_services,
@@ -178,10 +179,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry) 
         await coordinator.async_setup()
     except StorageSchemaError as error:
         # E18 wants the integration up and read-only with a Repairs issue rather than
-        # silently empty. Read-only mode and that issue are Task 6's; what must not happen
-        # meanwhile is coming up with an empty profile list, because the next save would
-        # write it over the file that could not be read. Failing with a translated reason
-        # leaves the file untouched, which is the half of E18 that cannot be added later.
+        # silently empty. The Repairs half is here; read-only mode is open item T23. What
+        # must not happen meanwhile is coming up with an empty profile list, because the
+        # next save would write it over the file that could not be read. Failing with a
+        # translated reason leaves the file untouched, which is the half of E18 that
+        # cannot be added later.
+        async_raise_storage_issue(hass, error)
         raise ConfigEntryError(
             str(error),
             translation_domain=DOMAIN,
@@ -220,6 +223,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry) 
     # one this listens for decides whether services that write to a group directly exist
     # at all (Decision D14).
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
+    # Raises what should be raised and, just as importantly, withdraws what should not be:
+    # the storage issue a previous failed setup left behind is gone by the end of this.
+    async_setup_repairs(hass, entry)
     _LOGGER.info(
         "Device Links is set up with the %s backend(s)",
         ", ".join(sorted(str(backend_id) for backend_id in backends)),
@@ -242,6 +248,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry)
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
     runtime = entry.runtime_data
+    async_clear_issues(hass)
     async_unload_raw_services(hass)
     runtime.toggles.async_shutdown()
     await runtime.runner.async_shutdown()

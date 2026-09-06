@@ -197,6 +197,11 @@ async def test_nothing_is_torn_down_when_a_platform_refuses_to_unload(
     assert await async_unload_entry(hass, device_links_entry) is False
     assert runtime.coordinator.listener_count > 0, "the coordinator was torn down anyway"
 
+    # Put the platform back before the fixture unloads for real. An entry that cannot
+    # unload keeps everything it registered, timers included, which is the point of the
+    # assertion above and would otherwise leave one behind for the next test to trip on.
+    monkeypatch.undo()
+
 
 async def test_a_platform_that_fails_to_set_up_leaves_nothing_subscribed(
     hass: HomeAssistant,
