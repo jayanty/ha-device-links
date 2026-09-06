@@ -917,3 +917,130 @@ def test_a_binding_payload_is_keyed_by_tlv_tag() -> None:
     payload = mp.binding_payload((WANTED, mp.BindingEntry(group=4)))
 
     assert payload == [{"1": 8, "3": 1, "4": 6}, {"2": 4}]
+
+
+# --------------------------------------------------------------------------------------
+# The properties that matter more than any single case
+# --------------------------------------------------------------------------------------
+
+# Every shape of Access Control list this integration can meet, small enough to enumerate
+# exhaustively: another fabric's redacted entry and the controller's own Administer entry are
+# always there, and the sixth is what somebody else may have left behind.
+_STARTS = (
+    (),
+    (mp.grant_entry(31, LIGHT, 2),),
+    (mp.grant_entry(31, mp.AclTarget(cluster=8, endpoint=1), 2),),
+    (mp.AclEntry(mp.PRIVILEGE_OPERATE, mp.AUTH_MODE_CASE, (31, 32), (LIGHT,), 2),),
+    (mp.AclEntry(mp.PRIVILEGE_OPERATE, mp.AUTH_MODE_CASE, (31,), (), 2),),
+    (mp.AclEntry(mp.PRIVILEGE_MANAGE, mp.AUTH_MODE_CASE, (31,), (LIGHT,), 2),),
+)
+_FOREIGN = mp.AclEntry(None, None, (), (), 1)
+_ADMIN = mp.AclEntry(mp.PRIVILEGE_ADMINISTER, mp.AUTH_MODE_CASE, (CONTROLLER,), (), 2)
+_SUBJECTS = (31, 32, 99, CONTROLLER)
+_TARGETS = (
+    LIGHT,
+    mp.AclTarget(cluster=8, endpoint=1),
+    mp.AclTarget(cluster=6, endpoint=2),
+)
+_CAPACITIES = tuple(
+    mp.AclCapacity(
+        entries_per_fabric=entries, subjects_per_entry=subjects, targets_per_entry=targets
+    )
+    for entries in (1, 2, 4, 6)
+    for subjects in (1, 2, 4)
+    for targets in (0, 1, 3)
+)
+
+
+def _what_is_granted(entries: tuple[mp.AclEntry, ...]) -> set[tuple[int, mp.AclTarget]]:
+    """Return every (subject, target) pair this list lets through, of the ones we ask about."""
+    return {
+        (subject, target)
+        for subject in _SUBJECTS
+        for target in _TARGETS
+        if any(entry.grants(subject, target) for entry in entries)
+    }
+
+
+def _every_case() -> list[tuple[tuple[mp.AclEntry, ...], int, mp.AclTarget, mp.AclCapacity]]:
+    """Return every combination of list, subject, target and capacity worth trying."""
+    return [
+        ((_FOREIGN, _ADMIN, *start), subject, target, capacity)
+        for start in _STARTS
+        for subject in _SUBJECTS
+        for target in _TARGETS
+        for capacity in _CAPACITIES
+    ]
+
+
+def test_a_grant_never_widens_access_beyond_the_one_thing_it_was_asked_for() -> None:
+    """The property the whole merge design rests on, over every case it can meet.
+
+    Merging a subject into an entry somebody else may have written is only safe because the
+    entry grants exactly the target being asked for, so the result can never let anything
+    through that a separate entry of ours would not have. That is an argument, and this is
+    the check: across 2592 combinations of starting list, subject, target and reported
+    capacity, the only pair any outcome adds is the pair that was asked for.
+    """
+    for existing, subject, target, capacity in _every_case():
+        outcome = mp.grant_for(existing, subject=subject, target=target, capacity=capacity)
+        if outcome.entries is None:
+            continue
+        widened = _what_is_granted(outcome.entries) - _what_is_granted(existing)
+        assert widened <= {(subject, target)}, (
+            f"granting {subject} on {target} to {existing} also let through {widened}"
+        )
+
+
+def test_no_outcome_ever_loses_the_controllers_own_entry() -> None:
+    """CLAUDE.md Section 3 rule 4, over the same space. A grant and a revocation both."""
+    for existing, subject, target, capacity in _every_case():
+        for outcome in (
+            mp.grant_for(existing, subject=subject, target=target, capacity=capacity),
+            mp.revoke_for(existing, subject=subject, target=target),
+        ):
+            if outcome.entries is None:
+                continue
+            assert any(entry.is_administer for entry in outcome.entries), (
+                f"{subject} on {target} against {existing} lost the Administer entry"
+            )
+
+
+def test_no_outcome_ever_leaves_an_entry_with_no_subjects() -> None:
+    """An Access Control entry with an empty subject list grants every node on the fabric.
+
+    So the dangerous direction of a revocation is not failing to remove a subject: it is
+    removing the last one and leaving the entry behind, which turns taking access away into
+    the widest grant on the device.
+    """
+    for existing, subject, target, capacity in _every_case():
+        for outcome in (
+            mp.grant_for(existing, subject=subject, target=target, capacity=capacity),
+            mp.revoke_for(existing, subject=subject, target=target),
+        ):
+            if outcome.entries is None:
+                continue
+            assert not [
+                entry for entry in outcome.entries if not entry.subjects and not entry.is_redacted
+            ], f"{subject} on {target} against {existing} left an entry granting everybody"
+
+
+def test_a_revocation_never_widens_access_at_all() -> None:
+    """Taking a link away has no pair it is allowed to add, unlike a grant."""
+    for existing, subject, target, _capacity in _every_case():
+        outcome = mp.revoke_for(existing, subject=subject, target=target)
+        if outcome.entries is None:
+            continue
+        assert not _what_is_granted(outcome.entries) - _what_is_granted(existing)
+
+
+def test_a_written_list_never_carries_another_fabrics_entry() -> None:
+    """Every outcome has to be writable, and a redacted entry cannot be written back."""
+    for existing, subject, target, capacity in _every_case():
+        for outcome in (
+            mp.grant_for(existing, subject=subject, target=target, capacity=capacity),
+            mp.revoke_for(existing, subject=subject, target=target),
+        ):
+            if outcome.entries is None:
+                continue
+            mp.acl_payload(outcome.entries)
