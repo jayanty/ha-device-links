@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import replace
+from typing import Any
 
 from homeassistant.core import HomeAssistant
 import pytest
@@ -130,6 +131,12 @@ class ControlledBackend:
 
     def wake_instructions(self, handle: DeviceHandle) -> str | None:
         return self.inner.wake_instructions(handle)
+
+
+@pytest.fixture(autouse=True)
+def _use_storage(hass_storage: dict[str, Any]) -> dict[str, Any]:
+    """Keep every store in these tests in memory, so no test ever writes a real file."""
+    return hass_storage
 
 
 @pytest.fixture

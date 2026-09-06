@@ -145,7 +145,12 @@ class DeviceLinksCoordinator:
     # Lifecycle.
 
     async def async_setup(self) -> None:
-        """Load what was stored, read every device, and start following changes."""
+        """Load what was stored, read every device, and start following changes.
+
+        A `StorageSchemaError` from the load is deliberately not caught here: E18 wants the
+        integration up and read-only with a Repairs issue rather than silently empty, and
+        which of those it is is a decision for the layer that owns the config entry.
+        """
         self._state = await self._store.async_load()
         await self.async_refresh()
         for backend in self._backends.values():
