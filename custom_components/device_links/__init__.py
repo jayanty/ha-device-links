@@ -48,6 +48,12 @@ from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
 from .backends.base import Backend
+from .backends.matter import MatterBackend
+from .backends.matter_client import (
+    MatterAccessorError,
+    async_get_client,
+    async_matter_is_available,
+)
 from .backends.mqtt_client import HomeAssistantMqttClient, async_mqtt_is_available
 from .backends.zigbee2mqtt import ZigbeeBackend
 from .backends.zwave import ZWaveBackend
@@ -60,6 +66,7 @@ from .const import (
     DEFAULT_ZIGBEE_BASE_TOPIC,
     DOMAIN,
     OPTION_HYBRID_LEGS,
+    OPTION_MATTER_WRITES,
     OPTION_ZIGBEE_BASE_TOPIC,
 )
 from .coordinator import DeviceLinksCoordinator
@@ -83,6 +90,7 @@ from .websocket import async_register_commands
 from .yaml_mirror import MirrorSettings, YamlMirror
 
 if TYPE_CHECKING:
+    from homeassistant.components.matter.helpers import MatterConfigEntry
     from homeassistant.components.zwave_js.models import ZwaveJSConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
@@ -344,18 +352,29 @@ async def _async_build_backends(
     """Build an adapter for every upstream integration that is loaded and answering.
 
     One protocol per section, each of which adds nothing when its upstream integration is
-    absent, and none of which is an error: a Z-Wave-only house and a Zigbee-only house are
-    both ordinary, and Device Links adapts what is there. Matter arrives in Phase 3.
+    absent, and none of which is an error: a Z-Wave-only house, a Zigbee-only house and a
+    Matter-only house are all ordinary, and Device Links adapts what is there.
+
+    **The Matter backend is built whatever the Matter writes option says.** The option is
+    about writing (FR-B7, Decision D11), and reading is proven: leaving the backend out when
+    it is off would hide every Matter device from the panel rather than protect anything, and
+    would mean that turning the option on changed what a user could see as well as what they
+    could do. What the option reaches is the adapter's own refusal, which answers every write
+    with a translated reason naming the option.
 
     The third return value is what has to be taken down again. The Z-Wave adapter borrows a
-    driver somebody else owns and has nothing to release; the Zigbee one holds four MQTT
-    subscriptions of its own, and a subscription that outlives a config entry unload fires
-    against a dead entry and survives a reload.
+    driver somebody else owns and has nothing to release, and so does the Matter one; the
+    Zigbee one holds four MQTT subscriptions of its own, and a subscription that outlives a
+    config entry unload fires against a dead entry and survives a reload.
     """
     backends: dict[BackendId, Backend] = {}
     info: list[BackendInfo] = []
     teardown: list[Callable[[], None]] = []
-    for built in (_build_zwave(hass, profiles), await _async_build_zigbee(hass, entry, profiles)):
+    for built in (
+        _build_zwave(hass, profiles),
+        await _async_build_zigbee(hass, entry, profiles),
+        _build_matter(hass, entry, profiles),
+    ):
         if built is None:
             continue
         backends[built.info.backend_id] = built.backend
@@ -458,6 +477,57 @@ async def _async_build_zigbee(
         ),
         stop=backend.async_stop,
     )
+
+
+def _build_matter(
+    hass: HomeAssistant, entry: DeviceLinksConfigEntry, profiles: ProfileDatabase | None
+) -> _BuiltBackend | None:
+    """Adapt the first loaded `matter` entry whose client is connected.
+
+    The first and only the first, for the reason `_build_zwave` gives: `BackendId` is one key
+    per protocol. The `matter` integration itself assumes one fabric (its own `get_matter`
+    helper takes the first loaded entry and says so), so this is not a limitation of ours.
+
+    Nothing to stop: the client belongs to `matter`, and the only subscription the adapter
+    takes is the one the coordinator takes and drops.
+
+    Absence is silent and a client that is not connected yet is a debug line, neither of them
+    an error: a house with no Matter fabric is an ordinary house, and this integration
+    explicitly supports Z-Wave-only and Zigbee-only installs.
+    """
+    if not async_matter_is_available(hass):
+        _LOGGER.debug("the matter integration is not loaded, so no Matter fabric is adapted")
+        return None
+    for matter_entry in hass.config_entries.async_entries("matter"):
+        if matter_entry.state is not ConfigEntryState.LOADED:
+            continue
+        typed = cast("MatterConfigEntry", matter_entry)
+        try:
+            client = async_get_client(typed)
+        except MatterAccessorError:
+            _LOGGER.debug(
+                "the matter entry %s is loaded but its client is not connected yet",
+                matter_entry.entry_id,
+            )
+            continue
+        backend = MatterBackend(
+            client=client,
+            profiles=profiles,
+            # FR-B7 and Decision D11. Read either way, write only when somebody has said so.
+            writes_enabled=bool(entry.options.get(OPTION_MATTER_WRITES, False)),
+        )
+        return _BuiltBackend(
+            backend=backend,
+            info=BackendInfo(
+                backend_id=BackendId.MATTER,
+                upstream_domain="matter",
+                # Read live rather than snapshotted, for the reason the Zigbee bridge version
+                # is: the Matter server is an add-on, so upgrading it reconnects the client
+                # and reloads nothing of ours.
+                read_version=backend.server_version,
+            ),
+        )
+    return None
 
 
 def _fixed(version: str | None) -> Callable[[], str | None]:

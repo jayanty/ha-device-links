@@ -27,6 +27,8 @@ jobs:
   upstream:
     name: Suite against Home Assistant ${{ matrix.channel }}
     runs-on: ubuntu-latest
+    env:
+      DEVICE_LINKS_SLOW_EXECUTOR: '1'
     strategy:
       fail-fast: false
       matrix:

@@ -16,6 +16,7 @@ from custom_components.device_links.const import (
     OPTION_AUTO_APPLY_ON_PROFILE_SWITCH,
     OPTION_ENABLE_RAW_SERVICES,
     OPTION_HYBRID_LEGS,
+    OPTION_MATTER_WRITES,
     OPTION_YAML_MIRROR,
     OPTION_YAML_MIRROR_PATH,
     OPTION_ZIGBEE_BASE_TOPIC,
@@ -62,8 +63,9 @@ async def test_the_options_flow_shows_every_switch_off(
     """Every switch is off unless somebody asks, and each is off for its own reason.
 
     Auto-apply writes to a house, the raw services arm expert tools, the mirror writes
-    files into a configuration directory, and hybrid legs are the one part of this
-    integration that stops working when Home Assistant does (FR-H1).
+    files into a configuration directory, hybrid legs are the one part of this integration
+    that stops working when Home Assistant does (FR-H1), and Matter writes are the one
+    switch that is off because the code behind it has never met hardware (FR-B7, D11).
     """
     result = await hass.config_entries.options.async_init(device_links_entry.entry_id)
 
@@ -75,6 +77,7 @@ async def test_the_options_flow_shows_every_switch_off(
         OPTION_ENABLE_RAW_SERVICES: False,
         OPTION_ZIGBEE_BASE_TOPIC: DEFAULT_ZIGBEE_BASE_TOPIC,
         OPTION_HYBRID_LEGS: False,
+        OPTION_MATTER_WRITES: False,
         OPTION_YAML_MIRROR: False,
         OPTION_YAML_MIRROR_PATH: DEFAULT_YAML_MIRROR_PATH,
     }
@@ -102,6 +105,7 @@ async def test_the_options_flow_saves_what_was_chosen(
         OPTION_ENABLE_RAW_SERVICES: True,
         OPTION_ZIGBEE_BASE_TOPIC: "zigbee2mqtt",
         OPTION_HYBRID_LEGS: False,
+        OPTION_MATTER_WRITES: False,
         OPTION_YAML_MIRROR: False,
         OPTION_YAML_MIRROR_PATH: DEFAULT_YAML_MIRROR_PATH,
     }
@@ -152,6 +156,7 @@ async def test_the_options_flow_keeps_what_was_already_chosen(
         OPTION_ENABLE_RAW_SERVICES: True,
         OPTION_ZIGBEE_BASE_TOPIC: DEFAULT_ZIGBEE_BASE_TOPIC,
         OPTION_HYBRID_LEGS: False,
+        OPTION_MATTER_WRITES: False,
         OPTION_YAML_MIRROR: False,
         OPTION_YAML_MIRROR_PATH: DEFAULT_YAML_MIRROR_PATH,
     }

@@ -1,0 +1,26 @@
+{
+  "$schema": "./schema.json",
+  "notes": "Inovelli White series, Matter. Every endpoint and every cluster id named here comes from tests/fixtures/m1_matter.json, the Stage 0 M1 capture of Jayant's live fabric on matter-server 1.4.0, and the test suite cross-checks each one against that capture node by node. One model, because one model is all the capture supports: the VTM31-SN is the only Matter device on this fabric that exposes a control client cluster and a Binding cluster, so it is the only one where a curated entry could be checked against hardware. PRD Section 3.1 also lists the Aqara Light Switch H2 and the IKEA BILRESA dual button as realistic binding sources; neither exposes anything but the OTA Software Update Provider as a client, and neither has a Binding cluster on any endpoint, so neither gets an entry. There are no settings adapters in this file and there is no Matter shape for one: a Matter device is configured through the attributes of its own clusters rather than through a numbered parameter list, and Device Links writes none of them.",
+  "devices": [
+    {
+      "backend": "matter",
+      "model": "VTM31-SN",
+      "manufacturer": "Inovelli",
+      "notes": "Two of these are on the fabric, nodes 31 and 32, and they are the only Matter binding sources on it. Endpoint 1 is the load and is what a rule targets: it serves OnOff (6) and LevelControl (8), which is what makes it receivable, and nothing about that needs curating. Endpoint 2 is the paddle: it drives Identify (3), OnOff (6) and LevelControl (8) as a client and serves the Binding cluster (30), which is what makes it a source at all. This entry exists for the label rather than for the endpoint, exactly as the Blue series entry does: the generic derivation already gets endpoint 2 right, so the control keeps its derived id and takes its wording from here. Identify is deliberately not in the actions: it is a client cluster and it is not a control, so binding it would give a user nothing they asked for. The paddle carries no semantics marker, because nothing here needs one: what is unknown about an Inovelli config button press (assumption A7) is a question about a control this model does not expose over Matter, and endpoints 20 to 31 are the switch's own scene and multi-tap reporting, which serve nothing bindable and drive nothing at all.",
+      "fingerprints": [{ "vendor": "Inovelli", "product": "VTM31-SN" }],
+      "emitters": [
+        {
+          "emitter_id": "paddle",
+          "label": "Paddle",
+          "kind": "paddle",
+          "endpoint": 2,
+          "actions": {
+            "on_off": 6,
+            "level_set": 8,
+            "level_hold": 8
+          }
+        }
+      ]
+    }
+  ]
+}

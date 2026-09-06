@@ -4,7 +4,7 @@ Single instance, no user input beyond confirmation. Setup is refused when none o
 upstream protocol integrations is loaded, so the user gets a translated reason instead of
 an integration that silently does nothing (quality-scale rule test-before-configure).
 
-Four options are off by default, for three reasons. Two of them turn a deliberate act into
+Five options are off by default, for four reasons. Two of them turn a deliberate act into
 an automatic one: auto-apply makes a select box rewrite associations across a house
 (FR-E1), and the raw services write to an association group with no rule and no plan behind
 them (Decision D14). The third, the YAML mirror, writes files into somebody's configuration
@@ -12,6 +12,11 @@ directory (Decision D8), and a feature that does that unasked is one that surpri
 The fourth, hybrid legs, is the only part of this integration that stops working when Home
 Assistant does (PRD Section 6.7): it is Home Assistant standing in for a wire the radio
 cannot carry, and per-rule opt-in sits on top of this switch rather than instead of it.
+The fifth, Matter writes, is the only per-backend switch here and is the one option that is
+off because the code behind it is unproven rather than because the behaviour is surprising
+(FR-B7, Decision D11): no Matter binding and no Matter access grant has ever been written
+against hardware, and an access grant is a security boundary. Matter devices are read and
+shown whatever it is set to.
 An option that exists only in code is one nobody can turn on, which is why this flow exists
 at all; saving reloads the entry, which is what makes each of them take effect without a
 restart.
@@ -45,6 +50,7 @@ from .const import (
     OPTION_AUTO_APPLY_ON_PROFILE_SWITCH,
     OPTION_ENABLE_RAW_SERVICES,
     OPTION_HYBRID_LEGS,
+    OPTION_MATTER_WRITES,
     OPTION_YAML_MIRROR,
     OPTION_YAML_MIRROR_PATH,
     OPTION_ZIGBEE_BASE_TOPIC,
@@ -113,6 +119,10 @@ class DeviceLinksOptionsFlow(OptionsFlow):
                     vol.Optional(
                         OPTION_HYBRID_LEGS,
                         default=options.get(OPTION_HYBRID_LEGS, False),
+                    ): cv.boolean,
+                    vol.Optional(
+                        OPTION_MATTER_WRITES,
+                        default=options.get(OPTION_MATTER_WRITES, False),
                     ): cv.boolean,
                     vol.Optional(
                         OPTION_YAML_MIRROR,

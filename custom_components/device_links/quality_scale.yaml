@@ -1,0 +1,394 @@
+# Home Assistant Integration Quality Scale, as it stands for Device Links.
+#
+# The scale applies formally only to core integrations; a custom integration is shown as
+# "Custom" and is not scored. This project implements every rule anyway and treats the list
+# as its engineering checklist, so that it would be eligible for a core submission without a
+# redesign (PRD Section 11). `manifest.json` deliberately omits the `quality_scale` key,
+# because claiming a tier there would be claiming something the scale does not award to a
+# custom integration.
+#
+# Three statuses, and they mean what they say:
+#
+#   done    the rule is satisfied now, and something in the test suite says so.
+#   exempt  the rule cannot apply to this integration, with the reason spelled out.
+#   todo    the rule is not satisfied yet. Every one of these names what is missing.
+#
+# There are more `todo`s here than a finished integration should have, and they are almost
+# all documentation. That is the honest state: Phase 3 is the last code phase and the README
+# has not caught up with what the product does. Writing `done` beside a README section that
+# does not exist would make this file worse than useless, because the next person would trust
+# it. `tests/test_quality_scale.py` checks that this file accounts for exactly the rules PRD
+# Section 11 lists, so a rule cannot be quietly dropped from the checklist either.
+
+rules:
+  # --- Bronze ---------------------------------------------------------------------------
+
+  action-setup:
+    status: done
+    comment: >-
+      Services are registered in `async_setup`, entry or no entry, and every one of them
+      validates that a config entry is loaded and raises a translated
+      `ServiceValidationError` otherwise. An automation calling `device_links.apply` while
+      the integration is still retrying its setup gets a reason rather than "service not
+      found". `tests/test_services.py` covers it.
+
+  appropriate-polling:
+    status: done
+    comment: >-
+      Nothing polls. Observed state follows backend events: Z-Wave value-updated events for
+      the Association and Multi Channel Association command classes, Zigbee2MQTT's retained
+      `bridge/devices`, and Matter attribute subscriptions, all debounced by the
+      coordinator. The optional periodic verify FR-B3 offers as a fallback for a network
+      that emits no events is not built yet; nothing polls in its absence, so this rule is
+      satisfied and open item J4 is what would make that option worth adding.
+
+  brands:
+    status: todo
+    comment: >-
+      `brand/icon.png` and `brand/logo.png` are in the repository. The pull request to
+      `home-assistant/brands` adding `custom_integrations/device_links` has not been opened:
+      it is release prerequisite P1 in `docs/open-items.md` and is deliberately held until
+      the first tagged release.
+
+  common-modules:
+    status: done
+    comment: >-
+      `coordinator.py`, `entity.py`, `models.py` and `backends/base.py` are where the shared
+      shapes live, and core code depends on `backends/base.Backend` rather than on any
+      protocol. `tests/test_backend_base.py` fails if anything Z-Wave, Zigbee, Matter or
+      MQTT is imported into that seam.
+
+  config-flow:
+    status: done
+    comment: >-
+      UI-only setup with `strings.json` and `translations/en.json` behind every field, an
+      options flow for the five things that are off until somebody asks, and an abort with a
+      translated reason when no protocol integration is loaded.
+
+  config-flow-test-coverage:
+    status: done
+    comment: >-
+      `tests/test_config_flow.py` covers the flow, the abort, the single-instance guard and
+      every option including the ones that are tidied on save.
+
+  dependency-transparency:
+    status: done
+    comment: >-
+      `manifest.json` ships an empty `requirements` list and `tests/test_manifest.py` fails
+      if that changes. The integration borrows the `zwave_js` driver, the `mqtt`
+      integration's broker session and the `matter` client, and opens no connection of its
+      own (PRD Section 10).
+
+  docs-actions:
+    status: todo
+    comment: >-
+      `services.yaml` and `strings.json` describe every service, so the developer tools show
+      full descriptions and field help. The README does not yet document them with examples,
+      which is what this rule asks for.
+
+  docs-triggers:
+    status: exempt
+    comment: >-
+      The integration registers no triggers. It fires events on the bus
+      (`device_links_job_finished`, `device_links_drift_detected`,
+      `device_links_pending_wakeup`), which an automation subscribes to as ordinary event
+      triggers. Device triggers are FR-E4 and are not in v1.
+
+  docs-conditions:
+    status: exempt
+    comment: The integration registers no conditions, for the same reason as docs-triggers.
+
+  docs-high-level-description:
+    status: done
+    comment: >-
+      The README opens with what the integration is for, what it does, and the one part of
+      it that stops working when Home Assistant does.
+
+  docs-installation-instructions:
+    status: todo
+    comment: >-
+      The README says the integration is not released yet. The HACS custom-repository
+      instructions land with the first tagged release.
+
+  docs-removal-instructions:
+    status: todo
+    comment: >-
+      Not written, and it is the one documentation gap here with a real consequence rather
+      than a cosmetic one: removing this integration leaves every association, binding and
+      Access Control entry it wrote **on the devices**, because that is the whole point of
+      the product. The removal instructions have to say so and explain how to take the links
+      off first.
+
+  entity-event-setup:
+    status: done
+    comment: >-
+      Subscriptions are taken in `async_added_to_hass` and dropped in
+      `async_will_remove_from_hass`. `tests/test_rule_entities.py` counts the coordinator's
+      listeners, so a leak shows up as a number rather than as a second reload.
+
+  entity-unique-id:
+    status: done
+    comment: >-
+      `<entry_id>_<rule_id>_switch` and the same shape for every other entity, so a rename
+      or a profile switch never orphans one.
+
+  has-entity-name:
+    status: done
+    comment: >-
+      `_attr_has_entity_name = True` on the shared base, with a `translation_key` on every
+      entity and a matching entry in `strings.json` and `icons.json`.
+      `tests/test_translations.py` checks both directions.
+
+  runtime-data:
+    status: done
+    comment: >-
+      `DeviceLinksConfigEntry = ConfigEntry[DeviceLinksRuntimeData]`, and nothing is kept in
+      `hass.data`. mypy checks every access to it.
+
+  test-before-configure:
+    status: done
+    comment: >-
+      The config flow aborts with `no_backend` when none of `zwave_js`, `mqtt` or `matter`
+      is loaded, so setup is refused rather than creating an entry that can do nothing.
+
+  test-before-setup:
+    status: done
+    comment: >-
+      `async_setup_entry` raises `ConfigEntryNotReady` when no backend can be built, which
+      is the honest description of an integration that adapts other integrations and has
+      none to adapt yet: `after_dependencies` does not order them before us.
+
+  unique-config-entry:
+    status: done
+    comment: Single instance through `_abort_if_unique_id_configured`.
+
+  # --- Silver ---------------------------------------------------------------------------
+
+  action-exceptions:
+    status: done
+    comment: >-
+      `ServiceValidationError` for bad input and `HomeAssistantError` for a backend failure,
+      both with a `translation_key` and placeholders backed by `strings.json`.
+
+  config-entry-unloading:
+    status: done
+    comment: >-
+      Unload is setup in reverse: platforms, then the rate limiter's timers, then the hybrid
+      legs, then the job runner, then the event bridge, then the coordinator's backend
+      subscriptions. The services and WebSocket commands are registered in `async_setup` and
+      stay registered, which is what makes a reload idempotent.
+
+  docs-configuration-parameters:
+    status: todo
+    comment: >-
+      Every option has a name and a description in `strings.json`, which is what a user
+      actually reads in the options dialog. The README has no options table.
+
+  docs-installation-parameters:
+    status: todo
+    comment: >-
+      Waiting on the same README section as docs-installation-instructions. There are no
+      installation parameters to document: setup asks for nothing beyond a confirmation, and
+      everything adjustable is in the options flow.
+
+  entity-unavailable:
+    status: done
+    comment: >-
+      An entity is unavailable when the backend behind it cannot answer, and a device that
+      did not answer keeps its last known state rather than reading as empty, which is the
+      difference between "unknown" and "drift" (E4).
+
+  integration-owner:
+    status: done
+    comment: '`codeowners` in `manifest.json`.'
+
+  log-when-unavailable:
+    status: done
+    comment: >-
+      One line when a backend is lost and one when it comes back, and one line per device
+      rather than one per refresh: a node unreachable for a week would otherwise fill the
+      log every two seconds with a line nobody reads.
+
+  parallel-updates:
+    status: done
+    comment: '`PARALLEL_UPDATES = 0` on every platform, because entities are push-updated.'
+
+  reauthentication-flow:
+    status: exempt
+    comment: >-
+      The integration has no credentials of its own. It borrows the `zwave_js` driver, the
+      `mqtt` integration's broker session and the `matter` client, so there is nothing here
+      to re-authenticate: a credential that went stale is the upstream integration's to
+      recover.
+
+  test-coverage:
+    status: done
+    comment: >-
+      `scripts/test` fails under 95% and the suite sits above 99%, with 100% on the pure
+      modules. `scripts/test --slow-executor` runs the same suite with every executor hop
+      delayed, so a test that really asserts "the executor won a race" fails locally rather
+      than on a slower runner.
+
+  # --- Gold -----------------------------------------------------------------------------
+
+  devices:
+    status: done
+    comment: >-
+      A hub service device named "Device Links" for what is about the integration, and rule
+      entities attached to the existing device of whichever integration owns the radio, by
+      reusing that integration's own registry identifier. Getting the identifier wrong makes
+      an orphan device rather than an error, so each adapter answers for its own protocol and
+      `tests/test_rule_entities.py` checks the attachment.
+
+  diagnostics:
+    status: done
+    comment: >-
+      Config, options, profile summary, observed state and job history, with home id, IEEE
+      addresses and Matter node ids redacted through `async_redact_data`.
+
+  discovery:
+    status: exempt
+    comment: >-
+      There is no hardware to discover. The integration is set up on top of protocol
+      integrations that are already configured, and it finds its devices by asking them.
+
+  discovery-update-info:
+    status: exempt
+    comment: Nothing is discovered, so there is no discovery information to update.
+
+  docs-data-update:
+    status: todo
+    comment: >-
+      Not written. The answer is "push, with a 2 second debounce, plus a deep re-read after
+      every apply", which is worth a README section because it is what makes drift detection
+      trustworthy.
+
+  docs-examples:
+    status: todo
+    comment: >-
+      Not written, and blocked on nothing but the writing. The examples that matter are the
+      ones in PRD Section 15: a remote for a light with dimming, a virtual three-way, a
+      scene button, and turning a rule on and off from an automation.
+
+  docs-known-limitations:
+    status: todo
+    comment: >-
+      Not written, and the list is known and long: an on-only link is impossible on every
+      protocol, Long Range devices cannot be associated at all, a device cannot be in its own
+      association group, a Zooz small-button LED follows only its own load, unbinding removes
+      attribute reporting unless it is skipped, and most Matter devices are not binding
+      sources.
+
+  docs-supported-devices:
+    status: todo
+    comment: >-
+      Not written. Every device with associations, bindings or a Matter Binding cluster
+      works; the curated profile database is about labels and settings rather than about
+      support, and the README should say so where somebody looks for their model.
+
+  docs-supported-functions:
+    status: todo
+    comment: Not written. The templates and what each compiles to are the substance of it.
+
+  docs-troubleshooting:
+    status: todo
+    comment: >-
+      Not written. `docs/remote-debugging.md` covers the maintainer's side; this rule is
+      about the user's.
+
+  docs-use-cases:
+    status: todo
+    comment: >-
+      Partly done: the README's "What it does" is close, and PRD Section 4.2 has the full
+      list of use cases in a document users do not read.
+
+  dynamic-devices:
+    status: todo
+    comment: >-
+      A device added to a network after setup is not picked up until the entry reloads. Each
+      adapter deliberately does not announce a device it has never read, because the callback
+      carries an identity and the coordinator drops one it does not know; noticing a new
+      device is the coordinator's job and it does not do it yet. Reloading the entry is the
+      workaround, and it is what changing an option already does.
+
+  entity-category:
+    status: done
+    comment: >-
+      Diagnostic for the health, status and drift entities, config for the buttons, the
+      select and the rule switches.
+
+  entity-device-class:
+    status: done
+    comment: >-
+      `BinarySensorDeviceClass.PROBLEM` for drift and `SensorDeviceClass.ENUM` for the
+      status sensors.
+
+  entity-disabled-by-default:
+    status: done
+    comment: >-
+      The per-rule status sensors and the pending-links counter are disabled by default:
+      they are for somebody debugging one rule, not for everybody's dashboard.
+
+  entity-translations:
+    status: done
+    comment: >-
+      Every entity name is a translation key. `tests/test_translations.py` reads the keys out
+      of the source, so a name that is written and never used fails as loudly as one that is
+      used and never written.
+
+  exception-translations:
+    status: done
+    comment: >-
+      Every exception carries a `translation_key`, and every `Diagnostic` the compiler, the
+      planner, the executor and the three adapters produce has a message with its
+      placeholders checked against what the raising code actually supplies.
+
+  icon-translations:
+    status: done
+    comment: '`icons.json`, with state icons, checked against the entity keys by the tests.'
+
+  reconfiguration-flow:
+    status: todo
+    comment: >-
+      There is no `async_step_reconfigure`. Everything that could be reconfigured is in the
+      options flow, which is where a user would look for it, so the gap is that the
+      reconfigure entry point does not exist rather than that anything is unreachable.
+
+  repair-issues:
+    status: done
+    comment: >-
+      E1 (a backend's upstream integration unavailable), E5 (a write waiting on a sleeping
+      device), E18 (stored profiles unreadable), E19 (a rule naming a device that is gone),
+      FR-S3 (a device replaced by a different model) and the hybrid-leg failure rate, each
+      with a title and a description written for somebody already having a bad day.
+
+  stale-devices:
+    status: done
+    comment: >-
+      Removing the device a rule was written on removes that rule's entities and our own
+      record of the device, so nothing is left behind as an empty device page.
+      `async_remove_config_entry_device` is not implemented, which means the hub device
+      cannot be deleted by hand while the entry is loaded: it is the integration itself, and
+      removing the entry removes it.
+
+  # --- Platinum -------------------------------------------------------------------------
+
+  async-dependency:
+    status: done
+    comment: >-
+      Every backend is async and nothing blocks the event loop. The two blocking things the
+      integration does, reading the curated profile files at setup and writing the YAML
+      mirror, go through `hass.async_add_executor_job`.
+
+  inject-websession:
+    status: exempt
+    comment: >-
+      There is no HTTP client to inject. The integration makes no outbound connection at all:
+      it borrows the `zwave_js` driver, the `mqtt` integration's broker session and the
+      `matter` client (PRD Section 10).
+
+  strict-typing:
+    status: done
+    comment: >-
+      `mypy --strict` over the whole package with zero errors, `py.typed` shipped, typed
+      `runtime_data`, and no `Any` in a public signature.

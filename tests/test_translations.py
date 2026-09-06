@@ -317,6 +317,11 @@ PLACEHOLDER_HELPERS = {
     # The Zigbee adapter's equivalent. `cluster` rather than `group`, because that is what
     # a Zigbee link is written to and calling it a group would be describing Z-Wave.
     "_binding_placeholders": {"device", "target", "cluster"},
+    # The Matter adapter's, which is the same three things: a Matter link is written to a
+    # cluster as well, and its `cluster` is the cluster's name in a sentence rather than the
+    # number that reaches the fabric. Named apart from the Z-Wave `_about` because this
+    # table is keyed by function name and the two supply different things.
+    "_about_matter": {"device", "target", "cluster"},
 }
 
 

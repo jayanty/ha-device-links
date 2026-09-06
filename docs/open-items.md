@@ -11,7 +11,7 @@ approval, or a physical action at the house. "Claude" means it is scheduled work
 
 ## 1. Needs Jayant
 
-These four are the only things blocking work that is otherwise ready. Each says exactly what
+These five are the only things blocking work that is otherwise ready. Each says exactly what
 is needed and what stays unproven until then.
 
 ### J1. Approve the sleeping-node write test (Stage 0 Z4)
@@ -82,6 +82,34 @@ If no event fires, drift detection has to fall back to the optional periodic ver
 cannot be met for externally-made changes, and that limitation belongs in the docs rather
 than being discovered by a user.
 
+### J5. Approve the first Matter write (the Phase 3 equivalent of G2)
+
+| | |
+|---|---|
+| Issue | not filed yet |
+| Blocks | The entire Matter write path, which is all of Phase 3's writing half |
+| Needs | Approval to write one Access Control entry and one Binding entry, and to take both off again |
+
+Candidate pair, confirmed by the M1 capture: the Inovelli VTM31-SN on node 31, endpoint 2
+(which drives OnOff and LevelControl as a client and carries an empty Binding cluster) to the
+load of the Eve Energy on node 19, endpoint 1. That node holds one Access Control entry for
+this fabric of a reported six, so a grant fits with room to spare, and its endpoint 1 serves
+OnOff. Assumption A10 is the reason this reads differently from the Stage 0 report, which
+counted every fabric's entries against a per-fabric limit and concluded that headroom was
+tighter than it is.
+
+Two things would be watched that no fixture can answer. First, whether an Access Control
+write really is fabric scoped: the entry is written, the list is read back, and what matters
+is that the three entries belonging to other fabrics are still there and the controller's own
+Administer entry is untouched. `confirm_grant` already refuses to let a binding follow a write
+that failed either check, so the worst case is a refusal rather than a device locked away from
+its other ecosystems, but nobody has watched it happen. Second, whether a struct really is
+written the way it is read, keyed by TLV tag.
+
+Until this runs, every Matter write path is a model agreeing with a fake (assumption A9), the
+`matter_writes` option should stay off, and `tests/fakes/matter.py` is what gets corrected
+rather than the adapter.
+
 ---
 
 ## 1b. Assumptions made to keep going without Jayant
@@ -114,6 +142,9 @@ get the same treatment rather than waiting for a deploy that is not coming yet.
 | A6 | Zigbee2MQTT republishes `bridge/devices` after a bind, and quickly enough for a verify to read it, and it republishes its retained state **before** it answers a request rather than merely eventually (part of J2, unproven) | A deep read after an apply waits five seconds for the republish and reports `unconfirmed` rather than `applied` if it does not come. If a real bridge is slower or does not republish at all, every Zigbee apply reads as unconfirmed and the deep-verify wait needs replacing with something else (there is no request that re-reads a binding table on demand). The ordering half matters in one remaining place: `_unbind_through_group` decides whether a managed group is now empty from `bridge/groups` as it stands immediately after the member-remove response, so a bridge that answers first would leave the group undeleted and its binding orphaned. The group id no longer depends on the ordering: it is read out of the creation response |
 | A7 | An Inovelli config button's press is **not** established as a fixed OFF (mirrors A3) | Marked `semantics: "unknown"` in the profile entries, so the Off-all template warns rather than compiling silently onto it. If it turns out to send a fixed OFF, the marker comes off |
 | A8 | The Inovelli Zigbee setting property names and payload labels are what Zigbee2MQTT's converter exposes (unverifiable from G1, which trimmed `definition.exposes`) | The adapter refuses to write a Zigbee setting and says so, so a wrong name costs a refusal rather than a wrong write. See T45 |
+| A9 | The Matter write path behaves as the specification describes: an Access Control list is fabric scoped, so writing it replaces this fabric's entries and leaves every other fabric's alone; an entry is written as a mapping keyed by TLV tag; and a Binding list is written whole. Nothing has ever been written to a Matter device from this project (M1 was read-only, and every write is behind an options flag that defaults to off) | The consequences are not equal and the worst one is why the checks exist. If the **tag or list shapes** are wrong, a write is rejected and the link is reported as failed, which costs a correction to `matter_protocol` and `tests/fakes/matter.py` together. If a write is **not fabric scoped**, it would replace every fabric's entries with ours and the device would stop answering to Apple Home, Google or the vendor's own app until it was re-commissioned to them. That one is not left to be discovered: `confirm_grant` re-reads the list after every Access Control write and refuses to issue the receipt (so no binding follows) when the number of other fabrics' entries changed or when an Administer entry that was there before has gone. It is detection rather than prevention, and it is the reason the flag exists |
+| A10 | `AccessControlEntriesPerFabric` means what it says: the limit is per fabric, so only this fabric's entries are counted against it. **This reverses the arithmetic Stage 0's M1 report used**, which counted every fabric's entries and concluded that the Eve Energy had 2 of 6 free. It holds 1 of 6 for this fabric and has 5 free. The capture is the evidence: node 31 advertises a limit of 4 and fabric 3 alone holds two of its entries, which a whole-list limit of 4 across three fabrics could not accommodate | The cost of being wrong this way is a write the device rejects, reported with the device's own error and leaving nothing behind. The cost of being wrong the other way was measured: counting every fabric's entries refuses a grant outright on 6 of the 19 captured nodes, including both Inovelli switches, which are the only devices on this fabric that serve LevelControl and therefore the only target a Matter dimming link could ever have. Merging a grant into an existing entry is still worth having and is no longer load bearing on this fabric: on a node reporting a limit of 4, the controller's own entry leaves three |
+| A11 | A Matter subscription event carries the node it is about as `node_id` (or is the node id itself), and an attribute update names the attribute as a `path` or as the three parts of one. M1 read attributes and subscribed to nothing, so the event shapes come from the client library rather than from a capture | Both readers fail closed. An event whose node cannot be identified is dropped, which costs a refresh that the next event would have caused anyway; an event whose attribute cannot be read leaves the adapter's cache in place, which a deep read corrects. Neither can produce a wrong answer, only a late one |
 
 ---
 
@@ -142,7 +173,7 @@ Claude-owned, sequenced, no input needed.
 | S6 | The sidebar panel: toolchain, registration, API client and shell | Phase 1E Tasks 1 to 4, landed |
 | S9 | The panel's views, dialogs and static harness | Phase 1E Tasks 5 to 8, landed |
 | S7 | Zigbee backend, device swap, hybrid legs | Phase 2, complete. The Zigbee backend landed in Phase 2A. Device swap landed in Phase 2B (`swap.py`, the three WebSocket commands, FR-S3 as a Repairs issue, PRD scenario S7 end to end against the fakes) and its wizard in Phase 2C, which closed T59. Hybrid legs landed in Phase 2C: `hybrid.py`, the compiler's `hybrid_legs`, the per-rule opt-in and the global option, the counters and the Repairs issue. Nothing of Phase 2 has been deployed |
-| S8 | Matter backend behind the options flag | Phase 3 |
+| S8 | Matter backend behind the options flag | Phase 3, complete. The pure module, the fake fabric, the adapter, the curated VTM31-SN entry and the wiring all landed, and the backend is built at setup whatever the options say (reads are proven; writes are behind `matter_writes`, which defaults to off). The contributor guide and `quality_scale.yaml` landed with it. Nothing of Phase 3 has been deployed, and no Matter write has ever reached a device |
 
 ---
 
@@ -221,6 +252,14 @@ Small, known, and deliberately deferred rather than forgotten.
 | T78 | A native on/off link can survive an on-only leg when one group carries both features | The leg takes over a **feature**, and the native link it replaces is dropped by feature name. A control whose profile entry maps two features to one association group (which `profiles_db/schema.json` permits and no shipped entry does) would keep the group for the second feature, and that group carries on and off together, so the user who asked for "only pass on" would get both natively as well as the leg. Nothing enforces the one-group-per-feature invariant the suppression relies on. Closing it means dropping the group rather than the feature, which changes what a partial refusal means for every other rule. |
 | T79 | Loop analysis reads a disabled rule's mirror setting and not its links, and a disabled draft never shows a loop | Two halves of the same choice. A disabled rule contributes to `forwarding_devices` (the setting is on the device whether or not the rule is on) and contributes no edges, which is right: its links are on their way off. What follows from it is that editing a **disabled** rule in the panel never shows the loop it would close when it is switched back on, because `find_loops` filters it out along with the stored disabled rules. The user meets the warning when they enable it from the table instead, which is late but not silent. |
 | T20 | A job that only queued writes to a sleeping node reports `completed` | `pending_wakeup` is in the successful set, so an apply against a battery remote alone ends green having confirmed nothing. Deliberate: a queued write to a sleeping node is the documented, expected answer (CLAUDE.md Section 10), and reporting the expected answer as `partial` teaches a user to ignore the status that means something is wrong (E4). Nothing is hidden either, because the link keeps the outcome `pending_wakeup` and the rule is not recorded as applied, so it reads as pending rather than in sync. What is missing is a status that means "done, nothing confirmed yet", and a fifth `JobStatus` member changes what every consumer switches on, so it belongs with the panel that would show it (Phase 1E) and with closing J1, which is what would tell us how often this really happens. |
+| T81 | Reading one Matter node costs a round trip per endpoint | `matter._read_view` reads a Descriptor server list for every endpoint, and the coordinator reads every device of every backend at setup, so an Inovelli with 20 endpoints is 22 reads and the M1 fabric is 96. That is already the cheap version: a client list is read only where an endpoint serves a Binding cluster, which took it down from 260. The fix, if it is ever needed, is a wildcard read (`*/29/1`), which the client may well support and which nobody has tried. Worth measuring on a real fabric before optimising blind |
+| T82 | A Matter Binding list's real capacity is a bound rather than a measurement | `matter_protocol.BINDING_TABLE_CAPACITY` is 8. Matter reports no capacity attribute for the Binding cluster and the specification sets no minimum, so there is no honest number to read. Exactly the shape of T43 one protocol along, and it bites in the same place: a device that holds fewer rejects a write Device Links thought would fit, and one that holds more is refused a link it could have taken. Both binding lists on this fabric are empty, so nothing is near it |
+| T83 | The Matter adapter's "this control drives nothing usable" warning cannot fire for an endpoint with no Binding cluster | A consequence of T81's saving: such an endpoint never has its client list read, so `derive_emitters` cannot tell "drives nothing" from "drives something and has nowhere to keep a link" on one. The adapter says the accurate thing instead, once per read at debug: this node cannot be the source of a Matter link. A user picking a switch that turns out not to be a binding source gets a reason, and not the most specific one |
+| T84 | A Matter grant is merged into an entry of the right shape rather than one known to be ours | Nothing labels an Access Control entry with who created it. `is_managed_grant` matches Operate, CASE, and a target list that is exactly the one target being asked for, which is chosen so that ownership does not need to be claimed: adding a subject to an entry of that shape grants precisely what a separate entry of ours would have. What is left is a removal, which takes our subject off an entry a third party could in principle have written first. It would still remove only the subject the rule put there |
+| T85 | A Matter binding removal reports success when the grant could not be narrowed | `_revoke` logs and does not fail the link, because the binding is already gone and that is what the user asked for; what is left is a permission that permits nothing. The next removal of the same link tries again, which is why the revoke runs even when the binding had already gone. A grant nobody ever removes is one entry of somebody's Access Control list held for a link that no longer exists |
+| T87 | An Access Control or Binding entry this version cannot read stops every write of that list | Deliberate, and the alternative is worse: an attribute write replaces the whole list, so rewriting it from what was parsed would take whatever was not understood off the device on a write about something else. What it costs is that a firmware which adds a field to either struct makes Device Links refuse to write to that device at all, with a message saying so, until this version learns the field. Nothing on the M1 fabric carries one |
+| T88 | A node-level Matter event does not drop what was read about that node | `_is_ours` matches an attribute path in the Binding, Access Control or Descriptor cluster, and a node-added or re-interview event carries no path. So a node that gains a Binding cluster in a firmware update goes on reading as "not a binding source" until something asks for a deep read or the entry reloads. Dropping the cache on every event whose shape is not recognised was the obvious fix and was not taken: the event shapes are modelled rather than observed (A11), and being wrong about them that way puts a burst of radio traffic behind every light switch in the house. The same limitation as the `dynamic-devices` quality scale rule, and it resolves with the same work |
+| T86 | Matter is not in the acceptance scenarios | PRD Section 15's S1 to S12 are Z-Wave and Zigbee. There is no Matter scenario to run when a write is finally approved, and the obvious one is a paddle on node 31 endpoint 2 driving the load of an Eve Energy with room in its Access Control list. Writing it is cheap; running it needs J5 |
 
 ---
 
@@ -259,6 +298,25 @@ capture, which is J3's capture with the events recorded, and the global option t
 
 ---
 
+## 5c. What stands between Phase 3 and a Matter link that exists on a device
+
+Phase 3 is feature complete: the pure module, the fake fabric, the adapter, the curated
+VTM31-SN entry and the wiring are all built and tested, and a Matter-only house sets up. The
+read half is proven against 19 real nodes. **The write half has never touched a device**, and
+this is what that would take, in order.
+
+| # | What | Owner |
+|---|---|---|
+| 1 | **J5, the first Matter write.** One Access Control entry and one Binding entry on node 31 endpoint 2 to node 19 endpoint 1, and both off again. Everything below waits on this | Jayant |
+| 2 | **A deploy and a restart.** The last deployed commit is the Phase 1C merge, so everything from Phase 1D onwards, which is now most of the product, is on the branch and not on the instance | Jayant restarts; Claude deploys |
+| 3 | **Turn `matter_writes` on.** It defaults to off in the options flow and in the adapter, and reading works either way, so nothing before this point needs it | Jayant |
+| 4 | **Watch what the fabric actually does.** Whether the Access Control write is fabric scoped is the assumption with the worst failure mode (A9), and it is the one thing a read-back can only detect rather than prevent. The three other fabrics' entries on node 19 are the evidence: they are there before, and they must be there after | Claude, from the job log and a re-read |
+
+A Matter acceptance scenario is not on this list because there is not one to run: PRD
+Section 15's S1 to S12 are Z-Wave and Zigbee. Writing one is cheap and is open item T86.
+
+---
+
 ## 6. Release prerequisites
 
 Not needed until the first tagged release, listed so they are not discovered late.
@@ -267,7 +325,7 @@ Not needed until the first tagged release, listed so they are not discovered lat
 |---|---|
 | P1 | Pull request to `home-assistant/brands` adding `custom_integrations/device_links`. The repo already ships its own brand assets so HACS validation passes meanwhile. |
 | P2 | HACS default-repository submission, after the first stable release |
-| P3 | `quality_scale.yaml` with every rule accounted for |
+| P3 | ~~`quality_scale.yaml` with every rule accounted for~~. Done: it ships in `custom_components/device_links/quality_scale.yaml`, and `tests/test_quality_scale.py` reads the rule names out of PRD Section 11 so the checklist cannot shrink. What is left is not the file but fifteen of its rows, almost all documentation |
 
 ---
 
@@ -300,6 +358,13 @@ this is the index.
 | 15 (S7) | "Marks the old device's links as unreachable" is answered by two fields on the swap preview (`old_listed` and `old_reachable`) rather than by a mark on each link. A device that has left the network holds links nothing can read, so a per-link mark would be a claim about the contents of a device nobody can reach. |
 | 6.3 (FR-P2), 8.7 | `profiles/import` and `device_links.import_profile` take `allow_missing_devices` (default false). E38 refuses a file naming devices this network does not have, and S7 imports exactly such a file, because that is what a swap starts from. Refusing every one of them would leave the swap flow unreachable for the case it exists to serve; accepting silently would lose E38. So the refusal stands by default and names what is missing, and the caller can say it meant it. |
 | 6.6 (FR-E3) | `device_links.zigbee_bind` and `device_links.zigbee_unbind` are not registered. There is no Zigbee adapter until Phase 2, and a service that can only refuse is worse than one that is absent. |
+| 6.1 (FR-B7) | "reads Binding attributes on every endpoint that has a Binding cluster" is what the adapter does, and it reads a client list on **only** those endpoints. An endpoint with no Binding cluster cannot be a control whatever it drives, and reading a descriptor for every endpoint of every node at setup costs a round trip each. |
+| 6.1 (FR-B7) | Matter bindings to a **group** are read and reported and never written. A Matter group binding needs its key distributed to every member at commissioning time, which is an act of commissioning rather than a link. |
+| 8.6 | `Descriptor.ClientList` is attribute 2 of cluster 29 and `ServerList` is attribute 1. Section 8.6 names the attributes without their ids, and the two are easy to swap. |
+| 8.6 | An Access Control read that is not fabric filtered returns other fabrics' entries with every field but the fabric index removed. Section 8.6 does not mention them, and they are most of what makes a list look full: 15 of the 19 nodes have at least one. |
+| 10 | "never touching existing entries not created by the integration" cannot be implemented as written, because nothing labels an Access Control entry with who created it. What is implemented is stronger where it counts and weaker where it does not: an Administer entry is never touched by any path, and a merge only ever adds a subject to an entry granting exactly the target being asked for, which cannot grant more than a separate entry of ours would have (open item T84). |
+| 11 | The rule list in Section 11 is the checklist `custom_components/device_links/quality_scale.yaml` accounts for, and fifteen of its 54 rules are honestly `todo`. Section 11 reads as though they were all satisfied. |
+| 13.4 | Phase 3's Lovelace card and graph view are not built, and the ZHA backend design note is not written. All three are P2, and the panel already covers what Phases 1 and 2 need. |
 
 ---
 

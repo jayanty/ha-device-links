@@ -10,7 +10,9 @@ driver's association tables.
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Iterator
+import os
 from pathlib import Path
+import time
 from types import SimpleNamespace
 from typing import Any
 
@@ -226,3 +228,32 @@ def activate(entry: MockConfigEntry, *profiles: Profile, active: str | None = No
             active_profile_id=active or (profiles[0].id if profiles else None),
         )
     )
+
+
+@pytest.fixture(autouse=True)
+def slow_executor(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Optionally delay every executor hop, so a race cannot be won by a fast machine.
+
+    Home Assistant's `async_block_till_done()` does not wait for background tasks unless
+    asked, so a test that asserts on work a config entry does in the background is really
+    asserting that the executor won a race. A developer laptop wins it every time; a two
+    vCPU CI runner does not. That is how a real bug in the hybrid legs reached CI green
+    locally and red on push (open item T80).
+
+    Set DEVICE_LINKS_SLOW_EXECUTOR=1, or run `scripts/test --slow-executor`, to add a
+    delay to every executor call. Any assertion that silently depends on winning that race
+    then fails here rather than on a runner.
+    """
+    if not os.environ.get("DEVICE_LINKS_SLOW_EXECUTOR"):
+        return
+
+    original = HomeAssistant.async_add_executor_job
+
+    def delayed(self: HomeAssistant, target: Any, *args: Any) -> Any:
+        def slowly(*inner: Any) -> Any:
+            time.sleep(0.05)
+            return target(*inner)
+
+        return original(self, slowly, *args)
+
+    monkeypatch.setattr(HomeAssistant, "async_add_executor_job", delayed)

@@ -294,6 +294,13 @@ Levels, all of which must pass before a push:
    exists because the panel refused every rule it sent for two phases (open item T50): the
    contract test compared types and was green throughout.
 
+7. **Block on background tasks when you assert on them.** `async_block_till_done()` does
+   not wait for a config entry's background tasks unless you pass
+   `wait_background_tasks=True`. Without it, an assertion about work done in the background
+   is really an assertion that the executor won a race, which a laptop wins every time and
+   a two vCPU runner does not. `scripts/test --slow-executor` delays every executor hop so
+   that class of test fails locally instead of on push.
+
 **Regression rule.** Every bug fix adds a test named `test_issue_<n>_<slug>` that fails
 before the fix and passes after. Gates: coverage >= 95% overall and 100% on pure modules,
 `mypy --strict`, `ruff check`, `ruff format --check`, hassfest, HACS validation, frontend
@@ -360,8 +367,10 @@ waiting on a restart, what is scheduled, and where reality diverged from the PRD
 current as phases land. Items that need Jayant also exist as GitHub issues labelled
 `needs-jayant`, so they are actionable rather than buried in a document.
 
-Four things are blocked on Jayant as of 2026-09-05: Z4 (sleeping-node write, issue #5),
-G2 (Zigbee bind, #6), Z7 (Zooz button semantics, #7), and Z5 (drift event, #8).
+Five things are blocked on Jayant as of 2026-09-06: Z4 (sleeping-node write, issue #5),
+G2 (Zigbee bind, #6), Z7 (Zooz button semantics, #7), Z5 (drift event, #8), and the first
+Matter write (J5, not filed yet). Each is an approval to write to a device, except Z5, which
+is a manual change to watch.
 
 ## 12. When in doubt, ask
 

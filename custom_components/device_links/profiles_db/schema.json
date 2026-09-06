@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/jayanty/ha-device-links/profiles_db/schema.json",
   "title": "Device Links curated device profile",
-  "description": "Documentation for contributors, and the schema an editor validates a profile file against while it is being written. An entry describes either a Z-Wave model or a Zigbee one, chosen by its 'backend' key, which is absent on every entry written before Phase 2 and means zwave when it is. It is NOT executed at runtime: the integration ships no JSON Schema validator, and profile_db.py must not import one, so profile_db.py enforces these rules with hand written checks instead. The two cannot drift apart silently: tests/test_profile_db.py compares this document's key sets and enums against the constants profile_db.py validates with, and fails when they disagree.",
+  "description": "Documentation for contributors, and the schema an editor validates a profile file against while it is being written. An entry describes a Z-Wave model, a Zigbee one or a Matter one, chosen by its 'backend' key, which is absent on every entry written before Phase 2 and means zwave when it is. It is NOT executed at runtime: the integration ships no JSON Schema validator, and profile_db.py must not import one, so profile_db.py enforces these rules with hand written checks instead. The two cannot drift apart silently: tests/test_profile_db.py compares this document's key sets and enums against the constants profile_db.py validates with, and fails when they disagree.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -27,6 +27,9 @@
           },
           {
             "$ref": "#/$defs/zigbee_device"
+          },
+          {
+            "$ref": "#/$defs/matter_device"
           }
         ]
       }
@@ -435,6 +438,156 @@
             "type": "string"
           }
         }
+      }
+    },
+    "matter_device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backend",
+        "model",
+        "manufacturer",
+        "fingerprints",
+        "emitters"
+      ],
+      "description": "One Matter model. A Matter binding is written from an endpoint and names a cluster by number, so an emitter here carries an endpoint and its actions name cluster ids. There is no settings section: a Matter device is configured through the attributes of its own clusters rather than through a numbered parameter list, and nothing in this integration writes one.",
+      "properties": {
+        "backend": {
+          "const": "matter",
+          "description": "Required on a Matter entry, because absent means zwave."
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The vendor's model name, used in validation error messages. Not carried into the loaded entry."
+        },
+        "manufacturer": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The vendor's name, for the same reason as model."
+        },
+        "fingerprints": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Every model identity this entry describes, as the Matter server reports it.",
+          "items": {
+            "$ref": "#/$defs/matter_fingerprint"
+          }
+        },
+        "emitters": {
+          "type": "array",
+          "minItems": 1,
+          "description": "The physical controls on the device, one per endpoint that drives a control cluster and serves a Binding cluster. An emitter the real node contradicts is dropped at resolution time and the rest of the entry still stands.",
+          "items": {
+            "$ref": "#/$defs/matter_emitter"
+          }
+        },
+        "wake_instruction": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "description": "How a user wakes this device so a pending write completes, for battery powered models. Record only a sequence that has actually been observed."
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "description": "Why this entry says what it says: which capture the endpoints and clusters came from, and what in it is still unverified."
+        }
+      }
+    },
+    "matter_fingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "vendor",
+        "product"
+      ],
+      "description": "One exact model identity, as the Matter server reports the node's Basic Information cluster. Names rather than the vendor and product ids that are also on that cluster, so an entry can be checked by a contributor holding the device.",
+      "properties": {
+        "vendor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "product": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "matter_emitter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "emitter_id",
+        "label",
+        "kind",
+        "endpoint",
+        "actions"
+      ],
+      "properties": {
+        "emitter_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable id a rule refers to this control by. Unique within the entry, and never changed once shipped: a rule stores it."
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the user sees."
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "button",
+            "config_button",
+            "gesture",
+            "paddle"
+          ],
+          "description": "What sort of control this is, for icons and wording."
+        },
+        "endpoint": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The endpoint this control drives from, which is where its Binding list lives. Never 0: the root endpoint administers the node and controls nothing. Every one is checked against tests/fixtures/m1_matter.json."
+        },
+        "actions": {
+          "$ref": "#/$defs/matter_actions"
+        },
+        "semantics": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "unknown",
+            null
+          ],
+          "description": "Set to 'unknown' when what this control sends on a press is not established as a fixed OFF, which makes the Off-all template unsafe on it."
+        }
+      }
+    },
+    "matter_actions": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "Which cluster id carries which feature. Two features may name one cluster, because LevelControl really does carry both setting a level and holding to dim: there is no way to bind one without the other. The cluster must be in that endpoint's client list on the real node, which is checked at resolution time and by the test suite.",
+      "propertyNames": {
+        "enum": [
+          "color",
+          "level_hold",
+          "level_set",
+          "on_off",
+          "scene",
+          "status_report"
+        ]
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 1
       }
     }
   }

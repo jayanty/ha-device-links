@@ -76,6 +76,8 @@ Not yet released. HACS custom-repository instructions land with the first Phase 
 
 - `docs/PRD.md` - full product requirements, architecture, and delivery plan
 - `docs/stage0-report.md` - validated facts, fixtures, and open assumptions
+- `CONTRIBUTING.md` - how to add a device to the curated profile database, and the gates
+- `quality_scale.yaml` - every Home Assistant quality scale rule, with its status here
 - `CLAUDE.md` - engineering rules, environment, and safety constraints
 
 ## License

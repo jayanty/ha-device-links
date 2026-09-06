@@ -9,11 +9,16 @@ from typing import Any
 import pytest
 
 from custom_components.device_links import profile_db
-from custom_components.device_links.backends import zigbee_protocol
+from custom_components.device_links.backends import matter_protocol, zigbee_protocol
 from custom_components.device_links.backends.zwave_protocol import features_of_group
-from custom_components.device_links.models import Feature, ZigbeeFingerprint, ZWaveFingerprint
+from custom_components.device_links.models import (
+    Feature,
+    MatterFingerprint,
+    ZigbeeFingerprint,
+    ZWaveFingerprint,
+)
 from custom_components.device_links.profile_db import ProfileDatabase, load_profiles
-from tests.factories import profiles, zigbee_devices
+from tests.factories import matter_nodes, profiles, zigbee_devices
 
 PROFILES_DIR = Path("custom_components/device_links/profiles_db")
 FIXTURE = Path(__file__).parent / "fixtures" / "z2_associations.json"
@@ -676,6 +681,7 @@ def test_the_shipped_schema_documents_the_zigbee_shapes_too() -> None:
     assert {
         defs["device"]["properties"]["backend"]["const"],
         defs["zigbee_device"]["properties"]["backend"]["const"],
+        defs["matter_device"]["properties"]["backend"]["const"],
     } == profile_db.PROFILE_BACKENDS
 
 
@@ -739,7 +745,7 @@ def test_two_zigbee_entries_claiming_one_model_are_refused() -> None:
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
-        ({"backend": "matter"}, "'backend': 'matter' is not one of"),
+        ({"backend": "zha"}, "'backend': 'zha' is not one of"),
         ({"backend": 5}, "'backend': expected a string"),
         ({"capacity_override": 3}, "unknown key"),
         ({"fingerprints": [{"vendor": "Test"}]}, "missing required key"),
@@ -790,3 +796,195 @@ def test_two_zigbee_emitters_with_one_id_are_refused() -> None:
         load_profiles(
             _files(_zigbee_device(emitters=[_zigbee_emitter(), _zigbee_emitter(endpoint=3)]))
         )
+
+
+# --- Matter entries, validated against the Stage 0 M1 capture ------------------------------
+
+
+def _matter_entries() -> tuple[Any, ...]:
+    return profiles().matter_entries
+
+
+def _matching_nodes(entry: Any) -> list[Any]:
+    """Return every node in the M1 capture this entry's fingerprints claim."""
+    wanted = [(f.vendor, f.product) for f in entry.fingerprints]
+    return [
+        node
+        for node in matter_nodes().values()
+        if (node.get("vendor"), node.get("product")) in wanted
+    ]
+
+
+def test_the_shipped_matter_entry_is_the_one_model_the_capture_supports() -> None:
+    """The Aqara H2 and the IKEA BILRESA are deliberately absent, and PRD 3.1 names both.
+
+    Neither exposes a control client cluster or a Binding cluster on any endpoint, so neither
+    is a binding source and there is nothing about either that a curated entry could say. An
+    entry nobody could check against hardware is exactly the entry not to ship.
+    """
+    products = {f.product for entry in _matter_entries() for f in entry.fingerprints}
+
+    assert products == {"VTM31-SN"}
+
+
+def test_every_matter_entry_claims_a_node_that_is_really_on_this_fabric() -> None:
+    for entry in _matter_entries():
+        assert _matching_nodes(entry), f"no node in the capture matches {entry.fingerprints}"
+
+
+def test_every_endpoint_a_matter_entry_names_really_drives_what_it_claims() -> None:
+    """The check that stops a curated entry writing a binding to a cluster nobody drives.
+
+    Three things have to hold on a real node for each emitter, and a curated entry that got
+    any of them wrong would write a binding to the wrong place with complete confidence: the
+    endpoint exists, it drives the cluster as a client, and it serves a Binding cluster so
+    there is somewhere to keep the entry.
+    """
+    for entry in _matter_entries():
+        for node in _matching_nodes(entry):
+            for emitter in entry.emitters:
+                assert matter_protocol.has_binding_cluster(node, emitter.endpoint), (
+                    f"node {node['node_id']} endpoint {emitter.endpoint} has no Binding cluster"
+                )
+                for feature, cluster in emitter.actions.items():
+                    assert matter_protocol.emits(node, emitter.endpoint, cluster), (
+                        f"node {node['node_id']} endpoint {emitter.endpoint} does not drive "
+                        f"cluster {cluster}, which the entry maps {feature} to"
+                    )
+                    assert feature in matter_protocol.features_of_cluster(cluster)
+
+
+def test_a_curated_matter_entry_survives_resolution_on_the_nodes_it_describes() -> None:
+    """The end to end check: nothing the entry says is contradicted by a real node."""
+    for entry in _matter_entries():
+        for node in _matching_nodes(entry):
+            warnings: list[str] = []
+            resolved = matter_protocol.resolve_emitters(node, entry, warnings=warnings)
+
+            assert warnings == [], f"node {node['node_id']}: {warnings}"
+            assert [emitter.label for emitter in resolved] == [
+                emitter.label for emitter in entry.emitters
+            ]
+
+
+def test_the_matter_load_endpoint_is_receivable_without_being_curated() -> None:
+    """Endpoint 1 is what a rule targets, and the node already says what it can act on."""
+    for entry in _matter_entries():
+        for node in _matching_nodes(entry):
+            assert Feature.ON_OFF in matter_protocol.receivable_features(node)
+            assert matter_protocol.accepts(node, 1, matter_protocol.ON_OFF_CLUSTER)
+            assert matter_protocol.receiving_endpoint(node) == 1
+
+
+# --- the Matter half: a third shape, validated its own way ---------------------------------
+
+
+def _matter_emitter(**overrides: Any) -> dict[str, Any]:
+    return {
+        "emitter_id": "paddle",
+        "label": "Paddle",
+        "kind": "paddle",
+        "endpoint": 2,
+        "actions": {"on_off": 6},
+        **overrides,
+    }
+
+
+def _matter_device(**overrides: Any) -> dict[str, Any]:
+    return {
+        "backend": "matter",
+        "model": "Test model",
+        "manufacturer": "Test",
+        "fingerprints": [{"vendor": "Test", "product": "Test model"}],
+        "emitters": [_matter_emitter()],
+        **overrides,
+    }
+
+
+def test_a_minimal_matter_entry_loads() -> None:
+    database = load_profiles(_files(_matter_device()))
+
+    assert database.entries == ()
+    assert database.zigbee_entries == ()
+    assert len(database.matter_entries) == 1
+    assert database.matter_entries[0].emitters[0].endpoint == 2
+    assert database.matter_entries[0].emitters[0].actions[Feature.ON_OFF] == 6
+
+
+def test_a_matter_device_is_looked_up_by_vendor_and_product() -> None:
+    database = load_profiles(_files(_matter_device()))
+
+    assert database.lookup_matter(MatterFingerprint(vendor="Test", product="Test model"))
+    assert database.lookup_matter(MatterFingerprint(vendor="Test", product="Other")) is None
+
+
+def test_two_matter_entries_claiming_one_model_are_refused() -> None:
+    with pytest.raises(ValueError, match="already claimed"):
+        load_profiles(_files(_matter_device(), _matter_device()))
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"settings": {}}, "unknown key"),
+        # An entry that curates nothing behaves exactly as if it were absent, which is a
+        # mistake nobody would otherwise see.
+        ({"emitters": []}, "'emitters': must not be empty"),
+        ({"fingerprints": [{"vendor": "Test"}]}, "missing required key"),
+        ({"fingerprints": [{"vendor": "Test", "product": ""}]}, "'product': must not be empty"),
+        (
+            {"emitters": [_matter_emitter(endpoint=0)]},
+            "'endpoint': expected an integer of at least 1",
+        ),
+        ({"emitters": [_matter_emitter(actions={})]}, "must name at least one feature"),
+        ({"emitters": [_matter_emitter(actions={"nope": 6})]}, "is not a feature"),
+        (
+            {"emitters": [_matter_emitter(actions={"on_off": "genOnOff"})]},
+            "expected an integer",
+        ),
+        ({"emitters": [_matter_emitter(actions={"on_off": 0})]}, "at least 1"),
+        ({"emitters": [_matter_emitter(kind="knob")]}, "'knob' is not one of"),
+        ({"emitters": [_matter_emitter(semantics="unkown")]}, "'unkown' is not one of"),
+    ],
+)
+def test_a_malformed_matter_entry_is_rejected(overrides: dict[str, Any], message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        load_profiles(_files(_matter_device(**overrides)))
+
+
+def test_two_matter_emitters_with_one_id_are_refused() -> None:
+    with pytest.raises(ValueError, match="appears twice"):
+        load_profiles(
+            _files(_matter_device(emitters=[_matter_emitter(), _matter_emitter(endpoint=3)]))
+        )
+
+
+def test_a_matter_entry_may_carry_a_wake_instruction_and_notes() -> None:
+    database = load_profiles(
+        _files(_matter_device(wake_instruction="Press the paddle", notes="From M1"))
+    )
+
+    assert database.matter_entries[0].wake_instruction == "Press the paddle"
+    assert database.matter_entries[0].notes == "From M1"
+
+
+def test_the_shipped_schema_documents_the_matter_shapes_too() -> None:
+    """Same reasoning as the other two halves: the schema documents, profile_db.py enforces."""
+    defs = _schema()["$defs"]
+
+    def keys(node: dict[str, Any]) -> tuple[set[str], set[str]]:
+        return set(node["properties"]), set(node.get("required", []))
+
+    assert keys(defs["matter_device"]) == (
+        profile_db.MATTER_DEVICE_REQUIRED_KEYS | profile_db.MATTER_DEVICE_OPTIONAL_KEYS,
+        set(profile_db.MATTER_DEVICE_REQUIRED_KEYS),
+    )
+    assert keys(defs["matter_fingerprint"]) == (
+        set(profile_db.MATTER_FINGERPRINT_REQUIRED_KEYS),
+        set(profile_db.MATTER_FINGERPRINT_REQUIRED_KEYS),
+    )
+    assert keys(defs["matter_emitter"]) == (
+        profile_db.MATTER_EMITTER_REQUIRED_KEYS | profile_db.MATTER_EMITTER_OPTIONAL_KEYS,
+        set(profile_db.MATTER_EMITTER_REQUIRED_KEYS),
+    )
+    assert set(defs["matter_actions"]["propertyNames"]["enum"]) == {str(f) for f in Feature}
