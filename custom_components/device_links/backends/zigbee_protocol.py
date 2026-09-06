@@ -414,8 +414,12 @@ def receiving_endpoint(device: Device) -> int | None:
     set: both are read off the same input clusters, so a device that can receive always has
     somewhere for a link to land.
 
-    Only ever used where the user was given no way to choose (`compiler._compile_reverse`).
-    A forward leg's target endpoint is the user's, and stays the user's.
+    Used wherever the user was given no way to choose, which is now two places rather than
+    one: `compiler._compile_reverse`, whose receiver is the rule's own source device and has
+    no field on the rule at all, and the panel's targets step, which fills each target's
+    endpoint from this and shows the number beside the device (open items T50 and T56). A
+    forward leg's target endpoint is still the user's whenever the rule names one, and stays
+    the user's; this answers only for a rule that names none.
     """
     for endpoint in endpoint_ids(device):
         reported = device["endpoints"][str(endpoint)]

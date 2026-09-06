@@ -1080,9 +1080,12 @@ export class DeviceLinksRuleEditor extends LitElement {
     }
     // Unreachable from the review step, which cannot be arrived at without a control and a
     // target, and cheaper than a save that would be refused for a reason the user cannot
-    // see. The type is what makes it a check rather than a hope.
+    // see. The type is what makes it a check rather than a hope. It says so out loud rather
+    // than returning quietly: a Save button that does nothing at all is the one outcome
+    // worse than a refusal, and if this ever becomes reachable it has to be visible.
     const rule = payloadOf(draft);
     if (rule === null) {
+      this._error = "This rule still needs a control and at least one target.";
       return;
     }
     this._saving = true;

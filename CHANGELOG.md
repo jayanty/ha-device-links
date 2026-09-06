@@ -13,4 +13,5 @@ All notable changes to this project are documented here. The format follows
   managed `dl_` groups for one-to-many rules, and curated profile entries for the
   Inovelli Blue VZM31-SN and VZM32-SN. The write path is modelled from the
   Zigbee2MQTT documentation and has never been performed against hardware
-  (assumption A2, issue #6); the backend is not yet built at config entry setup.
+  (assumption A2, issue #6). The backend is built at config entry setup as of
+  Phase 2A's last commit, over Home Assistant's own `mqtt` integration.

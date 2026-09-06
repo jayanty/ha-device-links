@@ -244,9 +244,11 @@ class DeviceCapabilities:
     device when it is the receiving end and nothing has named an endpoint for it. None means
     a link addresses the whole device, which is the Z-Wave answer (an association names a
     node, and an endpoint only when the user asked for one). A protocol where every link
-    names a target endpoint reports the endpoint that acts on what it receives, because
-    there is one place in the compiler where the user was never offered the choice: the
-    reverse leg of a two-way rule, whose receiver is the rule's own source device.
+    names a target endpoint reports the endpoint that acts on what it receives, and that is
+    the answer wherever the user was not offered the choice: the reverse leg of a two-way
+    rule, whose receiver is the rule's own source device and which the rule has no field
+    for at all, and the rule editor's targets step, which has no endpoint picker yet and
+    fills each target from this instead (open items T50 and T56).
     """
 
     handle: DeviceHandle

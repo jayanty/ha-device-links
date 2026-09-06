@@ -295,14 +295,16 @@ describe("the payload the rule editor sends", () => {
     await settle(editor);
     press(editor, "Next");
     await settle(editor);
-    // Step 3: the target. Its endpoint is shown while it is being ticked, not only sent.
+    // Step 3: the target. Every candidate carries the endpoint a link would land on, so
+    // the number the rule will use is on screen before the box is ticked rather than only
+    // in the payload afterwards.
+    expect(text(editor)).toContain("Endpoint 1");
     const target = [...(editor.shadowRoot?.querySelectorAll("input[type=checkbox]") ?? [])].at(
       -1,
     ) as HTMLInputElement;
     target.checked = true;
     target.dispatchEvent(new Event("change"));
     await settle(editor);
-    expect(text(editor)).toContain("Endpoint 1");
     press(editor, "Next");
     await settle(editor);
     press(editor, "Next");

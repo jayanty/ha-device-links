@@ -4022,22 +4022,24 @@ var Z = class extends D {
 		let t = this._draft;
 		if (!this.api || t === null) return;
 		let n = Gt(t);
-		if (n !== null) {
-			this._saving = !0, this._error = null;
-			try {
-				await this.api.upsertRule(n, this.profileId), this.dispatchEvent(new CustomEvent("dl-rule-saved", {
-					detail: {
-						rule: n,
-						apply: e
-					},
-					bubbles: !0,
-					composed: !0
-				}));
-			} catch (e) {
-				this._error = N(this.hass, M.from(e));
-			} finally {
-				this._saving = !1;
-			}
+		if (n === null) {
+			this._error = "This rule still needs a control and at least one target.";
+			return;
+		}
+		this._saving = !0, this._error = null;
+		try {
+			await this.api.upsertRule(n, this.profileId), this.dispatchEvent(new CustomEvent("dl-rule-saved", {
+				detail: {
+					rule: n,
+					apply: e
+				},
+				bubbles: !0,
+				composed: !0
+			}));
+		} catch (e) {
+			this._error = N(this.hass, M.from(e));
+		} finally {
+			this._saving = !1;
 		}
 	}
 	_close() {

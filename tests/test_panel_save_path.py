@@ -16,8 +16,8 @@ it.
 
 So that is what this file does, and the only thing it does: build the rule the way
 `dialogs/rule-editor.ts` builds it, out of the same serialized payloads the panel is
-handed (`devices/list` rows and `devices/get` details, over a real WebSocket connection),
-send it through `rules/upsert`, and assert it is accepted and comes back the same. Four
+handed (`devices/list` rows and `devices/get` details), send it through `rules/upsert` over
+a real WebSocket connection, and assert it is accepted and comes back the same. Four
 shapes, because the endpoints differ in all four: a one-way Z-Wave rule, a two-way Z-Wave
 rule (the reverse leg is where endpoints bite hardest), a one-way Zigbee rule, whose
 binding is refused outright if the target endpoint is not named, and a two-way Zigbee rule,
@@ -36,6 +36,15 @@ The endpoints are read with `.get`, the way a JavaScript client reads a field th
 be in the payload at all: a serializer that stopped carrying `Emitter.endpoint` or
 `DeviceRow.receiving_endpoint` sends `null` from the panel and must fail here with the
 refusal a user would see, not with a `KeyError` about a Python dictionary.
+
+Two limits, said here rather than left to be discovered. The Zigbee cases take their device
+detail from `websocket._device_detail` rather than from the `devices/get` command, because
+a Zigbee handle resolves to no Home Assistant device id and neither that command nor the
+panel can ask for one by id yet (T57): the payload is the one the panel would be handed and
+the lookup in front of it is the part that does not work, so those cases are cover for a
+rule shape the editor cannot reach today rather than a rule it produces today. And the last
+two tests are pins rather than regression tests: they passed before T50 was closed and are
+here to say what must keep being refused.
 """
 
 from __future__ import annotations
@@ -104,7 +113,9 @@ def panel_rule(  # noqa: PLR0913
         "enabled": True,
         "direction": direction,
         "mirror_source": mirror,
-        "features": kept or sorted(emitter["actions"])[:1],
+        # `available.slice(0, 1)` in the editor, which is the first key of `actions` in the
+        # order the payload lists them, not the first in sorted order.
+        "features": kept or list(emitter["actions"])[:1],
         "source": {
             "device": source["identity"],
             "endpoint": emitter.get("endpoint"),
@@ -269,7 +280,6 @@ async def test_issue_50_a_two_way_zwave_rule_the_panel_builds_is_accepted(
     await call(client, "rules/upsert", rule=rule, profile_id=profile)
     plan = await call(client, "plan", rule_ids=["panel-3way"])
 
-    assert rule["direction"] == "two_way"
     assert compiled["errors"] == []
     # Both directions compiled, and each leg drives from the endpoint its own control uses.
     assert {link["source"]["identity"] for link in compiled["links"]} == {
@@ -325,6 +335,7 @@ async def test_issue_50_a_two_way_zigbee_rule_the_panel_builds_converges(
     devices = await rows(client)
     source = devices[zigbee_handle(AUX_IEEE).identity]
     detail = zigbee_detail(hass, both_radios, AUX_IEEE)
+    target = devices[zigbee_handle(LIGHT_IEEE).identity]
     rule = panel_rule(
         rule_id="panel-zigbee-3way",
         name="Entrance 3-way",
@@ -332,7 +343,7 @@ async def test_issue_50_a_two_way_zigbee_rule_the_panel_builds_converges(
         source=source,
         detail=detail,
         emitter_id=_first_control(detail),
-        targets=[devices[zigbee_handle(LIGHT_IEEE).identity]],
+        targets=[target],
     )
 
     compiled = await call(client, "rules/validate", rule=rule)
@@ -342,10 +353,22 @@ async def test_issue_50_a_two_way_zigbee_rule_the_panel_builds_converges(
     assert compiled["errors"] == []
     assert compiled["warnings"] == []
     # Forward off the aux paddle onto the light's load, reverse off the light's paddle onto
-    # the aux's load. Nothing here is endpoint 0, which is the Z-Wave root and nothing here.
+    # the aux's load. Named by device as well as by endpoint, because both legs run between
+    # the same pair of endpoint numbers: a set of (2, 1) pairs alone would still hold when
+    # the reverse leg had stopped being compiled at all, which is the regression this is
+    # here to catch. Nothing here is endpoint 0, the Z-Wave root, which is nothing on Zigbee.
     assert {
-        (link["source"]["endpoint"], link["target"]["endpoint"]) for link in compiled["links"]
-    } == {(2, 1)}
+        (
+            link["source"]["identity"],
+            link["source"]["endpoint"],
+            link["target"]["identity"],
+            link["target"]["endpoint"],
+        )
+        for link in compiled["links"]
+    } == {
+        (source["identity"], 2, target["identity"], 1),
+        (target["identity"], 2, source["identity"], 1),
+    }
     assert plan["counts"]["add"]
     assert not plan["counts"]["blocked"]
 
@@ -375,11 +398,16 @@ async def test_issue_50_a_rule_the_panel_saved_survives_export_and_import(
 
     exported = await call(client, "profiles/export", profile_id=profile)
     imported = await call(client, "profiles/import", yaml=exported["yaml"])
+    reread = stored(await call(client, "profiles/get", profile_id=profile), "panel-export")
 
     assert imported["profile"]["rules"] == 1
+    # The number itself, not merely a rule that parsed: an endpoint dropped in the file
+    # would come back as a rule that still reads as valid and links somewhere else.
+    assert reread["source"] == rule["source"]
+    assert reread["targets"] == rule["targets"]
 
 
-async def test_a_target_that_can_receive_nothing_is_refused_before_the_save(
+async def test_a_target_that_can_receive_nothing_is_reported_before_the_save(
     hass: HomeAssistant, client: Any, both_radios: MockConfigEntry, profile: str
 ) -> None:
     """A device with no endpoint for a link to land on, chosen as a target.
@@ -389,7 +417,10 @@ async def test_a_target_that_can_receive_nothing_is_refused_before_the_save(
     network, because they serve no cluster a binding could send to, and that is the same
     devices whose `receivable` set is empty. So the editor sends a null endpoint, and the
     answer the user gets is the compiler's, at the review step, before anything is stored:
-    "cannot act on on_off", per feature, with the target named. Not a save that fails.
+    "cannot act on on_off", per feature, with the target named, and "Save and apply"
+    disabled because the rule compiles to nothing. Saving it anyway is still allowed and
+    still accepted, which is the editor's deliberate choice (a rule that could not be saved
+    is only lost), so this is a rule reported as blocked rather than a save that fails.
     """
     devices = await rows(client)
     source = devices[zigbee_handle(AUX_IEEE).identity]

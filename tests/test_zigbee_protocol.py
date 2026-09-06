@@ -181,6 +181,33 @@ def test_a_device_that_can_act_on_nothing_has_no_receiving_endpoint() -> None:
     assert zp.receivable_features(coordinator) == frozenset()
 
 
+def test_a_device_can_receive_exactly_when_it_has_somewhere_for_a_link_to_land() -> None:
+    """The property the whole capture has to hold, not just the coordinator.
+
+    Both answers are read off the same input clusters, so "this device can act on something"
+    and "there is an endpoint for a link to land on" must never disagree. It became
+    load-bearing when the rule editor started filling a target's endpoint from
+    `receiving_endpoint` (open item T50): a device that could receive and answered None
+    would have the panel save a Zigbee rule with no target endpoint, which compiles clean
+    and is refused at apply with `zigbee_target_endpoint_required`.
+
+    Note the range in the capture: the Inovelli switches receive on endpoint 1, the Hue
+    fixtures on 11, and the Aqara sensors on nothing at all. A default of 1 would have been
+    wrong on a third of this network, which is why it is derived rather than assumed.
+    """
+    answers = {
+        ieee: (zp.receiving_endpoint(device), zp.receivable_features(device))
+        for ieee, device in zigbee_devices().items()
+    }
+
+    assert answers, "the capture holds no devices, so this checks nothing"
+    for ieee, (endpoint, receivable) in answers.items():
+        assert (endpoint is None) == (receivable == frozenset()), (
+            f"{ieee} answers receiving endpoint {endpoint} and receivable {receivable}"
+        )
+    assert {endpoint for endpoint, _ in answers.values()} == {None, 1, 11}
+
+
 def test_an_older_firmware_reports_fewer_endpoints_and_that_is_honoured() -> None:
     """Hallway Side Lights is a VZM31-SN on software 2.00 with no endpoint 3 at all."""
     emitters = zp.derive_emitters(zigbee_device(OLD_FIRMWARE_IEEE))
