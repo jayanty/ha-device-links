@@ -20,16 +20,19 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Final
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
-from homeassistant.const import EntityCategory
+from homeassistant.const import EntityCategory, Platform
 from homeassistant.core import HomeAssistant
 
 from .coordinator import RuleState
 from .entity import DeviceLinksEntity
+from .rule_entity import RuleEntity, RuleEntityKind, async_track_rule_entities
 
 if TYPE_CHECKING:
+    from homeassistant.helpers import device_registry as dr
     from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
     from . import DeviceLinksConfigEntry
+    from .models import Rule
 
 # Entities here are pushed to by the coordinator rather than polled, so there is nothing
 # for Home Assistant to serialize (quality-scale rule parallel-updates).
@@ -78,13 +81,21 @@ async def async_setup_entry(
     entry: DeviceLinksConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up the hub sensors."""
+    """Set up the hub sensors, and one status sensor per rule of the active profile."""
     async_add_entities(
         [
             DeviceLinksHealthSensor(entry),
             ActiveProfileStatusSensor(entry),
             PendingLinksSensor(entry),
         ]
+    )
+    async_track_rule_entities(
+        hass,
+        entry,
+        async_add_entities,
+        RuleEntityKind(
+            platform=Platform.SENSOR, key_prefix="rule_status", factory=RuleStatusSensor
+        ),
     )
 
 
@@ -225,3 +236,42 @@ class PendingLinksSensor(DeviceLinksEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return which links they are, so the count can be acted on rather than watched."""
         return {"fingerprints": sorted(self.coordinator.pending_link_fingerprints())}
+
+
+class RuleStatusSensor(RuleEntity, SensorEntity):
+    """What one rule's links are doing, on that rule's own device page.
+
+    Disabled by default: a house with forty rules would otherwise carry forty extra state
+    rows, forty recorder streams and forty entries in every entity picker, to say what the
+    rule switch already says in an attribute. It is here for the person who wants to graph
+    one rule or trigger on it, which is worth enabling one entity by hand for.
+    """
+
+    _attr_translation_key = "rule_status"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+    _attr_device_class = SensorDeviceClass.ENUM
+
+    def __init__(self, entry: DeviceLinksConfigEntry, rule: Rule, device: dr.DeviceEntry) -> None:
+        """Build the status sensor for one rule, attached to that rule's source device."""
+        super().__init__(entry, rule, device, key_prefix="rule_status")
+        self._attr_options = list(RULE_STATES)
+
+    @property
+    def native_value(self) -> str:
+        """Return the rule's state, with `applying` taking precedence while a job runs.
+
+        A rule that is being written is neither in sync nor drifted: what is on the device
+        is mid-change, and reporting either would be a statement about a state that has
+        not settled. The coordinator never invents `applying`, because it cannot see the
+        runner, so this is where the two are put together.
+        """
+        if self.rule.id in self.runtime.runner.active_rule_ids:
+            return "applying"
+        return str(self.rule_state)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the counts that make a drifted rule actionable rather than alarming."""
+        total, in_sync = self.coordinator.rule_link_counts(self.rule.id)
+        return {"links_total": total, "links_in_sync": in_sync, "rule_id": self.rule.id}

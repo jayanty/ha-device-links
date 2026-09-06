@@ -9,11 +9,22 @@
       },
       "pending_links": {
         "default": "mdi:sleep"
+      },
+      "rule_status": {
+        "default": "mdi:link-variant"
       }
     },
     "binary_sensor": {
       "drift": {
         "default": "mdi:alert-decagram"
+      }
+    },
+    "switch": {
+      "rule_switch": {
+        "default": "mdi:link-variant",
+        "state": {
+          "off": "mdi:link-variant-off"
+        }
       }
     }
   }

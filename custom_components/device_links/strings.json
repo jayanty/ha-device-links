@@ -21,11 +21,19 @@
       },
       "pending_links": {
         "name": "Pending links"
+      },
+      "rule_status": {
+        "name": "{rule} status"
       }
     },
     "binary_sensor": {
       "drift": {
         "name": "Drift"
+      }
+    },
+    "switch": {
+      "rule_switch": {
+        "name": "Link: {rule}"
       }
     }
   }

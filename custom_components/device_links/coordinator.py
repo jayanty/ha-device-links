@@ -306,6 +306,54 @@ class DeviceLinksCoordinator:
         self._store.async_schedule_save(state)
         self._resolve_ownership()
 
+    def is_rule_enabled(self, rule_id: str, *, default: bool) -> bool:
+        """Say whether this rule of the active profile is enabled, as it stands now.
+
+        `default` answers for a rule that is not in the active profile, which a rule
+        entity briefly is while it is being torn down: its rule left the profile and Home
+        Assistant has not finished removing it yet. Its own last-known value is the only
+        honest answer in that window, and inventing one would make a switch flip under a
+        user's eyes on its way out.
+        """
+        profile = self.active_profile
+        if profile is None:
+            return default
+        return next((rule.enabled for rule in profile.rules if rule.id == rule_id), default)
+
+    @callback
+    def async_set_rule_enabled(self, rule_id: str, enabled: bool) -> bool:
+        """Enable or disable one rule of the active profile, and say whether it exists.
+
+        Only the stored intent changes here: nothing is written to a device, because
+        disabling a rule is what makes its links unwanted and removing them is an apply
+        like any other (FR-R5). The two are deliberately separate so a caller can decide
+        the intent without a radio conversation, and so the ownership index is already
+        right when the plan is built.
+
+        False means no rule of the active profile has that id, which is a caller error
+        rather than something to raise about here: the layers above turn it into a
+        translated `ServiceValidationError`.
+        """
+        profile = self.active_profile
+        if profile is None or not any(rule.id == rule_id for rule in profile.rules):
+            return False
+        updated = replace(
+            profile,
+            rules=tuple(
+                rule.with_enabled(enabled) if rule.id == rule_id else rule for rule in profile.rules
+            ),
+        )
+        self.async_update_state(
+            replace(
+                self._state,
+                profiles=tuple(
+                    updated if candidate.id == profile.id else candidate
+                    for candidate in self._state.profiles
+                ),
+            )
+        )
+        return True
+
     @callback
     def async_note_applied(self, rule_ids: Iterable[str]) -> None:
         """Record that these rules have been applied successfully at least once.
@@ -597,6 +645,17 @@ class DeviceLinksCoordinator:
         if profile is None:
             return {}
         return {rule.id: self._rule_state(rule) for rule in profile.rules}
+
+    def rule_link_counts(self, rule_id: str) -> tuple[int, int]:
+        """Return how many links this rule wants, and how many are really on the devices.
+
+        "3 of 4" is what makes a drifted rule actionable: it says the fault is one link
+        rather than the whole rule, which is the difference between checking one group and
+        re-including a device.
+        """
+        wanted = self._links_of(rule_id)
+        present = self._present
+        return len(wanted), sum(1 for link in wanted if link.fingerprint in present)
 
     def _rule_state(self, rule: Rule) -> RuleState:
         """Return one rule's state, asking the questions in the order that keeps it honest.

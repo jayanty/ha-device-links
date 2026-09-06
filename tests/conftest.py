@@ -9,7 +9,7 @@ driver's association tables.
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -57,12 +57,16 @@ def zwave_driver() -> FakeDriver:
 
 
 @pytest.fixture
-def zwave_js_entry(hass: HomeAssistant, zwave_driver: FakeDriver) -> MockConfigEntry:
+def zwave_js_entry(hass: HomeAssistant, zwave_driver: FakeDriver) -> Iterator[MockConfigEntry]:
     """Return a loaded zwave_js config entry whose client holds the fake driver.
 
     Shaped exactly as `zwave_accessor` reads it (`runtime_data.client.driver`), because
     that accessor is the one supported way into the driver and a fixture that took a
     short cut around it would stop testing the coupling CI is meant to guard.
+
+    Marked not loaded again on teardown: the real `zwave_js.async_unload_entry` would
+    otherwise run against this stand-in when Home Assistant shuts down, and fill the log
+    with tracebacks that have nothing to do with the test that just ran.
     """
     entry = MockConfigEntry(domain=ZWAVE_JS_DOMAIN, title="Z-Wave JS", entry_id="zwavejsentry")
     entry.add_to_hass(hass)
@@ -73,7 +77,8 @@ def zwave_js_entry(hass: HomeAssistant, zwave_driver: FakeDriver) -> MockConfigE
         )
     )
     entry.mock_state(hass, ConfigEntryState.LOADED)
-    return entry
+    yield entry
+    entry.mock_state(hass, ConfigEntryState.NOT_LOADED)
 
 
 @pytest.fixture

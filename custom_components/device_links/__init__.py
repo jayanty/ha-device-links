@@ -1,7 +1,8 @@
 """The Device Links config entry: what is built at setup and what is taken down at unload.
 
 Everything the integration owns is built here and hung on `entry.runtime_data`: the
-backends, the observed-state coordinator and the job runner. Nothing is in `hass.data`.
+backends, the observed-state coordinator, the job runner, and the rate limiter that
+stands between every caller and a rule toggle. Nothing is in `hass.data`.
 
 **A backend whose upstream integration has not loaded yet is not a failure.** The
 manifest lists `zwave_js`, `mqtt` and `matter` in `after_dependencies`, which asks Home
@@ -21,10 +22,11 @@ something was removed after setup, and Task 6's Repairs issue (E1) is what turns
 into an explanation.
 
 **Unload is the mirror of setup, in reverse order.** The platforms come down first, so no
-entity can call into a runner that is being shut down; then the runner, which waits for
-writes already on the radio; then the coordinator, which drops the backend subscriptions.
-Every one of those has a listener or a timer behind it, and a single one left behind fires
-after a reload against an object that no longer exists.
+entity can call into a runner that is being shut down; then the rate limiter's timers, so
+no deferred toggle starts a job during teardown; then the runner, which waits for writes
+already on the radio; then the coordinator, which drops the backend subscriptions. Every
+one of those has a listener or a timer behind it, and a single one left behind fires after
+a reload against an object that no longer exists.
 """
 
 from __future__ import annotations
@@ -53,6 +55,7 @@ from .deployment import Deployment, read_deployment
 from .executor import JobRunner
 from .models import Backend as BackendId
 from .profile_db import ProfileDatabase, load_profiles
+from .rule_toggle import RuleToggleLimiter
 from .storage import DeviceLinksStore, StorageSchemaError
 
 if TYPE_CHECKING:
@@ -74,6 +77,7 @@ __all__ = [
 PLATFORMS: Final = [
     Platform.BINARY_SENSOR,
     Platform.SENSOR,
+    Platform.SWITCH,
 ]
 
 # Where the curated device profiles live, relative to this package.
@@ -105,6 +109,7 @@ class DeviceLinksRuntimeData:
 
     coordinator: DeviceLinksCoordinator
     runner: JobRunner
+    toggles: RuleToggleLimiter
     backends: dict[BackendId, Backend]
     backend_info: tuple[BackendInfo, ...]
     version: str | None
@@ -144,9 +149,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry) 
             translation_placeholders=error.translation_placeholders,
         ) from error
 
+    runner = JobRunner(coordinator)
     entry.runtime_data = DeviceLinksRuntimeData(
         coordinator=coordinator,
-        runner=JobRunner(coordinator),
+        runner=runner,
+        toggles=RuleToggleLimiter(hass, coordinator, runner),
         backends=backends,
         backend_info=backend_info,
         version=await _async_version(hass),
@@ -171,6 +178,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry)
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
     runtime = entry.runtime_data
+    runtime.toggles.async_shutdown()
     await runtime.runner.async_shutdown()
     await runtime.coordinator.async_shutdown()
     return True

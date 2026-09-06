@@ -364,6 +364,23 @@ class JobRunner:
             devices_in_flight=tuple(sorted(job.devices_in_flight)),
         )
 
+    @property
+    def active_rule_ids(self) -> frozenset[str]:
+        """Return the rules the running job is writing for, or nothing when idle.
+
+        What a per-rule status sensor needs to say `applying`. Derived from the job's
+        operations rather than from its scope description, because the scope is a line of
+        text for a history and a rule id is what an entity is keyed by.
+        """
+        job = self._job
+        if job is None:
+            return frozenset()
+        return frozenset(
+            op.item.link.rule_id
+            for op in job.ops
+            if op.item.link is not None and op.item.link.rule_id is not None
+        )
+
     async def async_apply(
         self,
         plan: Plan,
