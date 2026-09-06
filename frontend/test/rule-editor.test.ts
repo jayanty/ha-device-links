@@ -137,6 +137,7 @@ describe("the rule editor", () => {
       links: [],
       settings: [],
       hybrid_legs: [],
+      loops: [],
       warnings: [Z7],
       errors: [],
     });
@@ -158,6 +159,7 @@ describe("the rule editor", () => {
       links: [],
       settings: [],
       hybrid_legs: [],
+      loops: [],
       warnings: [],
       errors: [
         {
@@ -184,6 +186,7 @@ describe("the rule editor", () => {
       links: [],
       settings: [],
       hybrid_legs: [],
+      loops: [],
       warnings: [],
       errors: [],
     });
@@ -208,6 +211,7 @@ describe("the rule editor", () => {
       links: [],
       settings: [],
       hybrid_legs: [],
+      loops: [],
       warnings: [],
       errors: [],
     });
@@ -312,6 +316,7 @@ describe("the HA-executed opt-ins", () => {
       links: [],
       settings: [],
       hybrid_legs: [],
+      loops: [],
       warnings: [],
       errors: [],
     });
@@ -371,6 +376,7 @@ describe("the HA-executed opt-ins", () => {
           indicator_id: null,
         },
       ],
+      loops: [],
       warnings: [],
       errors: [],
     });
@@ -392,6 +398,7 @@ describe("the payload the rule editor sends", () => {
       links: [],
       settings: [],
       hybrid_legs: [],
+      loops: [],
       warnings: [],
       errors: [],
     });
@@ -441,5 +448,39 @@ describe("the payload the rule editor sends", () => {
     // shape validated and another stored is how a user is shown a plan they do not get.
     const validated = hass.sent.find((message) => message.type === COMMANDS.rulesValidate);
     expect(validated?.rule).toEqual(rule);
+  });
+});
+
+describe("the loop warning", () => {
+  it("shows the devices, names the rules, and does not stop the rule being saved", async () => {
+    const hass = mockHass();
+    hass.results.set(COMMANDS.devicesGet, deviceDetail());
+    hass.results.set(COMMANDS.rulesValidate, {
+      links: [],
+      settings: [],
+      hybrid_legs: [],
+      loops: [
+        {
+          devices: [
+            { identity: "zwave:home:36", name: "Bedroom Scene Controller", device_id: "ha36" },
+            { identity: "zwave:home:38", name: "Bedside Light L", device_id: "ha38" },
+          ],
+          rule_ids: ["rule-1", "rule-2"],
+          rule_names: ["Bedside pair", "Bedside pair back"],
+        },
+      ],
+      warnings: [],
+      errors: [],
+    });
+    const editor = await open(hass);
+    await toReview(editor);
+
+    const rendered = text(editor);
+    expect(rendered).toContain("Possible loop");
+    expect(rendered).toContain("Bedroom Scene Controller, Bedside Light L");
+    expect(rendered).toContain("Bedside pair, Bedside pair back");
+    // E30: a warning, not a block. Both save buttons stay live.
+    const save = buttons(editor).find((button) => button.textContent?.trim() === "Save");
+    expect(save?.disabled).toBe(false);
   });
 });

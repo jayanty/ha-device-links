@@ -539,6 +539,52 @@ async def test_profiles_get_matches_the_profile_detail_interface(client: Any) ->
     assert_shape(await call(client, "profiles/get", profile_id="bedroom"), "ProfileDetail")
 
 
+async def test_rules_validate_matches_the_rule_validation_interface(client: Any) -> None:
+    """The loops ride alongside the compilation, so the whole answer has to be checked."""
+    exported = await call(client, "profiles/export")
+    assert exported
+    listing = await call(client, "profiles/get", profile_id="bedroom")
+    rule = listing["rules"][0]["rule"]
+
+    assert_shape(await call(client, "rules/validate", rule=rule), "RuleValidation")
+
+
+async def test_a_loop_is_reported_by_both_surfaces_that_can_show_one(
+    hass: HomeAssistant, loaded: MockConfigEntry, client: Any
+) -> None:
+    """FR-R7 before the save and after it, in the two payloads the panel renders."""
+    from dataclasses import replace as _replace  # noqa: PLC0415
+
+    coordinator = loaded.runtime_data.coordinator
+    profile = coordinator.active_profile
+    assert profile is not None
+    looping = _replace(
+        profile,
+        rules=(
+            _replace(profile.rules[0], mirror_source=MirrorChoice.ON),
+            _replace(
+                a_rule(
+                    "back", source_node=MAIN_LIGHTS, emitter_id="paddle", target_node=CONTROLLER
+                ),
+                mirror_source=MirrorChoice.ON,
+            ),
+        ),
+    )
+    coordinator.async_update_state(
+        _replace(coordinator.state, profiles=(looping,), active_profile_id=looping.id)
+    )
+    await hass.async_block_till_done()
+
+    detail = await call(client, "profiles/get", profile_id=looping.id)
+    assert_shape(detail, "ProfileDetail")
+    assert detail["loops"], "the profile forms a loop and the listing did not say so"
+    for loop in detail["loops"]:
+        assert_shape(loop, "LoopWarning")
+
+    validated = await call(client, "rules/validate", rule=detail["rules"][0]["rule"])
+    assert validated["loops"], "the rule closes a loop and validating it did not say so"
+
+
 async def test_profiles_export_matches_the_profile_export_interface(client: Any) -> None:
     assert_shape(await call(client, "profiles/export"), "ProfileExport")
 

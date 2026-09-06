@@ -3436,6 +3436,28 @@ function Ht() {
 	return e ? e.replace(/-/g, "") : `profile${Date.now().toString(36)}`;
 }
 //#endregion
+//#region src/components/loops.ts
+function Ut(e) {
+	return e.length === 0 ? S : b`
+    ${e.map((e) => b`
+        <div class="notice warn" role="status">
+          <p>
+            <strong>Possible loop.</strong>
+            ${e.devices.map((e) => e.name).join(", ")}
+            can pass a command round between them: each one is set to repeat what it
+            receives to its own associations, and together their links form a circle.
+          </p>
+          <p class="secondary">
+            ${e.rule_names.length === 0 ? "No rule of this profile joins them, so the links that close the circle came from somewhere else." : `Made by: ${e.rule_names.join(", ")}.`}
+            This is a warning, not a refusal. Turning off "make the control's own load
+            follow the press" on any one of these devices breaks the circle, and so does
+            making one of the rules one way.
+          </p>
+        </div>
+      `)}
+  `;
+}
+//#endregion
 //#region src/dialogs/rule-editor.ts
 var X = [
 	"template",
@@ -3443,20 +3465,20 @@ var X = [
 	"targets",
 	"behaviour",
 	"review"
-], Ut = {
+], Wt = {
 	template: "What should this do?",
 	source: "Which control drives it?",
 	targets: "What should it control?",
 	behaviour: "How should it behave?",
 	review: "What this will do"
-}, Wt = [
+}, Gt = [
 	"on_off",
 	"level_set",
 	"level_hold",
 	"scene",
 	"color",
 	"status_report"
-], Gt = {
+], Kt = {
 	remote: {
 		features: [
 			"on_off",
@@ -3495,7 +3517,7 @@ var X = [
 		direction: "one_way",
 		mirror: "leave"
 	}
-}, Kt = [
+}, qt = [
 	{
 		value: "on_only",
 		needs: "scene_id",
@@ -3520,7 +3542,7 @@ var X = [
 		label: "Keep this button's LED in sync with the target",
 		help: "Nothing on the radio can address one button's LED, so Home Assistant watches the target and lights the button to match."
 	}
-], qt = [
+], Jt = [
 	{
 		value: "leave",
 		label: "Leave the device's own setting alone",
@@ -3537,7 +3559,7 @@ var X = [
 		help: "Writes the device's mirror setting so only the targets respond."
 	}
 ];
-function Jt(e) {
+function Yt(e) {
 	let { device: t, endpoint: n, emitter_id: r } = e.source;
 	return t === "" || r === "" || n === null || e.targets.length === 0 ? null : {
 		...e,
@@ -3651,11 +3673,11 @@ var Z = class extends E {
 		let t = X.indexOf(this._step);
 		return b`
       ${this.narrow ? b`<p class="secondary">
-            Step ${t + 1} of ${X.length}: ${Ut[this._step]}
+            Step ${t + 1} of ${X.length}: ${Wt[this._step]}
           </p>` : b`<ol class="steps">
             ${X.map((e, t) => b`
                 <li aria-current=${e === this._step ? "step" : "false"}>
-                  ${t + 1}. ${Ut[e]}
+                  ${t + 1}. ${Wt[e]}
                 </li>
               `)}
           </ol>`}
@@ -3675,7 +3697,7 @@ var Z = class extends E {
 	_renderTemplateStep(e) {
 		return b`
       <div class="template-grid">
-        ${Object.keys(Gt).map((t) => b`
+        ${Object.keys(Kt).map((t) => b`
             <button
               type="button"
               class="template-card"
@@ -3690,7 +3712,7 @@ var Z = class extends E {
     `;
 	}
 	_chooseTemplate(e) {
-		let t = Gt[e];
+		let t = Kt[e];
 		this._update({
 			template: e,
 			features: [...t.features],
@@ -3872,7 +3894,7 @@ var Z = class extends E {
       </label>
 
       <h3>What it sends</h3>
-      ${Wt.map((r) => {
+      ${Gt.map((r) => {
 			let i = n[r], a = i !== void 0;
 			return b`
           <label class="choice ${a ? "" : "disabled"}">
@@ -3916,7 +3938,7 @@ var Z = class extends E {
       </label>
 
       <h3 style="margin-top: 16px">The control's own load</h3>
-      ${qt.map((t) => b`
+      ${Jt.map((t) => b`
           <label class="choice">
             <input
               type="radio"
@@ -3936,7 +3958,7 @@ var Z = class extends E {
 	}
 	_renderHybridSection(e) {
 		if (!this.hybridAllowed) return S;
-		let t = this._selectedEmitter(e), n = Kt.filter((e) => t !== null && t[e.needs] !== null);
+		let t = this._selectedEmitter(e), n = qt.filter((e) => t !== null && t[e.needs] !== null);
 		return b`
       <h3 style="margin-top: 16px">
         Run in Home Assistant <span class="chip warn">HA-executed</span>
@@ -4022,6 +4044,7 @@ var Z = class extends E {
             This rule compiles to no links, so there is nothing to apply. You can still save
             it: it will show as blocked in the rules table until whatever is wrong is fixed.
           </p>` : S}
+      ${Ut(e.loops)}
     `;
 	}
 	_renderCompiled(e) {
@@ -4158,9 +4181,9 @@ var Z = class extends E {
 	}
 	_begin() {
 		if (this._error = null, this._compiled = null, this._search = "", this._sourceDetail = null, this.rule === null) {
-			let e = this.initialTemplate ?? "remote", t = Gt[e];
+			let e = this.initialTemplate ?? "remote", t = Kt[e];
 			this._draft = {
-				id: Yt(),
+				id: Xt(),
 				name: this.initialTemplate === null ? "" : R(e),
 				template: e,
 				backend: "zwave",
@@ -4199,7 +4222,7 @@ var Z = class extends E {
 	_validate() {
 		let e = this._draft;
 		if (!this.api || e === null) return;
-		let t = Jt(e);
+		let t = Yt(e);
 		if (t === null) {
 			this._compiled = null;
 			return;
@@ -4215,7 +4238,7 @@ var Z = class extends E {
 	async _save(e) {
 		let t = this._draft;
 		if (!this.api || t === null) return;
-		let n = Jt(t);
+		let n = Yt(t);
 		if (n === null) {
 			this._error = "This rule still needs a control and at least one target.";
 			return;
@@ -4244,20 +4267,20 @@ var Z = class extends E {
 	}
 };
 N([O({ attribute: !1 })], Z.prototype, "hass", void 0), N([O({ attribute: !1 })], Z.prototype, "api", void 0), N([O({ attribute: !1 })], Z.prototype, "components", void 0), N([O({ type: Boolean })], Z.prototype, "narrow", void 0), N([O({ type: Boolean })], Z.prototype, "open", void 0), N([O({ attribute: !1 })], Z.prototype, "devices", void 0), N([O({ attribute: !1 })], Z.prototype, "rule", void 0), N([O({ type: String })], Z.prototype, "profileId", void 0), N([O({ attribute: !1 })], Z.prototype, "initialTemplate", void 0), N([O({ type: Boolean })], Z.prototype, "hybridAllowed", void 0), N([k()], Z.prototype, "_draft", void 0), N([k()], Z.prototype, "_step", void 0), N([k()], Z.prototype, "_sourceDetail", void 0), N([k()], Z.prototype, "_loadingSource", void 0), N([k()], Z.prototype, "_compiled", void 0), N([k()], Z.prototype, "_validating", void 0), N([k()], Z.prototype, "_saving", void 0), N([k()], Z.prototype, "_error", void 0), N([k()], Z.prototype, "_search", void 0), Z = N([D("dl-rule-editor")], Z);
-function Yt() {
+function Xt() {
 	let e = globalThis.crypto?.randomUUID?.();
 	return e ? e.replace(/-/g, "") : `rule${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 }
 //#endregion
 //#region src/views/rules.ts
-var Xt = [
+var Zt = [
 	"remote",
 	"virtual_3way",
 	"scene_button",
 	"off_all",
 	"status_feedback",
 	"custom"
-], Zt = [
+], Qt = [
 	"in_sync",
 	"drift",
 	"pending",
@@ -4266,7 +4289,7 @@ var Xt = [
 	"unknown"
 ], Q = class extends H {
 	constructor(...e) {
-		super(...e), this._profile = null, this._rules = [], this._devices = [], this._templates = [...Xt], this._emitterLabels = {}, this._loading = !0, this._error = null, this._search = "", this._backendFilter = "", this._stateFilter = "", this._editorOpen = !1, this._editing = null, this._editorTemplate = null, this._planOpen = !1, this._planHeading = "Plan and apply", this._confirmDelete = null, this._staged = null, this._appliedDuringPlan = !1;
+		super(...e), this._profile = null, this._rules = [], this._loops = [], this._devices = [], this._templates = [...Zt], this._emitterLabels = {}, this._loading = !0, this._error = null, this._search = "", this._backendFilter = "", this._stateFilter = "", this._editorOpen = !1, this._editing = null, this._editorTemplate = null, this._planOpen = !1, this._planHeading = "Plan and apply", this._confirmDelete = null, this._staged = null, this._appliedDuringPlan = !1;
 	}
 	static {
 		this.styles = V;
@@ -4285,6 +4308,7 @@ var Xt = [
 		return b`
       <div class="content">
         ${this._error === null ? S : b`<div class="notice error" role="alert">${this._error}</div>`}
+        ${Ut(this._loops)}
         <div class="card">
           ${this._renderToolbar()}
           ${this._renderBody()}
@@ -4365,7 +4389,7 @@ var Xt = [
 		}}
           >
             <option value="">Any</option>
-            ${Zt.map((e) => b`<option value=${e}>${z(e)}</option>`)}
+            ${Qt.map((e) => b`<option value=${e}>${z(e)}</option>`)}
           </select>
         </label>
       </div>
@@ -4584,7 +4608,9 @@ var Xt = [
 				]);
 				this._devices = t ?? [], n?.length && (this._templates = n.map((e) => e.id));
 				let r = (e.profiles ?? []).find((e) => e.is_active) ?? null;
-				this._profile = r, this._rules = r === null ? [] : (await this.api.getProfile(r.id)).rules ?? [], this._error = null, this._loadEmitterLabels();
+				this._profile = r;
+				let i = r === null ? null : await this.api.getProfile(r.id);
+				this._rules = i?.rules ?? [], this._loops = i?.loops ?? [], this._error = null, this._loadEmitterLabels();
 			} catch (e) {
 				this._error = M(this.hass, j.from(e));
 			} finally {
@@ -4668,10 +4694,10 @@ var Xt = [
 		}
 	}
 };
-N([k()], Q.prototype, "_profile", void 0), N([k()], Q.prototype, "_rules", void 0), N([k()], Q.prototype, "_devices", void 0), N([k()], Q.prototype, "_templates", void 0), N([k()], Q.prototype, "_emitterLabels", void 0), N([k()], Q.prototype, "_loading", void 0), N([k()], Q.prototype, "_error", void 0), N([k()], Q.prototype, "_search", void 0), N([k()], Q.prototype, "_backendFilter", void 0), N([k()], Q.prototype, "_stateFilter", void 0), N([k()], Q.prototype, "_editorOpen", void 0), N([k()], Q.prototype, "_editing", void 0), N([k()], Q.prototype, "_editorTemplate", void 0), N([k()], Q.prototype, "_planOpen", void 0), N([k()], Q.prototype, "_planScope", void 0), N([k()], Q.prototype, "_planHeading", void 0), N([k()], Q.prototype, "_confirmDelete", void 0), Q = N([D("device-links-rules")], Q);
+N([k()], Q.prototype, "_profile", void 0), N([k()], Q.prototype, "_rules", void 0), N([k()], Q.prototype, "_loops", void 0), N([k()], Q.prototype, "_devices", void 0), N([k()], Q.prototype, "_templates", void 0), N([k()], Q.prototype, "_emitterLabels", void 0), N([k()], Q.prototype, "_loading", void 0), N([k()], Q.prototype, "_error", void 0), N([k()], Q.prototype, "_search", void 0), N([k()], Q.prototype, "_backendFilter", void 0), N([k()], Q.prototype, "_stateFilter", void 0), N([k()], Q.prototype, "_editorOpen", void 0), N([k()], Q.prototype, "_editing", void 0), N([k()], Q.prototype, "_editorTemplate", void 0), N([k()], Q.prototype, "_planOpen", void 0), N([k()], Q.prototype, "_planScope", void 0), N([k()], Q.prototype, "_planHeading", void 0), N([k()], Q.prototype, "_confirmDelete", void 0), Q = N([D("device-links-rules")], Q);
 //#endregion
 //#region src/panel.ts
-var Qt = "0.0.1", $ = class extends E {
+var $t = "0.0.1", $ = class extends E {
 	constructor(...e) {
 		super(...e), this.narrow = !1, this.componentLoader = () => ot(), this._components = null, this._selected = null, this._api = null;
 	}
@@ -4850,7 +4876,7 @@ var Qt = "0.0.1", $ = class extends E {
 	}
 	_renderVersionBanner() {
 		if (!this.versionMismatch) return S;
-		let e = `Device Links was updated to ${this.backendVersion} while this page was open. This panel is still running version ${Qt}. Reload the page to pick up the new one.`;
+		let e = `Device Links was updated to ${this.backendVersion} while this page was open. This panel is still running version ${$t}. Reload the page to pick up the new one.`;
 		return this._components?.has("ha-alert") ? b`
         <ha-alert class="banner" alert-type="info" title="A newer version is installed">
           ${e}
@@ -4891,4 +4917,4 @@ N([O({ attribute: !1 })], $.prototype, "hass", void 0), N([O({
 	reflect: !0
 })], $.prototype, "narrow", void 0), N([O({ attribute: !1 })], $.prototype, "route", void 0), N([O({ attribute: !1 })], $.prototype, "panel", void 0), N([O({ attribute: !1 })], $.prototype, "componentLoader", void 0), N([k()], $.prototype, "_components", void 0), N([k()], $.prototype, "_selected", void 0), $ = N([D("device-links-panel")], $);
 //#endregion
-export { Qt as BUNDLE_VERSION, $ as DeviceLinksPanel };
+export { $t as BUNDLE_VERSION, $ as DeviceLinksPanel };

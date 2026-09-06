@@ -35,6 +35,14 @@ All notable changes to this project are documented here. The format follows
   rule's status sensor and aggregated on the Health sensor, and a failure rate above
   a quarter raises a Repairs issue. When Home Assistant is down, only the legs stop:
   the native half of the same rule keeps working.
+- Loop analysis (Phase 2C, FR-R7, E30): the active profile's control links plus
+  what each device does with what it receives, as a graph, with every cycle whose
+  nodes all relay reported before the rule that closes it is saved. A two-way pair
+  is a cycle and is not a loop, which is why the graph is narrowed to the devices
+  that forward before a cycle is looked for. A warning and never a refusal: the
+  analysis knows what the links say rather than what the devices do. Shown in the
+  rule editor's review step with the rule being edited folded in, and on the Rules
+  tab for the profile as it stands.
 - Snapshot rollback (Phase 2B, FR-P3): put a snapshot's devices back the way they
   were, as a plan confirmed in the same dialog every other write goes through.
   Removals that an enabled rule will write again are named before the plan is

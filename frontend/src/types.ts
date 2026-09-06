@@ -270,6 +270,16 @@ export interface HybridLegTarget extends HybridLegDevice {
   endpoint: number | null;
 }
 
+/**
+ * `rules/validate`: what this rule compiles to, plus what it would join up.
+ *
+ * The loops are a separate field rather than another warning because they are about the
+ * profile with this rule folded into it, not about this rule: one rule cannot loop.
+ */
+export interface RuleValidation extends CompiledRule {
+  loops: LoopWarning[];
+}
+
 /** `Serializer.compiled`: what one rule compiles to, warnings and refusals included. */
 export interface CompiledRule {
   links: LinkRow[];
@@ -277,6 +287,26 @@ export interface CompiledRule {
   hybrid_legs: HybridLegRow[];
   warnings: Diagnostic[];
   errors: Diagnostic[];
+}
+
+/**
+ * `Serializer.loop`: a set of devices that can pass a command round between them (FR-R7).
+ *
+ * A warning and never a block (E30): the analysis knows what the links say and not what
+ * the devices do, and the user may know something it does not. Show it, name the rules,
+ * and let the rule be saved.
+ */
+export interface LoopWarning {
+  devices: LoopDevice[];
+  rule_ids: string[];
+  rule_names: string[];
+}
+
+/** One device on a loop. */
+export interface LoopDevice {
+  identity: string;
+  name: string;
+  device_id: string | null;
 }
 
 /** `Serializer.profile`: one profile as the profile list shows it. */
@@ -422,10 +452,17 @@ export interface ProfileList {
   profiles: ProfileRow[];
 }
 
-/** `profiles/get`. */
+/**
+ * `profiles/get`.
+ *
+ * `loops` is empty for every profile but the active one, because only the active profile's
+ * links are on the devices: a loop in a profile nobody has activated is a warning about a
+ * house that does not exist.
+ */
 export interface ProfileDetail {
   profile: ProfileRow;
   rules: RuleRow[];
+  loops: LoopWarning[];
 }
 
 /** `profiles/export`. */

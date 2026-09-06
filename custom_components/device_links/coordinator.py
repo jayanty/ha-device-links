@@ -50,6 +50,7 @@ from homeassistant.helpers.event import async_call_later
 
 from custom_components.device_links.backends.base import Backend, ObservedDevice
 from custom_components.device_links.compiler import CompiledRule, compile_rule
+from custom_components.device_links.loops import Loop, find_loops, forwarding_devices
 from custom_components.device_links.models import Backend as BackendId
 from custom_components.device_links.models import (
     DeviceCapabilities,
@@ -781,6 +782,38 @@ class DeviceLinksCoordinator:
     def hybrid_allowed(self) -> bool:
         """Say whether the option that lets a hybrid leg run at all is on (FR-H1)."""
         return self._hybrid_allowed
+
+    # Loops (FR-R7).
+
+    def find_loops(self, draft: Rule | None = None) -> tuple[Loop, ...]:
+        """Return the loops the active profile forms, with a rule being edited folded in.
+
+        The scope decision this method is: **the active profile, plus the one rule the user
+        is holding, across every backend.** A loop can span rules, which is why one rule's
+        compilation cannot answer this; it cannot span profiles, because only one profile's
+        links are ever on the devices (Decision D10); and it can certainly span protocols,
+        so nothing here asks which backend a link belongs to.
+
+        `draft` is the rule as the editor currently has it, which is what makes the answer
+        arrive before the save rather than after it. It replaces a stored rule of the same
+        id, so editing the rule that closes a loop shows the loop going away.
+
+        What the devices already hold counts as well as what the profile wants: a mirror
+        setting somebody turned on in Z-Wave JS UI years ago is half of a loop, and a rule
+        written today can be the other half without any rule of ours ever asking for it.
+        """
+        profile = self.active_profile
+        rules = list(profile.rules) if profile is not None else []
+        compiled = dict(self._compiled)
+        if draft is not None:
+            rules = [rule for rule in rules if rule.id != draft.id] + [draft]
+            compiled[draft.id] = compile_rule(draft.with_enabled(True), self._capabilities)
+        observed = {
+            identity: device.settings
+            for identity, device in self._observed.items()
+            if self.is_available(identity)
+        }
+        return find_loops(compiled, rules, forwarding=forwarding_devices(rules, observed))
 
     # Drift.
 

@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 
     from . import DeviceLinksConfigEntry
     from .compiler import CompiledRule
+    from .loops import Loop
     from .models import (
         DeviceCapabilities,
         DeviceHandle,
@@ -329,6 +330,29 @@ class Serializer:
             "rules": len(profile.rules),
             "enabled_rules": sum(1 for rule in profile.rules if rule.enabled),
             "is_active": profile.id == active_profile_id,
+        }
+
+    # Loops (FR-R7).
+
+    @callback
+    def loop(self, loop: Loop) -> dict[str, Any]:
+        """Return one loop as the devices on it and the rules that join them.
+
+        The rules are what makes this something a user can do anything about: "these three
+        devices form a loop" is a fact about a house, and "and it is the Virtual 3-way rule
+        that closes it" is a rule they can go and open.
+        """
+        return {
+            "devices": [
+                {
+                    "identity": device.identity,
+                    "name": device.name_at_authoring,
+                    "device_id": self.device_id(device),
+                }
+                for device in loop.devices
+            ],
+            "rule_ids": list(loop.rule_ids),
+            "rule_names": list(loop.rule_names),
         }
 
     # Swaps.

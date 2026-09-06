@@ -316,17 +316,27 @@ async def _profiles_list(
 async def _profiles_get(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Return one profile with each of its rules and what that rule is doing."""
+    """Return one profile with each of its rules and what that rule is doing.
+
+    The loops (FR-R7) come with it, and only for the active profile, because that is the
+    only one whose links are on the devices: reporting a loop in a profile nobody has
+    activated would be a warning about a house that does not exist. The rule editor asks
+    the same question with a draft rule folded in; this is the answer for the surfaces that
+    change a profile without opening the editor, which is every toggle in the rules table.
+    """
     entry, runtime = _runtime(hass)
-    profile = _profile(runtime.coordinator, msg["profile_id"])
+    coordinator = runtime.coordinator
+    profile = _profile(coordinator, msg["profile_id"])
     serializer = Serializer(hass, entry)
+    active = profile.id == coordinator.state.active_profile_id
     connection.send_result(
         msg["id"],
         {
             "profile": serializer.profile(
-                profile, active_profile_id=runtime.coordinator.state.active_profile_id
+                profile, active_profile_id=coordinator.state.active_profile_id
             ),
             "rules": [serializer.rule(rule) for rule in profile.rules],
+            "loops": [serializer.loop(loop) for loop in coordinator.find_loops()] if active else [],
         },
     )
 
@@ -506,11 +516,23 @@ async def _rules_validate(
     read-only and deliberately answers with warnings and errors rather than raising: a rule
     the compiler refuses is the answer to "will this work?", and an error reply would leave
     the panel with a failure where it wanted a reason.
+
+    The loops (FR-R7) are here rather than in the compiler for the reason `loops.py` opens
+    with: one rule cannot loop, and whether this one closes a loop is a question about the
+    whole profile with this rule folded into it. It is a warning and never a block (E30),
+    so it rides alongside the compilation rather than turning into an error.
     """
     entry, runtime = _runtime(hass)
-    rule = _read_rule(runtime.coordinator, msg["rule"])
-    compiled = runtime.coordinator.compile_rule(rule)
-    connection.send_result(msg["id"], Serializer(hass, entry).compiled(compiled))
+    coordinator = runtime.coordinator
+    rule = _read_rule(coordinator, msg["rule"])
+    serializer = Serializer(hass, entry)
+    connection.send_result(
+        msg["id"],
+        {
+            **serializer.compiled(coordinator.compile_rule(rule)),
+            "loops": [serializer.loop(loop) for loop in coordinator.find_loops(rule)],
+        },
+    )
 
 
 @_command("rules/upsert", {vol.Optional("profile_id"): str, vol.Required("rule"): dict})

@@ -20,6 +20,8 @@ PURE_MODULES = (
     "compiler.py",
     "planner.py",
     "swap.py",
+    "loops.py",
+    "diff.py",
     "yaml_io.py",
     "profile_db.py",
     "backends/zwave_protocol.py",

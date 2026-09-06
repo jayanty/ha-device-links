@@ -35,6 +35,7 @@ import { customElement, property, state } from "lit/decorators.js";
 import { type DeviceLinksApi, DeviceLinksApiError, describeError } from "../api";
 import "../components/dialog";
 import { renderIcon } from "../components/icon";
+import { renderLoops } from "../components/loops";
 import {
   backendLabel,
   describeHybridLeg,
@@ -52,7 +53,6 @@ import type { HomeAssistant } from "../hass";
 import { localizeDiagnostic } from "../messages";
 import { sharedStyles } from "../styles";
 import type {
-  CompiledRule,
   DeviceDetail,
   DeviceRow,
   Emitter,
@@ -60,6 +60,7 @@ import type {
   HybridKind,
   MirrorChoice,
   RuleData,
+  RuleValidation,
   TemplateId,
 } from "../types";
 
@@ -257,7 +258,7 @@ export class DeviceLinksRuleEditor extends LitElement {
 
   @state() private _loadingSource = false;
 
-  @state() private _compiled: CompiledRule | null = null;
+  @state() private _compiled: RuleValidation | null = null;
 
   @state() private _validating = false;
 
@@ -928,7 +929,7 @@ export class DeviceLinksRuleEditor extends LitElement {
     `;
   }
 
-  private _renderDiagnostics(compiled: CompiledRule): TemplateResult {
+  private _renderDiagnostics(compiled: RuleValidation): TemplateResult {
     return html`
       ${compiled.errors.map(
         (error) => html`<div class="notice error" role="alert">
@@ -948,10 +949,11 @@ export class DeviceLinksRuleEditor extends LitElement {
           </p>`
           : nothing
       }
+      ${renderLoops(compiled.loops)}
     `;
   }
 
-  private _renderCompiled(compiled: CompiledRule): TemplateResult {
+  private _renderCompiled(compiled: RuleValidation): TemplateResult {
     if (compiled.links.length === 0) {
       return html`
         <p>No links written to devices.</p>
@@ -990,7 +992,7 @@ export class DeviceLinksRuleEditor extends LitElement {
    * Assistant being off; a leg is a listener that does not. Showing them in one list would
    * be exactly the blurring Decision D3 says must not happen quietly.
    */
-  private _renderHybridLegs(compiled: CompiledRule): TemplateResult | typeof nothing {
+  private _renderHybridLegs(compiled: RuleValidation): TemplateResult | typeof nothing {
     if (compiled.hybrid_legs.length === 0) {
       return nothing;
     }

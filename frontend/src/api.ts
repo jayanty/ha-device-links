@@ -27,7 +27,6 @@
 import type { HassErrorPayload, HomeAssistant } from "./hass";
 import { fillPlaceholders, lookupMessage } from "./messages";
 import type {
-  CompiledRule,
   DeviceDetail,
   DeviceRow,
   Job,
@@ -44,6 +43,7 @@ import type {
   RuleData,
   RuleEnabled,
   RuleRow,
+  RuleValidation,
   Snapshot,
   SnapshotRollback,
   TemplateRow,
@@ -283,8 +283,8 @@ export class DeviceLinksApi {
    * rule the compiler refuses is the answer to "will this work?", and the editor shows the
    * reason beside the rule the user is still editing.
    */
-  async validateRule(rule: RuleData): Promise<CompiledRule> {
-    return this.send<CompiledRule>(COMMANDS.rulesValidate, { rule });
+  async validateRule(rule: RuleData): Promise<RuleValidation> {
+    return this.send<RuleValidation>(COMMANDS.rulesValidate, { rule });
   }
 
   async upsertRule(rule: RuleData, profileId?: string): Promise<RuleRow> {
