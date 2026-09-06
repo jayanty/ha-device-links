@@ -50,7 +50,7 @@ import voluptuous as vol
 from .const import DOMAIN, EVENT_JOB_FINISHED
 from .coordinator import PlanScope
 from .executor import JobRunningError
-from .models import Plan, Profile, Rule, Template
+from .models import Plan, PlanOp, Profile, Rule, Template
 from .rule_entity import async_handle_of_device
 from .serialize import Serializer
 from .services import NOTHING_TO_DO, refuse_unknown_devices
@@ -935,7 +935,12 @@ async def _unmanaged_remove(
         items=tuple(
             item
             for item in plan.items
-            if item.link is not None and item.link.fingerprint in fingerprints
+            # Removals only. A fingerprint identifies a link rather than a direction, so a
+            # client that sent the fingerprint of something the plan wants to *add* would
+            # otherwise have this write it, which is a write nobody asked this command for.
+            if item.op is PlanOp.REMOVE
+            and item.link is not None
+            and item.link.fingerprint in fingerprints
         ),
     )
     if selected.is_empty:

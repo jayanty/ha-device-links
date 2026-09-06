@@ -873,3 +873,25 @@ async def test_importing_a_file_naming_devices_this_network_does_not_have_is_ref
     assert message["error"]["translation_key"] == "import_unknown_devices"
     stored = device_links_entry.runtime_data.coordinator.state.profiles
     assert {profile.id for profile in stored} == {"home", "away"}
+
+
+async def test_unmanaged_remove_never_adds_anything(
+    hass: HomeAssistant, api: Any, zwave_driver: FakeDriver
+) -> None:
+    """A fingerprint names a link, not a direction, and this command only takes links off.
+
+    The plan the fingerprints are matched against holds the adds the active profile wants
+    as well as the removals, so a client that sent one of those would otherwise have this
+    command write it.
+    """
+    plan = await ok(api, "plan")
+    device = next(entry for entry in plan["devices"] if entry["add"])
+    writes_before = zwave_driver.controller.write_count
+
+    result = await ok(
+        api, "unmanaged/remove", fingerprints=[device["add"][0]["link"]["fingerprint"]]
+    )
+    await hass.async_block_till_done()
+
+    assert result["job_id"] is None
+    assert zwave_driver.controller.write_count == writes_before
