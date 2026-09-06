@@ -588,10 +588,15 @@ async def _async_raw_write(call: ServiceCall, *, adding: bool) -> ServiceRespons
             "the Z-Wave backend is not loaded, so nothing can be written",
             translation_domain=DOMAIN,
             translation_key="backend_not_loaded",
-            translation_placeholders={"backend": str(BackendId.ZWAVE)},
+            translation_placeholders={
+                "backend": str(BackendId.ZWAVE),
+                "device": source.name_at_authoring,
+                "target": target.name_at_authoring,
+                "group": group,
+            },
         )
     result = await (backend.async_add_link(link) if adding else backend.async_remove_link(link))
-    _raise_for(result)
+    _raise_for(result, link)
     await runtime.coordinator.async_refresh(source)
     _LOGGER.info(
         "raw association %s: %s group %s %s %s",
@@ -636,7 +641,10 @@ def _raw_link(
     A group no control of the device claims is refused too. The feature a link carries is
     what the group issues, so a group this integration cannot describe is one it cannot
     write a meaningful entry into, and inventing a feature for it would put a link in the
-    observed model that says something the device does not do.
+    observed model that says something the device does not do. Deliberately not the
+    planner's `unknown_group`, which is about a group the device does not report at all:
+    the two are different situations and a shared message could only describe both by
+    describing neither.
     """
     capabilities = coordinator.capabilities_for(source.identity)
     emitters = () if capabilities is None else capabilities.emitters
@@ -666,7 +674,7 @@ def _raw_link(
         raise ServiceValidationError(
             f"no control of {source.identity} uses association group {group}",
             translation_domain=DOMAIN,
-            translation_key="unknown_group",
+            translation_key="group_not_offered",
             translation_placeholders={
                 "device": source.name_at_authoring,
                 "group": group,
@@ -722,8 +730,14 @@ def _feature_of_group(emitters: Iterable[Emitter], group: str) -> Feature | None
     return next((feature for feature in _FEATURE_ORDER if feature in carried), None)
 
 
-def _raise_for(result: LinkResult) -> None:
-    """Turn a refusal or a failure from the radio into a translated error."""
+def _raise_for(result: LinkResult, link: Link) -> None:
+    """Turn a refusal or a failure from the radio into a translated error.
+
+    A refusal always carries its reason (`LinkResult` refuses to be built without one), so
+    the fallback below is for a backend that got that wrong. It still says which write
+    failed, because a translated message with a hole where the device name should be is
+    the one thing worse than an untranslated one.
+    """
     if result.status not in {LinkResultStatus.BLOCKED, LinkResultStatus.FAILED}:
         return
     reason = result.reason
@@ -731,7 +745,13 @@ def _raise_for(result: LinkResult) -> None:
         f"the device did not accept this: {result.raw_error or result.status}",
         translation_domain=DOMAIN,
         translation_key="link_write_failed" if reason is None else reason.translation_key,
-        translation_placeholders=None if reason is None else dict(reason.placeholders),
+        translation_placeholders=dict(reason.placeholders)
+        if reason is not None
+        else {
+            "device": link.source.name_at_authoring,
+            "target": link.target.handle.name_at_authoring,
+            "group": link.emitter_group,
+        },
     )
 
 

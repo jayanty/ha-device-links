@@ -222,9 +222,7 @@ def _pending_wakeups(runtime: DeviceLinksRuntimeData, wanted: dict[str, _Issue])
             placeholders["instruction"] = instruction
         wanted[f"{ISSUE_PENDING_WAKEUP}_{identity}"] = _Issue(
             translation_key=(
-                ISSUE_PENDING_WAKEUP
-                if instruction is None
-                else f"{ISSUE_PENDING_WAKEUP}_instructed"
+                ISSUE_PENDING_WAKEUP if instruction is None else ISSUE_PENDING_WAKEUP_INSTRUCTED
             ),
             severity=ir.IssueSeverity.WARNING,
             placeholders=placeholders,

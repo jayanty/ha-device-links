@@ -360,9 +360,13 @@ class _Compilation:
             self.warnings.append(
                 Diagnostic(
                     "settings_not_available",
+                    # `setting` rather than `capability`, because the Z-Wave adapter says
+                    # the same thing about the same situation and one message has to fit
+                    # both: a key whose placeholders depend on which layer produced it is
+                    # a key whose message can only be written for one of them.
                     {
-                        "capability": MIRROR_CAPABILITY,
                         "device": source.handle.name_at_authoring,
+                        "setting": MIRROR_CAPABILITY,
                         "choice": str(self.rule.mirror_source),
                     },
                 )

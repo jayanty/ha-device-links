@@ -786,7 +786,7 @@ async def test_a_raw_call_naming_a_group_no_control_uses_is_refused(
             return_response=True,
         )
 
-    assert error.value.translation_key == "unknown_group"
+    assert error.value.translation_key == "group_not_offered"
     assert "2" in error.value.translation_placeholders["groups"]
 
 
