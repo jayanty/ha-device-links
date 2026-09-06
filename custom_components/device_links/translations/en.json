@@ -22,7 +22,8 @@
           "zigbee_base_topic": "Zigbee2MQTT base topic",
           "yaml_mirror": "Mirror the profiles to YAML files",
           "yaml_mirror_path": "Where to write the YAML copies",
-          "hybrid_legs": "Allow HA-executed legs"
+          "hybrid_legs": "Allow HA-executed legs",
+          "matter_writes": "Allow Matter binding writes"
         },
         "data_description": {
           "auto_apply_on_profile_switch": "Off by default: choosing a profile opens a plan and applying it is a separate press. This is about the Active profile select entity, which has nowhere to show a plan; the panel always shows one before it writes anything, whatever this is set to.",
@@ -30,7 +31,8 @@
           "zigbee_base_topic": "The topic every Zigbee2MQTT message hangs off, as set in that add-on's configuration. Leave it as zigbee2mqtt unless you changed it or you run a second instance, which uses a different one. One instance is adapted: if you run several, this is the one Device Links reads and writes. Saving reloads the integration so the new topic takes effect.",
           "yaml_mirror": "Off by default, because it writes files into your configuration directory. On, every change to a profile writes the same YAML the export button gives you, so a configuration directory you keep in version control shows your rules changing in a diff. It is a copy in one direction only: editing a file here changes nothing, and importing one is a separate, deliberate step.",
           "yaml_mirror_path": "A folder inside your configuration directory. It is created if it is not there. Only files this integration wrote are ever changed or deleted in it, so pointing it at a folder of your own will not tidy anything away, but give it a folder of its own anyway. A path that leads outside the configuration directory is refused and the mirror stays off, with a line in the log saying so.",
-          "hybrid_legs": "Off by default. Some intents cannot be written to a radio at all: on-only propagation, a scene button acting on its own load, and a scene button LED following a light in another room. With this on, a rule may opt in to having Home Assistant carry those pieces. They are labelled HA-executed everywhere they appear, and they stop working whenever Home Assistant does, while the rest of the same rule keeps working."
+          "hybrid_legs": "Off by default. Some intents cannot be written to a radio at all: on-only propagation, a scene button acting on its own load, and a scene button LED following a light in another room. With this on, a rule may opt in to having Home Assistant carry those pieces. They are labelled HA-executed everywhere they appear, and they stop working whenever Home Assistant does, while the rest of the same rule keeps working.",
+          "matter_writes": "Off by default, and the only backend with a switch of its own. No Matter binding and no Matter access grant has ever been written against real hardware, and an access grant is a security boundary: it is what lets one device operate another. Matter devices are read and shown either way; this decides only whether a plan may write to them."
         }
       }
     }
@@ -155,6 +157,60 @@
     },
     "link_write_raised": {
       "message": "Writing the group {group} link from {device} to {target} failed unexpectedly, so it was not written. The error is in the log."
+    },
+    "matter_acl_full": {
+      "message": "{target} has no room for another access grant: {used} of {capacity} entries in its access list are in use, and the ones Device Links did not create are not ours to remove. Remove a controller or app that no longer needs {target}, using the app that added it, then apply again. Until then the {cluster} binding from {device} is not written."
+    },
+    "matter_acl_not_targetable": {
+      "message": "{target} cannot grant access to one cluster on one endpoint, and Device Links never grants more than that, so the {cluster} binding from {device} was not written."
+    },
+    "matter_acl_subjects_full": {
+      "message": "The access grant on {target} already lists as many controls as it allows, and its access list is full at {used} of {capacity} entries, so the {cluster} binding from {device} was not written. Point fewer controls at {target}, or remove a controller it no longer needs."
+    },
+    "matter_acl_unreadable": {
+      "message": "The access list on {target} does not say which fabric this Home Assistant is on, so the {cluster} binding from {device} was not written and nothing on the device was changed."
+    },
+    "matter_binding_full": {
+      "message": "The control this rule uses on {device} already holds {used} bindings, which is as many as Device Links writes to one endpoint. Remove a link from that control before adding another to {target}."
+    },
+    "matter_binding_not_confirmed": {
+      "message": "{device} accepted the {cluster} binding to {target} and does not report it, so it was not written after all. Apply again, and check that {device} is reachable."
+    },
+    "matter_grant_not_confirmed": {
+      "message": "{target} did not confirm the access grant that the {cluster} binding from {device} needs, so no binding was written and nothing is half done. The details are in the job result."
+    },
+    "matter_group_target": {
+      "message": "{target} is a Matter group, and Device Links does not write group bindings: a Matter group needs its key handed to every member when a device is commissioned. Point the rule at the devices themselves."
+    },
+    "matter_no_binding_cluster": {
+      "message": "The control this rule uses on {device} has no Binding cluster, so there is nowhere on it to keep a link to {target}. This device cannot be a Matter binding source."
+    },
+    "matter_node_offline": {
+      "message": "{device} or {target} is not answering, so the {cluster} binding was not written. Apply again once the device is awake and reachable."
+    },
+    "matter_self_binding": {
+      "message": "A device cannot be bound to itself, so {device} cannot control itself over the radio."
+    },
+    "matter_source_cannot_send": {
+      "message": "The control this rule uses on {device} does not send {cluster}, so binding it to {target} would do nothing. Choose a control that sends it."
+    },
+    "matter_target_cannot_receive": {
+      "message": "{target} does not act on {cluster}, so the binding from {device} would be accepted and then do nothing. Choose an endpoint of {target} that does."
+    },
+    "matter_target_endpoint_required": {
+      "message": "A Matter binding always names an endpoint of the target, and this rule names {target} as a whole, so the {cluster} binding from {device} was not written. Point the rule at one endpoint."
+    },
+    "matter_unknown_cluster": {
+      "message": "The control this rule uses on {device} does not name a Matter cluster, so nothing could be written to {target}. A rule written for another protocol reads this way."
+    },
+    "matter_unknown_device": {
+      "message": "The Matter fabric does not report {target}, so the {cluster} binding from {device} was not written. It may have been removed from the fabric."
+    },
+    "matter_write_failed": {
+      "message": "The Matter fabric refused a write for the {cluster} binding from {device} to {target}. The error it reported is in the job details."
+    },
+    "matter_writes_disabled": {
+      "message": "Matter writes are turned off, so the {cluster} binding from {device} to {target} was not written. Turn on Matter binding in the Device Links options when you are ready to let it write to your Matter devices."
     },
     "multi_channel_downgrade": {
       "message": "{emitter} cannot address a single endpoint, so the link to {device} was written to the whole device instead. Every endpoint of it will respond."

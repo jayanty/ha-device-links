@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 from typing import Any, Final
 
+from custom_components.device_links.backends.matter_protocol import handle_of as matter_handle_of
 from custom_components.device_links.backends.zigbee_protocol import Device as ZigbeeDevice
 from custom_components.device_links.backends.zigbee_protocol import handle_of as zigbee_handle_of
 from custom_components.device_links.backends.zwave_protocol import (
@@ -332,3 +333,64 @@ def zigbee_devices_of(model: str) -> list[ZigbeeDevice]:
         for device in zigbee_devices().values()
         if (device.get("definition") or {}).get("model") == model
     ]
+
+
+# --------------------------------------------------------------------------------------
+# Matter, from the Stage 0 M1 capture of the real fabric
+# --------------------------------------------------------------------------------------
+
+M1_FIXTURE = Path(__file__).parent / "fixtures" / "m1_matter.json"
+
+# The two nodes the capture found are the only binding sources on this fabric: Inovelli
+# VTM31-SN switches, paddle on endpoint 2 (PRD Section 3.1 named two other devices, and
+# neither is one). Named once here because every Matter test starts from one of them.
+KITCHEN_ACCENT = 31
+KITCHEN_PENDANTS = 32
+
+# The Eve Energy that Stage 0 named for its Access Control headroom: 4 entries of 6 used,
+# and the one beside it holding 2 of 6, which is the one with room for a grant.
+TIGHT_EVE = 8
+SPARE_EVE = 19
+
+
+@cache
+def m1_fabric() -> dict[str, Any]:
+    """Return the whole M1 capture payload, read once for the session."""
+    data: dict[str, Any] = json.loads(M1_FIXTURE.read_text())["data"]
+    return data
+
+
+def matter_nodes() -> dict[int, Any]:
+    """Return every node the fabric reported, keyed by node id."""
+    return {node["node_id"]: node for node in m1_fabric()["devices"]}
+
+
+def matter_handle(node_id: int) -> DeviceHandle:
+    """Return the handle the Matter adapter would build for a captured node.
+
+    Built through the pure module's own path rather than by hand, for the reason
+    `zigbee_handle` gives: a handle assembled independently could agree by luck and diverge
+    the moment the real one changed.
+    """
+    return matter_handle_of(matter_nodes()[node_id])
+
+
+def matter_link(  # noqa: PLR0913
+    source: int,
+    target: int,
+    *,
+    endpoint: int = 2,
+    cluster: int = 6,
+    target_endpoint: int | None = 1,
+    feature: Feature = Feature.ON_OFF,
+) -> Link:
+    """Return the link a Matter rule compiles to, addressed the way the adapter reads one."""
+    return Link(
+        backend=Backend.MATTER,
+        source=matter_handle(source),
+        source_endpoint=endpoint,
+        emitter_id=f"ep{endpoint}",
+        emitter_group=str(cluster),
+        target=LinkTarget(handle=matter_handle(target), endpoint=target_endpoint),
+        feature=feature,
+    )

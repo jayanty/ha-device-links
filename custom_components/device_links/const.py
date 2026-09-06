@@ -59,3 +59,10 @@ DEFAULT_YAML_MIRROR_PATH: Final = "device_links/profiles"
 # is the one part of this integration that does not keep working when Home Assistant is
 # off, so it is never on because nobody looked at the options.
 OPTION_HYBRID_LEGS: Final = "hybrid_legs"
+
+# Matter writes (FR-B7, Decision D11). Off by default, and the only backend with a switch of
+# its own, because it is the only one whose write path has never met hardware and the only
+# one whose write touches a security boundary: an Access Control entry is what lets one
+# device operate another. Matter devices are read and shown whatever this is set to, so
+# turning it off costs visibility of nothing and the ability to change anything.
+OPTION_MATTER_WRITES: Final = "matter_writes"

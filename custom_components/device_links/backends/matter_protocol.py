@@ -298,6 +298,42 @@ def handle_of(node: Node) -> DeviceHandle:
     )
 
 
+# How a Matter group appears in a `DeviceHandle`. A group is not a device, but a binding can
+# point at one, and giving it a handle keeps the whole link model working without a second
+# kind of target. The prefix cannot collide with a node id, which is decimal digits.
+#
+# Device Links never writes one. A Matter group binding needs the group's key distributed to
+# every member at commissioning time, which is an act of commissioning rather than a link,
+# so a group entry is only ever read: reported so that a device's Binding list is described
+# whole, and refused on the write path.
+GROUP_PROTOCOL_PREFIX: Final = "group:"
+
+# What a group's fingerprint is. Groups have no vendor and no product, and a handle needs
+# one, so this is what they get. It is never looked up in the profile database, because
+# `lookup_matter` is only ever asked about a real node.
+GROUP_FINGERPRINT: Final = MatterFingerprint(vendor="Matter", product="group")
+
+
+def group_handle(group_id: int) -> DeviceHandle:
+    """Return the handle a link uses when its target is a Matter group rather than a node."""
+    return DeviceHandle(
+        backend=BackendId.MATTER,
+        protocol_id=f"{GROUP_PROTOCOL_PREFIX}{group_id}",
+        ha_device_id="",
+        fingerprint=GROUP_FINGERPRINT,
+        name_at_authoring=f"Matter group {group_id}",
+    )
+
+
+def group_id_of(handle: DeviceHandle) -> int | None:
+    """Return the group a handle names, or None when it names a node."""
+    protocol_id = handle.protocol_id
+    if not protocol_id.startswith(GROUP_PROTOCOL_PREFIX):
+        return None
+    rest = protocol_id.removeprefix(GROUP_PROTOCOL_PREFIX)
+    return int(rest) if rest.isascii() and rest.isdecimal() else None
+
+
 def node_id_of(handle: DeviceHandle) -> int | None:
     """Return the node a handle names, or None when its address is not a node id."""
     protocol_id = handle.protocol_id
