@@ -287,6 +287,13 @@ Levels, all of which must pass before a push:
    simulators. The same files drive the live runner.
 5. Frontend vitest unit tests plus Playwright smoke tests against a mocked `hass`.
 
+6. **Acceptance, not only shape, across a boundary.** Where one layer builds a payload
+   another layer validates, a test must send a payload the producer actually constructs
+   through the real consumer and assert it is accepted. A test that only checks the two
+   agree on types passes while the producer sends a value the consumer refuses. This rule
+   exists because the panel refused every rule it sent for two phases (open item T50): the
+   contract test compared types and was green throughout.
+
 **Regression rule.** Every bug fix adds a test named `test_issue_<n>_<slug>` that fails
 before the fix and passes after. Gates: coverage >= 95% overall and 100% on pure modules,
 `mypy --strict`, `ruff check`, `ruff format --check`, hassfest, HACS validation, frontend
