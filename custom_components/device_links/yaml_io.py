@@ -66,10 +66,16 @@ from custom_components.device_links.models import (
 
 SCHEMA_VERSION: Final = 1
 
+# The first line of every exported profile. Named because it is load-bearing beyond
+# documentation: the YAML mirror deletes a file only when it starts with this, so "is this
+# file one of ours" is a fact about the file rather than about what somebody remembers
+# writing, and a mirror pointed at the wrong directory cannot delete anything else.
+HEADER_FIRST_LINE: Final = f"# Device Links profile, schema version {SCHEMA_VERSION}."
+
 # The header is fixed text, so it costs the export nothing in determinism, and it is the
 # only place the file can explain itself to somebody reading a pull request.
 _HEADER: Final = f"""\
-# Device Links profile, schema version {SCHEMA_VERSION}.
+{HEADER_FIRST_LINE}
 #
 # A device is identified by its `protocol_id`, the address it has on its own network
 # ("<home id>:<node id>" for Z-Wave). The `name` on each device is informational: it is

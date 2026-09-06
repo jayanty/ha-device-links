@@ -9,11 +9,14 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.device_links.const import (
+    DEFAULT_YAML_MIRROR_PATH,
     DEFAULT_ZIGBEE_BASE_TOPIC,
     DOMAIN,
     INTEGRATION_TITLE,
     OPTION_AUTO_APPLY_ON_PROFILE_SWITCH,
     OPTION_ENABLE_RAW_SERVICES,
+    OPTION_YAML_MIRROR,
+    OPTION_YAML_MIRROR_PATH,
     OPTION_ZIGBEE_BASE_TOPIC,
 )
 
@@ -65,6 +68,8 @@ async def test_the_options_flow_shows_both_options_off(
         OPTION_AUTO_APPLY_ON_PROFILE_SWITCH: False,
         OPTION_ENABLE_RAW_SERVICES: False,
         OPTION_ZIGBEE_BASE_TOPIC: DEFAULT_ZIGBEE_BASE_TOPIC,
+        OPTION_YAML_MIRROR: False,
+        OPTION_YAML_MIRROR_PATH: DEFAULT_YAML_MIRROR_PATH,
     }
 
 
@@ -89,6 +94,8 @@ async def test_the_options_flow_saves_what_was_chosen(
         OPTION_AUTO_APPLY_ON_PROFILE_SWITCH: True,
         OPTION_ENABLE_RAW_SERVICES: True,
         OPTION_ZIGBEE_BASE_TOPIC: "zigbee2mqtt",
+        OPTION_YAML_MIRROR: False,
+        OPTION_YAML_MIRROR_PATH: DEFAULT_YAML_MIRROR_PATH,
     }
     assert hass.services.has_service(DOMAIN, "zwave_add_association")
 
@@ -136,4 +143,6 @@ async def test_the_options_flow_keeps_what_was_already_chosen(
         OPTION_AUTO_APPLY_ON_PROFILE_SWITCH: False,
         OPTION_ENABLE_RAW_SERVICES: True,
         OPTION_ZIGBEE_BASE_TOPIC: DEFAULT_ZIGBEE_BASE_TOPIC,
+        OPTION_YAML_MIRROR: False,
+        OPTION_YAML_MIRROR_PATH: DEFAULT_YAML_MIRROR_PATH,
     }

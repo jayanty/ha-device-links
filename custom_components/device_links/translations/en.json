@@ -15,16 +15,20 @@
     "step": {
       "init": {
         "title": "Device Links options",
-        "description": "Both switches are off to begin with, because each turns a deliberate act into an automatic one. The base topic is not a switch: it says which Zigbee2MQTT to talk to, and it already holds Zigbee2MQTT's own default.",
+        "description": "The three switches are off to begin with. Two of them turn a deliberate act into an automatic one; the third writes files into your configuration directory. The two text fields are not switches: the base topic says which Zigbee2MQTT to talk to and already holds that add-on's own default, and the mirror path is where the YAML copies go when the mirror is on.",
         "data": {
           "auto_apply_on_profile_switch": "Apply immediately when the Active profile select is used",
           "enable_raw_services": "Enable the raw Z-Wave association services",
-          "zigbee_base_topic": "Zigbee2MQTT base topic"
+          "zigbee_base_topic": "Zigbee2MQTT base topic",
+          "yaml_mirror": "Mirror the profiles to YAML files",
+          "yaml_mirror_path": "Where to write the YAML copies"
         },
         "data_description": {
           "auto_apply_on_profile_switch": "Off by default: choosing a profile opens a plan and applying it is a separate press. This is about the Active profile select entity, which has nowhere to show a plan; the panel always shows one before it writes anything, whatever this is set to.",
           "enable_raw_services": "Expert tools. They add and remove one association group entry directly, with no rule and no plan behind them, and they still refuse to touch a lifeline. Leave them off unless you are scripting or debugging.",
-          "zigbee_base_topic": "The topic every Zigbee2MQTT message hangs off, as set in that add-on's configuration. Leave it as zigbee2mqtt unless you changed it or you run a second instance, which uses a different one. One instance is adapted: if you run several, this is the one Device Links reads and writes. Saving reloads the integration so the new topic takes effect."
+          "zigbee_base_topic": "The topic every Zigbee2MQTT message hangs off, as set in that add-on's configuration. Leave it as zigbee2mqtt unless you changed it or you run a second instance, which uses a different one. One instance is adapted: if you run several, this is the one Device Links reads and writes. Saving reloads the integration so the new topic takes effect.",
+          "yaml_mirror": "Off by default, because it writes files into your configuration directory. On, every change to a profile writes the same YAML the export button gives you, so a configuration directory you keep in version control shows your rules changing in a diff. It is a copy in one direction only: editing a file here changes nothing, and importing one is a separate, deliberate step.",
+          "yaml_mirror_path": "A folder inside your configuration directory. It is created if it is not there. Only files this integration wrote are ever changed or deleted in it, so pointing it at a folder of your own will not tidy anything away, but give it a folder of its own anyway. A path that leads outside the configuration directory is refused and the mirror stays off, with a line in the log saying so."
         }
       }
     }

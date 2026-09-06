@@ -74,6 +74,7 @@ from .services import (
 )
 from .storage import DeviceLinksStore, StorageSchemaError
 from .websocket import async_register_commands
+from .yaml_mirror import MirrorSettings, YamlMirror
 
 if TYPE_CHECKING:
     from homeassistant.components.zwave_js.models import ZwaveJSConfigEntry
@@ -215,6 +216,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry) 
 
     events = DeviceLinksEventBridge(hass, entry, coordinator)
     runner = JobRunner(coordinator, on_finished=events.async_job_finished)
+    mirror = YamlMirror(hass, coordinator, MirrorSettings.from_options(entry.options))
     try:
         entry.runtime_data = DeviceLinksRuntimeData(
             coordinator=coordinator,
@@ -228,6 +230,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry) 
             profiles=profiles,
         )
         events.async_setup()
+        # Before the platforms, and after `runtime_data`, because it registers a
+        # coordinator listener and writes the first files from inside `async_setup`.
+        mirror.async_setup(entry)
         async_setup_raw_services(hass, entry)
         # Before the platforms, so that a platform that will not load takes the panel down
         # with it through the handler below rather than leaving a sidebar entry pointing at
