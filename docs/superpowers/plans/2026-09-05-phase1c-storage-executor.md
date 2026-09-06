@@ -63,7 +63,7 @@ is two orders of magnitude of headroom and still bounded.
 Export exists so a user can keep their design in git (FR-P2). Import must never write to a
 device by itself: it updates desired state and the user sees a plan.
 
-- [ ] **Step 1: Write the failing tests.** Cover at least:
+- [x] **Step 1: Write the failing tests.** Cover at least:
   - A profile round-trips: `parse_profile(dump_profile(p)) == p`, for a profile containing
     two rules, several targets, a disabled rule, mirror choices and tags.
   - Export is **deterministic**: dumping the same profile twice gives byte-identical text, and
@@ -78,9 +78,9 @@ device by itself: it updates desired state and the user sees a plan.
   - Every error message names the offending rule by id or index, because "invalid profile"
     is unactionable in a file with forty rules.
 
-- [ ] **Step 2: Run and confirm failure.**
+- [x] **Step 2: Run and confirm failure.**
 
-- [ ] **Step 3: Implement.** `dump_profile(profile) -> str` and `parse_profile(text) -> Profile`,
+- [x] **Step 3: Implement.** `dump_profile(profile) -> str` and `parse_profile(text) -> Profile`,
   plus `SCHEMA_VERSION`. Use `yaml.safe_dump` with `sort_keys=True` and an explicit
   `default_flow_style=False`. `yaml` ships with Home Assistant, so it is not a new
   dependency, but **it is not importable in a pure module context without care**: import
@@ -88,7 +88,7 @@ device by itself: it updates desired state and the user sees a plan.
   pure by the project's definition. Confirm the manifest test still passes after adding
   `yaml_io.py` to `PURE_MODULES`.
 
-- [ ] **Step 4: Confirm tests pass. Step 5: Commit.**
+- [x] **Step 4: Confirm tests pass. Step 5: Commit.**
 
 ```bash
 git commit -m "feat(core): deterministic profile export and validating import"
@@ -100,7 +100,7 @@ git commit -m "feat(core): deterministic profile export and validating import"
 
 **Files:** create `custom_components/device_links/storage.py`, `tests/test_storage.py`
 
-- [ ] **Step 1: Write the failing tests.** Cover at least:
+- [x] **Step 1: Write the failing tests.** Cover at least:
   - A fresh install loads an empty store without error and without writing a file.
   - Save then load round-trips profiles, the active profile id, ignored unmanaged
     fingerprints, snapshots and job summaries.
@@ -115,9 +115,9 @@ git commit -m "feat(core): deterministic profile export and validating import"
   - Saving is debounced: ten rapid saves produce fewer than ten writes. Use HA's
     `Store.async_delay_save` and assert against the store's write count.
 
-- [ ] **Step 2: Run and confirm failure.**
+- [x] **Step 2: Run and confirm failure.**
 
-- [ ] **Step 3: Implement.** `DeviceLinksStore` wrapping `homeassistant.helpers.storage.Store`
+- [x] **Step 3: Implement.** `DeviceLinksStore` wrapping `homeassistant.helpers.storage.Store`
   with `STORAGE_VERSION = 1` and `STORAGE_KEY = "device_links.profiles"` from `const.py`.
 
   Write `_async_migrate_func(old_major_version, old_minor_version, old_data)` even though
@@ -125,7 +125,7 @@ git commit -m "feat(core): deterministic profile export and validating import"
   first real migration is the one most likely to lose data, and writing the mechanism now,
   with a test, means the first migration is an edit rather than a new invention.
 
-- [ ] **Step 4: Confirm tests pass. Step 5: Commit.**
+- [x] **Step 4: Confirm tests pass. Step 5: Commit.**
 
 ```bash
 git commit -m "feat(core): profile storage with schema versioning and migration"
@@ -141,7 +141,7 @@ This is where `ObservedLink.managed_by` gets filled in, which Phase 1B deliberat
 this layer. Get it wrong in the "ours" direction and the next apply deletes something a user
 made by hand.
 
-- [ ] **Step 1: Write the failing tests.** Cover at least:
+- [x] **Step 1: Write the failing tests.** Cover at least:
   - **Ownership is by recorded fingerprint, never by shape.** A link whose fingerprint is in
     the active profile's compiled set is `managed_by` that rule. A link that merely *looks*
     like something a rule would produce, but is not in the compiled set, is unmanaged.
@@ -161,9 +161,9 @@ made by hand.
   - Drift is computed only after a successful apply, and a device whose state is unknown
     (dead, not ready) is `unknown`, not `drift` (E4).
 
-- [ ] **Step 2: Run and confirm failure.**
+- [x] **Step 2: Run and confirm failure.**
 
-- [ ] **Step 3: Implement.** `DeviceLinksCoordinator` holding the backends, the store, the
+- [x] **Step 3: Implement.** `DeviceLinksCoordinator` holding the backends, the store, the
   observed cache and the active profile. Public surface: `async_refresh(handle=None)`,
   `observed_for(handle)`, `async_plan(scope)`, `drift_state()`, and subscription
   registration and teardown.
@@ -171,7 +171,7 @@ made by hand.
   Ownership: compile the active profile once per refresh, index by link fingerprint, and
   assign `managed_by` by exact fingerprint match. Nothing else.
 
-- [ ] **Step 4: Confirm tests pass. Step 5: Commit.**
+- [x] **Step 4: Confirm tests pass. Step 5: Commit.**
 
 ```bash
 git commit -m "feat(core): coordinator with fingerprint-based ownership resolution"
@@ -279,10 +279,10 @@ git commit -m "test(core): the full compile, plan, apply, verify loop against fa
 
 ## Phase 1C exit criteria
 
-- [ ] A profile survives a restart, and a future schema version is refused rather than guessed
-- [ ] Ownership is by recorded fingerprint only, with a named test proving a look-alike link
+- [x] A profile survives a restart, and a future schema version is refused rather than guessed
+- [x] Ownership is by recorded fingerprint only, with a named test proving a look-alike link
       is not adopted
-- [ ] A backend going unavailable never looks like mass deletion
+- [x] A backend going unavailable never looks like mass deletion
 - [ ] Per-device serialization, bounded concurrency, bounded retries, working cancel
 - [ ] Written-but-unverified is reported as drift, not as success
 - [ ] A snapshot exists before any write, including when the apply fails
