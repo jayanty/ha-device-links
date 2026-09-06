@@ -33,6 +33,7 @@ an object that no longer exists.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 import logging
 from pathlib import Path
@@ -47,13 +48,15 @@ from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
 from .backends.base import Backend
+from .backends.mqtt_client import HomeAssistantMqttClient, async_mqtt_is_available
+from .backends.zigbee2mqtt import ZigbeeBackend, ZigbeeBackendError
 from .backends.zwave import ZWaveBackend
 from .backends.zwave_accessor import (
     ZWaveAccessorError,
     async_get_driver,
     async_get_server_version,
 )
-from .const import DOMAIN
+from .const import DEFAULT_ZIGBEE_BASE_TOPIC, DOMAIN, OPTION_ZIGBEE_BASE_TOPIC
 from .coordinator import DeviceLinksCoordinator
 from .deployment import Deployment, read_deployment
 from .events import DeviceLinksEventBridge
@@ -109,15 +112,26 @@ PROFILES_DIR_NAME: Final = "profiles_db"
 class BackendInfo:
     """What the Health sensor has to say about one backend beyond whether it answered.
 
-    Resolved once at setup rather than asked for on every state write: the upstream
-    version cannot change without the upstream integration reloading, which reloads this
-    one, and an entity property that reaches into another integration's runtime data on
-    every update is a coupling that only shows up under load.
+    `read_version` is a reader rather than a string because the two protocols differ in
+    whether the answer can change under us. A `zwave_js` server version cannot: it is read
+    off that integration's config entry, and it cannot change without that entry reloading,
+    which reloads this one. So Z-Wave passes a fixed answer, and an entity property never
+    reaches into another integration's runtime data on every state write.
+
+    Zigbee2MQTT is an add-on rather than an integration, so upgrading it republishes
+    `bridge/info` and reloads nothing of ours: a version snapshotted at setup would be quoted
+    in an issue report months after it stopped being true. So Zigbee passes its adapter's own
+    accessor, which reads a field the adapter already holds.
     """
 
     backend_id: BackendId
     upstream_domain: str
-    upstream_version: str | None
+    read_version: Callable[[], str | None]
+
+    @property
+    def upstream_version(self) -> str | None:
+        """Return the upstream system's version as it reads now."""
+        return self.read_version()
 
 
 @dataclass
@@ -165,7 +179,13 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry) -> bool:
     """Set up Device Links from a config entry."""
     profiles = await hass.async_add_executor_job(_load_profile_database)
-    backends, backend_info = _async_build_backends(hass, profiles)
+    backends, backend_info, teardown = await _async_build_backends(hass, entry, profiles)
+    # Registered before the first thing that can fail, so an adapter holding subscriptions
+    # of its own (the Zigbee one holds four on the broker) is taken down whichever way this
+    # setup ends. Home Assistant runs these for a setup that raised as well as for a normal
+    # unload, which is the only reason they can be registered this early.
+    for stop in teardown:
+        entry.async_on_unload(stop)
     if not backends:
         raise ConfigEntryNotReady(
             "no protocol integration that Device Links adapts is loaded yet, so there is "
@@ -290,17 +310,52 @@ def _load_profile_database() -> ProfileDatabase | None:
         return None
 
 
-def _async_build_backends(
-    hass: HomeAssistant, profiles: ProfileDatabase | None
-) -> tuple[dict[BackendId, Backend], tuple[BackendInfo, ...]]:
-    """Build an adapter for every upstream integration that is loaded and connected.
+async def _async_build_backends(
+    hass: HomeAssistant, entry: DeviceLinksConfigEntry, profiles: ProfileDatabase | None
+) -> tuple[dict[BackendId, Backend], tuple[BackendInfo, ...], tuple[Callable[[], None], ...]]:
+    """Build an adapter for every upstream integration that is loaded and answering.
 
-    Zigbee and Matter have no adapter yet (Phase 2 and Phase 3), so this is Z-Wave only
-    today and is written as a loop over what exists rather than as a special case, which
-    is what keeps `BACKEND_INTEGRATIONS` the single list of what is adapted.
+    One protocol per section, each of which adds nothing when its upstream integration is
+    absent, and none of which is an error: a Z-Wave-only house and a Zigbee-only house are
+    both ordinary, and Device Links adapts what is there. Matter arrives in Phase 3.
+
+    The third return value is what has to be taken down again. The Z-Wave adapter borrows a
+    driver somebody else owns and has nothing to release; the Zigbee one holds four MQTT
+    subscriptions of its own, and a subscription that outlives a config entry unload fires
+    against a dead entry and survives a reload.
     """
     backends: dict[BackendId, Backend] = {}
     info: list[BackendInfo] = []
+    teardown: list[Callable[[], None]] = []
+    for built in (_build_zwave(hass, profiles), await _async_build_zigbee(hass, entry, profiles)):
+        if built is None:
+            continue
+        backends[built.info.backend_id] = built.backend
+        info.append(built.info)
+        if built.stop is not None:
+            teardown.append(built.stop)
+    return backends, tuple(info), tuple(teardown)
+
+
+@dataclass(frozen=True, slots=True)
+class _BuiltBackend:
+    """One adapter, what is said about it, and what has to be called to take it down."""
+
+    backend: Backend
+    info: BackendInfo
+    stop: Callable[[], None] | None = None
+
+
+def _build_zwave(hass: HomeAssistant, profiles: ProfileDatabase | None) -> _BuiltBackend | None:
+    """Adapt the first loaded `zwave_js` entry whose client has a driver.
+
+    The first and only the first: `BackendId` is one key per protocol, so a second Z-Wave
+    network cannot be represented without keying the map on the config entry too. Nobody on
+    this network has two, and a second one is ignored rather than misread. Open item T22.
+
+    Nothing to stop: the driver belongs to `zwave_js`, and the only subscription the adapter
+    takes is the one the coordinator takes and drops.
+    """
     for zwave_js_entry in hass.config_entries.async_entries("zwave_js"):
         if zwave_js_entry.state is not ConfigEntryState.LOADED:
             continue
@@ -313,16 +368,69 @@ def _async_build_backends(
                 zwave_js_entry.entry_id,
             )
             continue
-        backends[BackendId.ZWAVE] = ZWaveBackend(driver=driver, profiles=profiles)
-        info.append(
-            BackendInfo(
+        return _BuiltBackend(
+            backend=ZWaveBackend(driver=driver, profiles=profiles),
+            info=BackendInfo(
                 backend_id=BackendId.ZWAVE,
                 upstream_domain="zwave_js",
-                upstream_version=async_get_server_version(typed),
-            )
+                read_version=_fixed(async_get_server_version(typed)),
+            ),
         )
-        break
-    return backends, tuple(info)
+    return None
+
+
+async def _async_build_zigbee(
+    hass: HomeAssistant, entry: DeviceLinksConfigEntry, profiles: ProfileDatabase | None
+) -> _BuiltBackend | None:
+    """Adapt the Zigbee2MQTT instance on the configured base topic, if one answers.
+
+    Two absences, told apart because they mean different things to whoever reads the log.
+    **No `mqtt` integration** is silent: there is no broker, so there is no Zigbee2MQTT, and
+    saying so on every start of a Z-Wave house would be noise. **A broker with nothing on
+    this base topic** is said once at warning level: MQTT is set up, and either Zigbee2MQTT
+    is not running or its base topic is not the one configured, and both are things the
+    person reading can act on (E25).
+
+    Neither is a failure. A bridge that comes up after this is not picked up until the entry
+    reloads, which is what changing the base topic in the options already does; open item T52.
+    """
+    if not async_mqtt_is_available(hass):
+        _LOGGER.debug("the mqtt integration is not loaded, so no Zigbee2MQTT is adapted")
+        return None
+    base_topic = (
+        str(entry.options.get(OPTION_ZIGBEE_BASE_TOPIC, DEFAULT_ZIGBEE_BASE_TOPIC)).strip("/")
+        or DEFAULT_ZIGBEE_BASE_TOPIC
+    )
+    backend = ZigbeeBackend(
+        client=HomeAssistantMqttClient(hass), base_topic=base_topic, profiles=profiles
+    )
+    try:
+        await backend.async_start()
+    except ZigbeeBackendError as error:
+        # `async_start` has already dropped its own subscriptions on the way out, so there
+        # is nothing here to tear down and nothing to register.
+        _LOGGER.warning(
+            "no Zigbee2MQTT bridge answered on the base topic %r, so Zigbee links are not "
+            "available: %s. Set the base topic in the Device Links options if this instance "
+            "publishes somewhere else, then reload the integration",
+            base_topic,
+            error,
+        )
+        return None
+    return _BuiltBackend(
+        backend=backend,
+        info=BackendInfo(
+            backend_id=BackendId.ZIGBEE2MQTT,
+            upstream_domain="mqtt",
+            read_version=backend.bridge_version,
+        ),
+        stop=backend.async_stop,
+    )
+
+
+def _fixed(version: str | None) -> Callable[[], str | None]:
+    """Return a reader for a version that cannot change while this entry is loaded."""
+    return lambda: version
 
 
 async def _async_version(hass: HomeAssistant) -> str | None:

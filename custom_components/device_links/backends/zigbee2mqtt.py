@@ -148,6 +148,10 @@ class _State:
     reported_coordinator: str | None = None
     listed_coordinator: str | None = None
 
+    # The Zigbee2MQTT version, as `bridge/info` last reported it. Kept live rather than read
+    # once, because upgrading the add-on republishes it and never reloads this integration.
+    version: str | None = None
+
     @property
     def coordinator_ieee(self) -> str | None:
         """Return the coordinator's address, from whichever source has one."""
@@ -348,6 +352,9 @@ class ZigbeeBackend:
         address = zp.coordinator_address(parsed)
         if address is not None:
             self._state.reported_coordinator = address
+        version = zp.bridge_version(parsed)
+        if version is not None:
+            self._state.version = version
 
     def _on_state(self, parsed: object) -> None:
         """Follow the bridge up and down, saying so once each way (E26)."""
@@ -1434,6 +1441,15 @@ class ZigbeeBackend:
             return None
         entry = self._entry_of(device)
         return None if entry is None else entry.wake_instruction
+
+    def bridge_version(self) -> str | None:
+        """Return the Zigbee2MQTT version this bridge last reported on `bridge/info`.
+
+        The Zigbee half of `zwave_accessor.async_get_server_version`, and read live rather
+        than snapshotted at setup: Zigbee2MQTT is an add-on rather than a Home Assistant
+        integration, so upgrading it republishes `bridge/info` and reloads nothing of ours.
+        """
+        return self._state.version
 
     def system_scope(self) -> SystemScope:
         """Report that a Zigbee coordinator binding reserves itself and not its cluster.

@@ -237,6 +237,20 @@ def coordinator_address(info: Mapping[str, object]) -> str | None:
     return address if isinstance(address, str) and address else None
 
 
+def bridge_version(info: Mapping[str, object]) -> str | None:
+    """Return the Zigbee2MQTT version `bridge/info` reports, or None when it does not.
+
+    Reported by the Health sensor and the diagnostics, which is the same job
+    `zwave_accessor.async_get_server_version` does for the other protocol: "which
+    Zigbee2MQTT is this" decides whether an upstream behaviour is worth reproducing locally
+    or is already fixed. None rather than a placeholder, because a bridge that has not
+    published its info yet has told us nothing and saying "unknown" in a version field is
+    how a wrong version gets quoted in an issue.
+    """
+    version = info.get("version")
+    return version if isinstance(version, str) and version else None
+
+
 def is_coordinator(device: Device) -> bool:
     """Say whether this device is the radio itself, whose bindings are never ours."""
     return device["type"] == COORDINATOR_TYPE

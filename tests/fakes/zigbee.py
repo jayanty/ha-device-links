@@ -349,6 +349,15 @@ class FakeBridge:
                 device["power_source"] = power_source
         self._republish(zp.DEVICES_TOPIC)
 
+    def upgrade(self, version: str) -> None:
+        """Report a new Zigbee2MQTT version, as upgrading the add-on does.
+
+        An add-on upgrade republishes `bridge/info` and reloads no Home Assistant
+        integration, which is why the version has to be read rather than remembered.
+        """
+        self.info["version"] = version
+        self._republish(zp.INFO_TOPIC)
+
     def go_offline(self) -> None:
         """Take the bridge down, as a Zigbee2MQTT restart does (E26)."""
         self.state = "offline"

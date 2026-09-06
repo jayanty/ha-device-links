@@ -33,10 +33,12 @@ import voluptuous as vol
 
 from .const import (
     BACKEND_INTEGRATIONS,
+    DEFAULT_ZIGBEE_BASE_TOPIC,
     DOMAIN,
     INTEGRATION_TITLE,
     OPTION_AUTO_APPLY_ON_PROFILE_SWITCH,
     OPTION_ENABLE_RAW_SERVICES,
+    OPTION_ZIGBEE_BASE_TOPIC,
 )
 
 
@@ -70,12 +72,18 @@ class DeviceLinksConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class DeviceLinksOptionsFlow(OptionsFlow):
-    """The two things a user can turn on, both off until they do."""
+    """The two things a user can turn on, and the one thing they may have to say."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Show the options, and save exactly what was chosen."""
+        """Show the options, and save exactly what was chosen.
+
+        The Zigbee base topic is not a switch and is not off by default: it is how a
+        Zigbee2MQTT instance is addressed, so it always has a value, and the value is
+        Zigbee2MQTT's own default. Somebody who changed theirs, or who runs a second
+        instance, is the only person who ever has to touch it (E25).
+        """
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
+            return self.async_create_entry(data=_cleaned(user_input))
         options = self.config_entry.options
         return self.async_show_form(
             step_id="init",
@@ -89,6 +97,25 @@ class DeviceLinksOptionsFlow(OptionsFlow):
                         OPTION_ENABLE_RAW_SERVICES,
                         default=options.get(OPTION_ENABLE_RAW_SERVICES, False),
                     ): cv.boolean,
+                    vol.Optional(
+                        OPTION_ZIGBEE_BASE_TOPIC,
+                        default=options.get(OPTION_ZIGBEE_BASE_TOPIC, DEFAULT_ZIGBEE_BASE_TOPIC),
+                    ): cv.string,
                 }
             ),
         )
+
+
+def _cleaned(user_input: dict[str, Any]) -> dict[str, Any]:
+    """Return the submitted options with the base topic tidied, or dropped when emptied.
+
+    A topic with stray spaces or a trailing slash is a topic nothing is published on, and
+    the failure it produces is silence: every retained payload lands on a filter nobody
+    subscribed to and the bridge reads as absent. Cleared to nothing means "use the
+    default", which is what the field shows, rather than "subscribe to `/bridge/devices`".
+    """
+    base = str(user_input.get(OPTION_ZIGBEE_BASE_TOPIC, "")).strip().strip("/")
+    return {
+        **user_input,
+        OPTION_ZIGBEE_BASE_TOPIC: base or DEFAULT_ZIGBEE_BASE_TOPIC,
+    }
