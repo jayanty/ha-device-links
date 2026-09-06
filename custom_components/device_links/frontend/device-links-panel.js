@@ -2863,6 +2863,9 @@ var W = [
         ${R(t.rewrites.length, "rule")}.
       </p>
       ${this._renderReachability(e)}
+      ${t.errors.map((e) => v`<div class="notice error" role="alert">
+            <p>${D(this.hass, e)}</p>
+          </div>`)}
       ${t.unmapped.length === 0 ? b : v`<div class="notice error" role="alert">
             <p>
               ${t.unmapped.join(", ")} still has nothing chosen to take over from it,

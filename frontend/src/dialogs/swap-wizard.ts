@@ -466,6 +466,16 @@ export class DeviceLinksSwapWizard extends LitElement {
       </p>
       ${this._renderReachability(preview)}
       ${
+        // A swap the backend has refused outright: a device on another protocol, a
+        // replacement nothing can read, a device no rule names. The button is disabled
+        // either way, and a disabled button with no reason beside it is a dead end.
+        proposal.errors.map(
+          (error) => html`<div class="notice error" role="alert">
+            <p>${localizeDiagnostic(this.hass, error)}</p>
+          </div>`,
+        )
+      }
+      ${
         proposal.unmapped.length === 0
           ? nothing
           : html`<div class="notice error" role="alert">

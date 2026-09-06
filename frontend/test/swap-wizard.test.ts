@@ -220,3 +220,30 @@ describe("the swap wizard", () => {
     expect(sent[sent.length - 1]?.mapping).toEqual({ paddle: "button_2" });
   });
 });
+
+describe("a swap the backend has refused", () => {
+  it("says why on the review step rather than only disabling the button", async () => {
+    const hass = mockHass();
+    const base = preview();
+    hass.results.set(COMMANDS.swapPreview, {
+      ...base,
+      proposal: {
+        ...base.proposal,
+        is_applicable: false,
+        mappings: [],
+        rewrites: [],
+        errors: [{ translation_key: "swap_across_backends", placeholders: {} }],
+      },
+    });
+    const wizard = await open(hass);
+
+    await toReview(wizard);
+
+    // The panel localises the key, so what is on screen is the message rather than the
+    // key: this asserts the reason reached the user, not that a key was printed at them.
+    expect(text(wizard)).toContain("cannot be swapped for");
+    expect(
+      buttons(wizard).find((button) => button.textContent?.trim() === "Show the plan")?.disabled,
+    ).toBe(true);
+  });
+});
