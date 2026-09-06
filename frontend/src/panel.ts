@@ -63,6 +63,16 @@ export class DeviceLinksPanel extends LitElement {
 
   @state() private _components: ComponentSet | null = null;
 
+  /**
+   * What the tab being opened should select, when another view asked for it.
+   *
+   * Held here rather than in the URL because it is a hand-off between two views rather
+   * than an address: a rule id in the path would be a link somebody could bookmark, and
+   * it would then have to survive that rule being deleted. It is cleared as soon as the
+   * receiving view has been given it once, so going back to a tab by hand opens it plain.
+   */
+  @state() private _selected: string | null = null;
+
   private _api: DeviceLinksApi | null = null;
 
   static override styles = css`
@@ -285,7 +295,8 @@ export class DeviceLinksPanel extends LitElement {
    * push the URL and tell it that the location changed. It answers by setting `route`
    * back on this element, which is what actually changes the tab.
    */
-  private _selectTab(id: string): void {
+  private _selectTab(id: string, select: string | null = null): void {
+    this._selected = select;
     if (id === this.tab) {
       return;
     }
@@ -363,8 +374,26 @@ export class DeviceLinksPanel extends LitElement {
         .api=${this._api}
         .components=${this._components}
         .narrow=${this.narrow}
+        .selected=${this._selected}
+        @dl-navigate=${this._onNavigate}
       ></${unsafeStatic(definition.tagName)}>
     `;
+  }
+
+  /**
+   * Follow a view's request to open something in another tab.
+   *
+   * The Overview's "Needs attention" rows are only worth having if they lead to the thing
+   * that fixes them, and the Activity view's job rows lead back to the devices a job
+   * touched. Both go through here so that the shell stays the only thing that knows what
+   * a tab is.
+   */
+  private _onNavigate(event: Event): void {
+    const detail = (event as CustomEvent<{ tab: string; select?: string }>).detail;
+    if (!detail?.tab) {
+      return;
+    }
+    this._selectTab(detail.tab, detail.select ?? null);
   }
 }
 
