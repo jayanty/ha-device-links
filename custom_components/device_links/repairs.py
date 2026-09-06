@@ -58,6 +58,10 @@ _LOGGER = logging.getLogger(__name__)
 
 ISSUE_BACKEND_UNAVAILABLE: Final = "backend_unavailable"
 ISSUE_PENDING_WAKEUP: Final = "pending_wakeup"
+# The same issue, said differently because the profile database knows how to wake this
+# model. Two keys rather than one with an optional placeholder: a sentence with a hole in
+# it where the instruction should be is worse than a sentence that does not promise one.
+ISSUE_PENDING_WAKEUP_INSTRUCTED: Final = "pending_wakeup_instructed"
 ISSUE_RULES_MISSING_DEVICES: Final = "rules_missing_devices"
 ISSUE_STORAGE_UNREADABLE: Final = "storage_unreadable"
 

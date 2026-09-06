@@ -1,17 +1,38 @@
-"""Config flow for Device Links.
+"""Config flow for Device Links, and the two options that are off until somebody asks.
 
 Single instance, no user input beyond confirmation. Setup is refused when none of the
 upstream protocol integrations is loaded, so the user gets a translated reason instead of
 an integration that silently does nothing (quality-scale rule test-before-configure).
+
+Both options are off by default and both are off for the same reason: each turns a
+deliberate act into an automatic one. Auto-apply makes a select box rewrite associations
+across a house (FR-E1), and the raw services write to an association group with no rule
+and no plan behind them (Decision D14). An option that exists only in code is one nobody
+can turn on, which is why this flow exists at all; saving reloads the entry, which is what
+makes the raw services appear and disappear without a restart.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
+from homeassistant.core import callback
+from homeassistant.helpers import config_validation as cv
+import voluptuous as vol
 
-from .const import BACKEND_INTEGRATIONS, DOMAIN, INTEGRATION_TITLE
+from .const import (
+    BACKEND_INTEGRATIONS,
+    DOMAIN,
+    INTEGRATION_TITLE,
+    OPTION_AUTO_APPLY_ON_PROFILE_SWITCH,
+    OPTION_ENABLE_RAW_SERVICES,
+)
 
 
 class DeviceLinksConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -35,3 +56,34 @@ class DeviceLinksConfigFlow(ConfigFlow, domain=DOMAIN):
     def _async_loaded_backends(self) -> list[str]:
         """Return the upstream protocol integrations that are currently loaded."""
         return [domain for domain in BACKEND_INTEGRATIONS if domain in self.hass.config.components]
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> DeviceLinksOptionsFlow:
+        """Return the options flow for this entry."""
+        return DeviceLinksOptionsFlow()
+
+
+class DeviceLinksOptionsFlow(OptionsFlow):
+    """The two things a user can turn on, both off until they do."""
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Show the options, and save exactly what was chosen."""
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+        options = self.config_entry.options
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        OPTION_AUTO_APPLY_ON_PROFILE_SWITCH,
+                        default=options.get(OPTION_AUTO_APPLY_ON_PROFILE_SWITCH, False),
+                    ): cv.boolean,
+                    vol.Optional(
+                        OPTION_ENABLE_RAW_SERVICES,
+                        default=options.get(OPTION_ENABLE_RAW_SERVICES, False),
+                    ): cv.boolean,
+                }
+            ),
+        )

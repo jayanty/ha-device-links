@@ -31,6 +31,7 @@ from custom_components.device_links.models import Backend as BackendId
 from custom_components.device_links.repairs import (
     ISSUE_BACKEND_UNAVAILABLE,
     ISSUE_PENDING_WAKEUP,
+    ISSUE_PENDING_WAKEUP_INSTRUCTED,
     ISSUE_RULES_MISSING_DEVICES,
     ISSUE_STORAGE_UNREADABLE,
     PENDING_WAKEUP_AFTER,
@@ -170,7 +171,7 @@ async def test_the_issue_carries_the_wake_instruction_when_the_database_has_one(
 
     raised = issue(hass, f"{ISSUE_PENDING_WAKEUP}_zwave:3538613642:36")
     assert raised is not None
-    assert raised.translation_key == f"{ISSUE_PENDING_WAKEUP}_instructed"
+    assert raised.translation_key == ISSUE_PENDING_WAKEUP_INSTRUCTED
     assert raised.translation_placeholders["instruction"] == "Press the button three times"
 
 

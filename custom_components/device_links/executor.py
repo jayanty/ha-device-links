@@ -737,12 +737,12 @@ class JobRunner:
 
     def _stale_reason(self, write: _Write) -> Diagnostic:
         """Say why this device was skipped, which is not always that somebody edited it."""
-        key = (
+        return Diagnostic(
             "stale_plan"
             if self._coordinator.is_available(write.link.source.identity)
-            else "device_unavailable"
+            else "device_unavailable",
+            _about(write.link),
         )
-        return Diagnostic(key, _about(write.link))
 
     def _take_snapshot(self, job: _Job, handles: Mapping[str, DeviceHandle]) -> None:
         """Record everything every touched device holds, before a single write (FR-P3).
