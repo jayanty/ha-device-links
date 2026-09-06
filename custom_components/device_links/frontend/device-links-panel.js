@@ -679,7 +679,21 @@ function Xe(e, t, n) {
 		verify_missing: "The group {group} link from {device} to {target} was written and is not on the device, so it counts as drifted. Apply again, or look at the group in Z-Wave JS.",
 		verify_not_confirmed: "{device} did not confirm the group {group} link to {target} on a fresh read, so it is reported as unconfirmed rather than as applied. Press Verify when the device is awake and reachable.",
 		verify_still_present: "The group {group} entry on {device} pointing at {target} was removed and is still on the device, so it counts as drifted.",
-		verify_unreadable: "{device} could not be read after the write, so the group {group} link to {target} cannot be confirmed. Press Verify when the device is reachable."
+		verify_unreadable: "{device} could not be read after the write, so the group {group} link to {target} cannot be confirmed. Press Verify when the device is reachable.",
+		zigbee_bind_failed: "The Zigbee bridge refused to bind {cluster} from {device} to {target}. The error it reported is in the job details.",
+		zigbee_bridge_offline: "Zigbee2MQTT on {topic} is offline, so the {cluster} binding from {device} to {target} was not written. It will be planned again once the bridge is back.",
+		zigbee_clusters_failed: "{device} bound some of what was asked for and not all of it: {clusters} did not bind, so the link to {target} is incomplete. The bridge reports a partial failure as a success, so this is reported as failed rather than as applied. Apply again, and check that {target} is reachable.",
+		zigbee_coordinator_binding_protected: "The {cluster} binding on {device} points at the Zigbee coordinator, which is how the device reports to Home Assistant at all. Device Links never writes to those.",
+		zigbee_foreign_group: "The Zigbee group {target} was not created by Device Links, so the {cluster} binding from {device} was not written to it. Only groups named with the dl_ prefix are ours to use.",
+		zigbee_group_failed: "The Zigbee group {group} could not be set up, so the {cluster} binding from {device} to {target} was not written. Check Zigbee2MQTT and apply again.",
+		zigbee_no_response: "The Zigbee bridge did not answer within {seconds} seconds, so it is not known whether the {cluster} binding from {device} to {target} was made. Look at the device again, or apply once more: an apply that is already done writes nothing.",
+		zigbee_self_binding: "A device cannot be bound to itself, so {device} cannot control itself over the radio.",
+		zigbee_settings_not_written: "Device Links can read what {device} exposes but does not write Zigbee device settings yet, so {setting} was left alone. Change it in Zigbee2MQTT for now.",
+		zigbee_source_cannot_send: "The control this rule uses on {device} does not send {cluster}, so binding it to {target} would do nothing. Choose a control that sends it.",
+		zigbee_target_cannot_receive: "{target} does not act on {cluster}, so the binding from {device} would be accepted and then do nothing. Choose an endpoint of {target} that does.",
+		zigbee_target_endpoint_required: "A Zigbee binding always names an endpoint of the target, and this rule names {target} as a whole, so the {cluster} binding from {device} was not written. Point the rule at one endpoint.",
+		zigbee_unknown_device: "Zigbee2MQTT does not report {target}, so the {cluster} binding from {device} was not written. It may have been removed from the network.",
+		zigbee_wake_the_device: "{device} was not listening, so the {cluster} binding to {target} is queued rather than written. Wake the device and apply again."
 	}[t];
 	return r === void 0 ? null : Ye(r, n);
 }
