@@ -23,6 +23,7 @@ from __future__ import annotations
 import ast
 import json
 from pathlib import Path
+import re
 import string
 from typing import Any
 
@@ -404,3 +405,24 @@ def test_every_placeholder_a_message_uses_is_there_when_it_is_shown() -> None:
                 f"{section}.{key}.{field} uses {sorted(used - supplied)}, "
                 f"which the code does not supply where it raises it"
             )
+
+
+def test_no_placeholder_sits_inside_single_quotes() -> None:
+    """hassfest rejects a placeholder wrapped in single quotes, and CI is a slow way to learn it.
+
+    Home Assistant's translation tooling treats a single-quoted placeholder as an escaping
+    mistake, because ICU message syntax gives single quotes a meaning. Writing '{device}' to
+    set a device name off from the surrounding sentence is a natural thing to reach for and
+    it fails the whole hassfest job, so catch it here where the feedback is immediate.
+    """
+    offender = re.compile(r"'\{[a-z_]+\}'")
+
+    for path in (
+        Path("custom_components/device_links/strings.json"),
+        Path("custom_components/device_links/translations/en.json"),
+    ):
+        found = offender.findall(path.read_text())
+        assert not found, (
+            f"{path} wraps placeholders in single quotes, which hassfest refuses: "
+            f"{sorted(set(found))}. Write the placeholder bare."
+        )
