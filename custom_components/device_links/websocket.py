@@ -74,7 +74,7 @@ from .yaml_io import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping
+    from collections.abc import Iterable, Mapping, Sequence
 
     from homeassistant.components.websocket_api.connection import ActiveConnection
 
@@ -717,12 +717,13 @@ async def _apply(hass: HomeAssistant, connection: ActiveConnection, msg: dict[st
     connection.send_result(msg["id"], {"job_id": job_id, "status": "running"})
 
 
-async def _run_job(
+async def _run_job(  # noqa: PLR0913, PLR0917
     runtime: DeviceLinksRuntimeData,
     plan: Plan,
     scope: PlanScope,
     remove_unmanaged: frozenset[str],
     job_id: str,
+    desired: Sequence[Link] | None = None,
 ) -> None:
     """Run one apply outside the connection that asked for it.
 
@@ -734,7 +735,11 @@ async def _run_job(
     """
     try:
         await runtime.runner.async_apply(
-            plan, scope=scope, remove_unmanaged=remove_unmanaged, job_id=job_id
+            plan,
+            scope=scope,
+            remove_unmanaged=remove_unmanaged,
+            desired=desired,
+            job_id=job_id,
         )
     except HomeAssistantError:
         _LOGGER.warning("job %s was refused by the runner after it was accepted", job_id)
@@ -1020,19 +1025,30 @@ async def _snapshots_rollback(
     if "plan_token" not in msg:
         connection.send_result(msg["id"], {**payload, "job_id": None, "status": "preview"})
         return
+    if runtime.runner.progress is not None:
+        raise JobRunningError(
+            "an apply is already running, so this rollback was refused rather than queued "
+            "behind a plan that will be out of date by the time it runs",
+            translation_domain=DOMAIN,
+            translation_key="job_running",
+        )
     _check_token(rollback.plan, msg["plan_token"])
     if rollback.plan.is_empty:
         connection.send_result(msg["id"], {**payload, "job_id": None, "status": NOTHING_TO_DO})
         return
-    report = await runtime.runner.async_apply(
-        rollback.plan,
-        scope=rollback.scope,
-        remove_unmanaged=remove_unmanaged,
-        desired=rollback.desired,
+    # In a background task, for the reason `apply` gives: a rollback can be a whole house,
+    # and awaiting it here would tie writes that are already reaching somebody's mesh to
+    # the life of a browser tab. The panel follows it through `jobs/subscribe` with the id
+    # this hands back.
+    job_id = uuid4().hex
+    entry.async_create_background_task(
+        hass,
+        _run_job(
+            runtime, rollback.plan, rollback.scope, remove_unmanaged, job_id, rollback.desired
+        ),
+        name=f"{DOMAIN} rollback {job_id}",
     )
-    connection.send_result(
-        msg["id"], {**payload, "job_id": report.id, "status": str(report.status)}
-    )
+    connection.send_result(msg["id"], {**payload, "job_id": job_id, "status": "running"})
 
 
 @dataclass(frozen=True, slots=True)

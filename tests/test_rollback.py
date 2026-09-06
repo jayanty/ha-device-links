@@ -176,9 +176,16 @@ async def test_a_rollback_undoes_the_apply_the_snapshot_was_taken_before(
     )
     await hass.async_block_till_done()
 
-    assert result["status"] == "completed"
+    # Started in a background task, for the reason `apply` gives: a rollback can be a whole
+    # house, and awaiting it in the command would tie writes that are already reaching a
+    # mesh to the life of a browser tab.
+    assert result["status"] == "running"
+    assert result["job_id"] is not None
     for group in PADDLE_GROUPS:
         assert group_of(zwave_driver, CONTROLLER, group) == [], f"group {group}"
+    # And the job is in the history, which is how the Activity view finds it afterwards.
+    jobs = await call(client, "jobs/list")
+    assert result["job_id"] in {job["id"] for job in jobs["jobs"]}
 
 
 async def test_a_rollback_puts_back_a_link_somebody_took_off_by_hand(
