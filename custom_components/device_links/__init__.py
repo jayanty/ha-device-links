@@ -68,6 +68,7 @@ from .services import (
     async_unload_raw_services,
 )
 from .storage import DeviceLinksStore, StorageSchemaError
+from .websocket import async_register_commands
 
 if TYPE_CHECKING:
     from homeassistant.components.zwave_js.models import ZwaveJSConfigEntry
@@ -145,14 +146,17 @@ type DeviceLinksConfigEntry = ConfigEntry[DeviceLinksRuntimeData]
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Register the services, whether or not a config entry ever loads.
+    """Register the services and the WebSocket commands, entry or no entry.
 
     Quality-scale rule action-setup. An automation calling `device_links.apply` validates
     when it is loaded rather than failing while this integration is still retrying its
     setup, and a call that arrives with no entry loaded is answered with a translated
-    reason instead of "service not found".
+    reason instead of "service not found". The WebSocket commands are registered here for
+    the other half of the same reason: they are global rather than per entry, so a reload
+    must not register a second copy of each (`config-entry-unloading`).
     """
     async_setup_services(hass)
+    async_register_commands(hass)
     return True
 
 

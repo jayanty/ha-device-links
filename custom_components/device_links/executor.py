@@ -396,11 +396,17 @@ class JobRunner:
         *,
         scope: PlanScope | None = None,
         remove_unmanaged: frozenset[str] = frozenset(),
+        job_id: str | None = None,
     ) -> JobReport:
         """Apply this plan and return what happened to every item in it.
 
         `scope` and `remove_unmanaged` must be the ones the plan was built with: they are
         how the plan is rebuilt to find out whether it is still current (E15).
+
+        `job_id` lets a caller that cannot await this job name it before it starts. The
+        WebSocket API applies in a background task, so that closing the panel does not
+        interrupt writes that are already reaching somebody's house, and it has to be able
+        to hand the panel the id of the job it just started. Everything else generates one.
         """
         if self._shut_down:
             raise RunnerShutdownError(
@@ -417,7 +423,7 @@ class JobRunner:
                 translation_key="job_running",
             )
         job = _Job(
-            id=uuid4().hex,
+            id=job_id or uuid4().hex,
             created_at=_now(),
             scope=_describe(scope),
             ops=[_Op(item) for item in plan.items],
