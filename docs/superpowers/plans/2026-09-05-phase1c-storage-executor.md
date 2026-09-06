@@ -287,7 +287,8 @@ git commit -m "test(core): the full compile, plan, apply, verify loop against fa
 - [x] Written-but-unverified is reported as drift, not as success
 - [x] A snapshot exists before any write, including when the apply fails
 - [x] Scenarios S2 and S3 pass end to end against the fakes, and a second plan is empty
-- [x] `./scripts/lint` and `./scripts/test` exit 0, CI green, coverage at or above 95%
+- [x] `./scripts/lint` and `./scripts/test` exit 0, coverage at or above 95% (100%). CI has
+      not run: the branch is committed and not yet pushed.
 - [x] Anything unresolved is registered in `docs/open-items.md`
 
 ## What Phase 1C does not do
