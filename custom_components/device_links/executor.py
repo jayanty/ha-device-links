@@ -62,7 +62,12 @@ from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 
-from custom_components.device_links.backends.base import Backend, LinkResult, LinkResultStatus
+from custom_components.device_links.backends.base import (
+    Backend,
+    LinkResult,
+    LinkResultStatus,
+    SystemScope,
+)
 from custom_components.device_links.const import DOMAIN
 from custom_components.device_links.coordinator import DeviceLinksCoordinator, PlanScope
 from custom_components.device_links.models import (
@@ -650,24 +655,36 @@ class JobRunner:
         system link, and blocked the lot. Adding the endpoint is protocol-neutral and is a
         better question in both protocols.
 
-        It is a **narrowing rather than a complete answer**, and the difference is worth
-        stating where it will be read. "This slot holds a system entry, so the slot is
-        system" is a Z-Wave truth: a lifeline group holds the controller and nothing else
-        may go into it. It is false on Zigbee, where one endpoint's cluster holds many
-        independent bindings side by side, so a device whose reporting binding sits on the
-        same endpoint and cluster a rule uses (a battery remote, typically) has every rule
-        from it refused here with no way out from the UI. Nothing in the Stage 0 capture is
-        shaped that way, so no device on this network is affected today. Closing it means
-        deciding what `is_system` is for, which is a change to what it means to every
-        backend: see docs/open-items.md T49.
+        **Whether a system entry reserves its whole slot is a fact about the protocol**, and
+        it is the backend that says which (`base.SystemScope`), not this module guessing and
+        not core branching on a backend id. Two sentences, one per protocol:
 
-        For Z-Wave the narrowing gives up one thing: an add to endpoint 2's group 1 on a
-        multi-endpoint device now passes this layer. The Z-Wave adapter still refuses it,
-        because a group a device does not report falls back to "group 1 is the lifeline",
-        and `tests/test_executor.py` asserts both halves together for that reason.
+        - **Z-Wave**: an association group has one purpose, so a group holding the controller
+          is a lifeline and nothing else may ever go into it, whatever we are trying to put
+          there. The slot is the unit and is refused whole.
+        - **Zigbee**: an endpoint's cluster is a table of independent bindings, so a reporting
+          binding to the coordinator protects itself and nothing beside it.
+
+        This asked by slot for every protocol until open item T49 was closed. That was right
+        for Z-Wave and false on Zigbee, where Zigbee2MQTT puts a reporting binding on exactly
+        the endpoint and cluster a button's presses come from: every rule from the first
+        Zigbee remote added to a network was refused here, with no way out from the UI.
+
+        For Z-Wave the slot question gives up one thing: an add to endpoint 2's group 1 on a
+        multi-endpoint device passes this layer. The Z-Wave adapter still refuses it, because
+        a group a device does not report falls back to "group 1 is the lifeline", and
+        `tests/test_executor.py` asserts both halves together for that reason. Zigbee's own
+        second guard is `_absolute_refusal`, which refuses any binding to the coordinator
+        whatever this layer says, so narrowing here took nothing off the coordinator.
         """
         if isinstance(link, ObservedLink) and link.is_system:
             return True
+        backend = self._coordinator.backend_for(link.source)
+        if backend is None or backend.system_scope() is not SystemScope.SLOT:
+            # No adapter (a device this coordinator cannot reach) is left to the adapter that
+            # will eventually be asked to write it, exactly as an unread device is: the two
+            # guards are independent and both would have to fail.
+            return False
         device = self._coordinator.observed_for(link.source)
         return device is not None and any(
             entry.is_system

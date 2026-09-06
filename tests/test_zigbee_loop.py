@@ -42,6 +42,8 @@ from custom_components.device_links.models import (
     Direction,
     Feature,
     ObservedLink,
+    Plan,
+    PlanItem,
     PlanOp,
     Profile,
     Rule,
@@ -613,21 +615,24 @@ async def test_a_two_way_zigbee_rule_planned_again_has_nothing_to_do(
     assert (await coordinator.async_plan()).is_empty
 
 
-async def test_a_coordinator_binding_on_a_rule_s_own_cluster_blocks_that_rule(
+async def test_a_coordinator_binding_on_a_rule_s_own_cluster_leaves_that_rule_alone(
     coordinator: DeviceLinksCoordinator, runner: JobRunner, bridge: FakeBridge
 ) -> None:
-    """Open item T49. `JobRunner._is_system` treats a slot holding a system entry as system.
+    """Open item T49, closed: one system binding no longer condemns the whole cluster.
 
-    That is true on Z-Wave, where a lifeline group holds the controller and nothing else may
-    go in it. It is false on Zigbee, where one endpoint's cluster holds many independent
-    bindings side by side, and Zigbee2MQTT puts a reporting binding on exactly the endpoint
-    and cluster a remote's presses come from.
+    **This test used to assert the opposite**, and saying what it asserted is the point of
+    keeping it. It pinned `JobRunner._is_system` refusing every link on an endpoint's cluster
+    because one binding in that cluster targeted the coordinator, and it asserted both the
+    resulting `system_link_protected` and the plan that could never converge. That is a
+    Z-Wave truth read onto Zigbee: a lifeline group holds the controller and nothing else may
+    go into it, while one endpoint's cluster holds many independent bindings side by side.
+    Zigbee2MQTT puts a reporting binding on exactly the endpoint and cluster a button's
+    presses come from, so the first Zigbee remote added to this network would have had every
+    rule from it refused with no way out from the UI.
 
-    Nothing in the G1 capture is shaped like that (the Inovelli reporting bindings sit on
-    endpoint 1 and on endpoint 2's manufacturer cluster), so no device on this network is
-    affected. The first Zigbee button or remote added would be, and there would be no way
-    out of it from the UI. Not fixed here: narrowing the guard further means deciding what
-    it is for, which is a change to what `is_system` means to every backend.
+    Each backend now says which of the two its `is_system` mark means
+    (`backends.base.SystemScope`), so Z-Wave keeps refusing a lifeline group wholesale and
+    Zigbee protects the individual coordinator binding and nothing beside it.
     """
     bridge.add_binding(
         AUX,
@@ -640,8 +645,62 @@ async def test_a_coordinator_binding_on_a_rule_s_own_cluster_blocks_that_rule(
 
     _, report = await plan_and_apply(coordinator, runner)
 
-    blocked = [result for result in report.results if result.outcome is LinkOutcome.BLOCKED]
-    assert [result.reason.translation_key for result in blocked if result.reason] == [
+    assert report.status is JobStatus.COMPLETED
+    assert not [r for r in report.results if r.outcome is LinkOutcome.BLOCKED]
+    assert (await coordinator.async_plan()).is_empty
+    assert bound(coordinator, AUX_IEEE, 2) == {
+        (zp.GEN_ON_OFF, LIGHT_IEEE),
+        (zp.GEN_LEVEL_CTRL, LIGHT_IEEE),
+    }
+    # And the binding that provoked all this is untouched, still the bridge's own.
+    assert any(
+        link.is_system
+        and link.source_endpoint == 2
+        and link.emitter_group == zp.GEN_ON_OFF
+        and link.target.handle.protocol_id == COORDINATOR_IEEE
+        for link in links_of(coordinator, AUX_IEEE)
+    )
+
+
+async def test_the_bridge_s_own_binding_is_still_never_offered_for_removal(
+    coordinator: DeviceLinksCoordinator, runner: JobRunner, bridge: FakeBridge
+) -> None:
+    """The other half of T49: narrowing the guard took nothing off the coordinator.
+
+    A hand-built plan removing the reporting binding a rule's own cluster shares is refused
+    here, by the entry's own `is_system`, before anything reaches the bridge.
+    """
+    bridge.add_binding(
+        AUX,
+        2,
+        zp.GEN_ON_OFF,
+        {"type": "endpoint", "ieee_address": COORDINATOR_IEEE, "endpoint": 1},
+    )
+    await coordinator.async_refresh()
+    activate(coordinator, s8_rule())
+    reporting = next(
+        link
+        for link in links_of(coordinator, AUX_IEEE)
+        if link.is_system and link.emitter_group == zp.GEN_ON_OFF
+    )
+
+    report = await runner.async_apply(
+        Plan(
+            token="hand-built",
+            items=(
+                PlanItem(
+                    op=PlanOp.REMOVE,
+                    device_identity=reporting.source.identity,
+                    link=reporting,
+                ),
+            ),
+            unmanaged=(),
+            unchanged_count=0,
+        )
+    )
+
+    assert [result.outcome for result in report.results] == [LinkOutcome.BLOCKED]
+    assert [r.reason.translation_key for r in report.results if r.reason] == [
         "system_link_protected"
     ]
-    assert not (await coordinator.async_plan()).is_empty
+    assert bridge.write_count == 0

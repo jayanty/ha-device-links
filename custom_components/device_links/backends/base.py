@@ -34,6 +34,33 @@ from custom_components.device_links.models import (
 )
 
 
+class SystemScope(StrEnum):
+    """What a backend's `ObservedLink.is_system` mark applies to.
+
+    The one place two protocols mean genuinely different things by the same flag, so each
+    backend says which, and core asks rather than guessing. Both sentences are worth having
+    where the decision lives:
+
+    - **Z-Wave is `SLOT`**: an association group has one purpose, so a group holding the
+      controller is a lifeline and nothing else may ever go into it, whatever we are trying
+      to put there.
+    - **Zigbee is `ENTRY`**: an endpoint's cluster is a table of independent bindings, so a
+      reporting binding to the coordinator protects itself and nothing beside it.
+
+    Asking by slot everywhere was open item T49. It is right for Z-Wave and false on Zigbee,
+    where Zigbee2MQTT puts a reporting binding on exactly the endpoint and cluster a button's
+    presses come from: every rule from the first Zigbee remote added to a network would have
+    been refused with no way out from the UI.
+
+    A backend that is unsure answers `SLOT`, which refuses more than it must rather than
+    less: this flag guards CLAUDE.md Section 3 rule 4, and the safe direction to be wrong in
+    is the one that declines to write.
+    """
+
+    SLOT = "slot"
+    ENTRY = "entry"
+
+
 class LinkResultStatus(StrEnum):
     """What became of one link the executor asked a backend to write.
 
@@ -221,3 +248,11 @@ class Backend(Protocol):
 
     def wake_instructions(self, handle: DeviceHandle) -> str | None:
         """Return how a user wakes this device, or None when it is always listening."""
+
+    def system_scope(self) -> SystemScope:
+        """Return whether this protocol's system entries reserve their whole slot.
+
+        A constant per adapter rather than a question about one link: it is a fact about the
+        protocol, not about a device, and answering it per link would invite an adapter to
+        make it depend on state. See `SystemScope` for what each answer means.
+        """

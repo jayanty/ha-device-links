@@ -45,6 +45,7 @@ from custom_components.device_links.backends.base import (
     ObservedDevice,
     SettingResult,
     SettingValue,
+    SystemScope,
 )
 from custom_components.device_links.models import (
     DeviceCapabilities,
@@ -187,6 +188,9 @@ class RecordingBackend:
 
     def subscribe(self, callback: Callable[[str], None]) -> Callable[[], None]:
         return self.inner.subscribe(callback)
+
+    def system_scope(self) -> SystemScope:
+        return self.inner.system_scope()
 
     def wake_instructions(self, handle: DeviceHandle) -> str | None:
         return self.inner.wake_instructions(handle)

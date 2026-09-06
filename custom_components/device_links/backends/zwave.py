@@ -37,6 +37,7 @@ from custom_components.device_links.backends.base import (
     ObservedDevice,
     SettingResult,
     SettingValue,
+    SystemScope,
 )
 from custom_components.device_links.backends.zwave_accessor import ZWaveAccessorError
 from custom_components.device_links.models import Backend as BackendId
@@ -587,6 +588,17 @@ class ZWaveBackend:
         """Return how a user wakes this device, or None when it is always listening."""
         entry = self._entry_of(self._node(handle))
         return None if entry is None else entry.wake_instruction
+
+    def system_scope(self) -> SystemScope:
+        """Report that a Z-Wave lifeline group is reserved whole rather than entry by entry.
+
+        An association group has one purpose, so the group is the unit and not the entry.
+
+        A Z-Wave group holding the controller is the lifeline, and nothing else may ever go
+        into it: the group is the unit, not the entry in it. `_local_refusal` says the same
+        thing one layer lower down for the write itself.
+        """
+        return SystemScope.SLOT
 
     # Devices and their identity.
 

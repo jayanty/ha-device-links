@@ -47,6 +47,7 @@ from custom_components.device_links.backends.base import (
     ObservedDevice,
     SettingResult,
     SettingValue,
+    SystemScope,
 )
 from custom_components.device_links.models import Backend as BackendId
 from custom_components.device_links.models import (
@@ -1433,6 +1434,19 @@ class ZigbeeBackend:
             return None
         entry = self._entry_of(device)
         return None if entry is None else entry.wake_instruction
+
+    def system_scope(self) -> SystemScope:
+        """Report that a Zigbee coordinator binding reserves itself and not its cluster.
+
+        An endpoint's cluster is a table of independent bindings, not a slot with one purpose.
+
+        The bridge's reporting bindings sit beside a user's own on the same endpoint and the
+        same cluster, and on a button or a remote they sit on exactly the cluster a rule
+        binds from. Reading one of them as "this cluster is the bridge's" refused every rule
+        from such a device with no way out (docs/open-items.md T49). What is still never
+        ours is the binding itself, which `_absolute_refusal` refuses on its own account.
+        """
+        return SystemScope.ENTRY
 
 
 def _member_of(entry: zp.GroupMember) -> tuple[str, int]:

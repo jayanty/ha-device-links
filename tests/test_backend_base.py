@@ -17,6 +17,7 @@ from custom_components.device_links.backends.base import (
     ObservedDevice,
     SettingResult,
     SettingValue,
+    SystemScope,
 )
 from custom_components.device_links.models import Backend as BackendId
 from custom_components.device_links.models import (
@@ -185,3 +186,6 @@ class _StubBackend:
 
     def wake_instructions(self, handle: DeviceHandle) -> str | None:
         return None
+
+    def system_scope(self) -> SystemScope:
+        return SystemScope.SLOT
