@@ -36,7 +36,7 @@ from custom_components.device_links.const import (
     OPTION_YAML_MIRROR,
     OPTION_YAML_MIRROR_PATH,
 )
-from custom_components.device_links.yaml_io import HEADER_FIRST_LINE, parse_profile
+from custom_components.device_links.yaml_io import HEADER_PREFIX, parse_profile
 from custom_components.device_links.yaml_mirror import FLUSH_DELAY_SECONDS
 from tests.conftest import a_profile, a_rule, activate
 
@@ -118,7 +118,7 @@ async def test_a_profile_is_written_as_the_yaml_the_export_gives_you(
 
     assert files(mirror_dir(hass)) == ["bedroom-bedroom.yaml"]
     text = written.read_text()
-    assert text.startswith(HEADER_FIRST_LINE)
+    assert text.startswith(HEADER_PREFIX)
     # Readable back through the same reader an import uses, which is the whole point of
     # writing the export rather than a shape of this module's own.
     assert parse_profile(text).rules[0].id == "bedroom-main"
@@ -259,6 +259,26 @@ async def test_a_file_that_cannot_be_read_at_all_is_left_where_it_is(
     assert files(mirror_dir(hass)) == ["not-text.yaml", "other-other.yaml"]
 
 
+async def test_a_file_written_at_an_older_schema_version_is_still_ours_to_prune(
+    hass: HomeAssistant, mirrored: MockConfigEntry
+) -> None:
+    """The day the schema changes, every mirror file already on disk must stay prunable.
+
+    A prefix carrying the version would stop recognising them all at once, and a directory
+    of files this integration wrote and can no longer tidy up is worse than one it never
+    wrote: the user has to know which are stale.
+    """
+    activate(mirrored, a_profile(a_rule()))
+    await settle(hass)
+    older = mirror_dir(hass) / "gone-gone.yaml"
+    older.write_text(f"{HEADER_PREFIX}0.\nprofile: something we no longer write\n")
+
+    activate(mirrored, a_profile(a_rule(), profile_id="other", name="Other"))
+    await settle(hass)
+
+    assert files(mirror_dir(hass)) == ["other-other.yaml"]
+
+
 # --------------------------------------------------------------------------------------
 # Where it will not write
 # --------------------------------------------------------------------------------------
@@ -330,6 +350,7 @@ async def test_a_directory_that_cannot_be_written_is_said_once_and_then_left_alo
     monkeypatch.setattr(yaml_mirror, "_write_all", _refuse)
     activate(mirrored, a_profile(a_rule()))
     await settle(hass)
+    assert "could not be written" in caplog.text, "the mirror said nothing at all"
     caplog.clear()
 
     activate(mirrored, a_profile(a_rule(name="Again")))

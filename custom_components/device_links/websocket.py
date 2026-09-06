@@ -1243,7 +1243,7 @@ async def _swap_apply(
             translation_key="job_running",
         )
     swap = await _build_swap(hass, entry, msg)
-    _refuse_unapplicable(swap)
+    _refuse_unapplicable(runtime.coordinator, swap)
     _check_token(swap.plan, msg["plan_token"])
     if not msg.get("accept_lossy", False) and swap.proposal.is_lossy:
         raise ServiceValidationError(
@@ -1261,6 +1261,7 @@ async def _swap_apply(
         replace(coordinator.state, profiles=_stored_with(coordinator.state, updated))
     )
     plan = await coordinator.async_plan(swap.scope, remove_unmanaged=swap.stale)
+    _refuse_a_different_plan(swap.plan, plan)
     if plan.is_empty:
         connection.send_result(
             msg["id"],
@@ -1379,9 +1380,20 @@ def _referenced_handle(profile: Profile, identity: str) -> DeviceHandle:
     )
 
 
-def _refuse_unapplicable(swap: _Swap) -> None:
+def _refuse_unapplicable(coordinator: DeviceLinksCoordinator, swap: _Swap) -> None:
     """Refuse a swap that has not been decided yet, or that cannot be made at all."""
     proposal = swap.proposal
+    if not coordinator.is_available(proposal.new.identity):
+        # Nothing is planned for a device that cannot be read (E1), so a swap onto one
+        # would remove every link from the old switch and write none to the new: the
+        # rules would point at the replacement and neither device would do anything.
+        raise ServiceValidationError(
+            f"{proposal.new.name_at_authoring} is not answering, so nothing can be written "
+            "to it and this swap was not applied",
+            translation_domain=DOMAIN,
+            translation_key="swap_replacement_unavailable",
+            translation_placeholders={"device": proposal.new.name_at_authoring},
+        )
     if proposal.unmapped:
         raise ServiceValidationError(
             "this swap has controls with nothing chosen to take over from them, so it was "
@@ -1398,6 +1410,35 @@ def _refuse_unapplicable(swap: _Swap) -> None:
             translation_placeholders={
                 "reasons": ", ".join(error.translation_key for error in proposal.errors)
             },
+        )
+
+
+def _refuse_a_different_plan(shown: Plan, writing: Plan) -> None:
+    """Refuse to write anything that is not what the token was checked against.
+
+    The plan the user confirmed is built before the rewritten rules are stored, and the one
+    that is written is built after, because storing is what moves ownership onto the
+    replacement (open items T11 and T61). The two are the same work by construction and
+    that is not something to rely on: this is the only write in the product whose plan is
+    not the object the token belongs to, so the two are compared item for item instead.
+
+    A mismatch is `plan_out_of_date`, the same answer a stale token gets, because it means
+    the same thing to the user: what would happen now is not what they looked at. The rules
+    stay rewritten, which is the state they asked for; only the writing is refused, and the
+    next plan says what is left to do.
+    """
+    if writing.items != shown.items:
+        _LOGGER.warning(
+            "a swap's plan changed when its rules were stored, so nothing was written: "
+            "%s items were shown and %s would be written",
+            len(shown.items),
+            len(writing.items),
+        )
+        raise ServiceValidationError(
+            "storing the rewritten rules changed what this swap would write, so nothing "
+            "was written; the rules are saved, and planning again says what is left to do",
+            translation_domain=DOMAIN,
+            translation_key="plan_out_of_date",
         )
 
 
@@ -1432,6 +1473,11 @@ def _swap_payload(
         "plan": serializer.plan(swap.plan),
         "old_listed": coordinator.handle_for(old.identity) is not None,
         "old_reachable": coordinator.is_available(old.identity),
+        # The replacement's half of the same question, and it is the more dangerous one:
+        # a device that cannot be read has nothing planned for it (E1), so a swap onto one
+        # is a plan that strips the old switch and writes nothing to the new. The apply
+        # refuses it; this is what lets the preview say why before anybody presses.
+        "new_reachable": coordinator.is_available(swap.proposal.new.identity),
         "removes": sorted(swap.stale),
     }
 

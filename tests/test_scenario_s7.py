@@ -559,6 +559,84 @@ async def test_a_swap_of_a_disabled_rule_rewrites_it_and_writes_nothing(
     assert rules["ceiling-paddle"]["enabled"] is False
 
 
+async def test_a_swap_writes_exactly_the_plan_the_token_belonged_to(
+    hass: HomeAssistant,
+    client: Any,
+    imported: str,
+    zwave_js_devices: dict[int, dr.DeviceEntry],
+) -> None:
+    """The one write in this product whose plan is rebuilt after the token is checked.
+
+    Storing the rewritten rules is what moves ownership onto the replacement (open items
+    T11 and T61), so the plan that is written is built afterwards and is a different object
+    from the one the token belongs to. They are the same work by construction, and this is
+    what says so out loud rather than by reasoning: a rebuild that produced anything else
+    is refused with the same answer a stale token gets, because it means the same thing.
+    """
+    result = await preview(client, zwave_js_devices)
+    shown = {
+        (item["op"], item["link"]["fingerprint"])
+        for device in result["plan"]["devices"]
+        for bucket in ("add", "remove", "blocked", "pending", "set_param")
+        for item in device[bucket]
+        if item["link"] is not None
+    }
+
+    started = await call(
+        client,
+        "swap/apply",
+        old_identity=old_identity(),
+        new_device_id=zwave_js_devices[REPLACEMENT].id,
+        plan_token=result["plan"]["token"],
+    )
+    await hass.async_block_till_done()
+
+    job = await call(client, "jobs/get", job_id=started["job_id"])
+    attempted = {entry["fingerprint"] for entry in job["results"]}
+
+    assert shown, "the preview showed no work, so this proves nothing"
+    assert attempted == {fingerprint for _op, fingerprint in shown}
+
+
+async def test_a_swap_onto_a_device_that_is_not_answering_writes_nothing(
+    hass: HomeAssistant,
+    client: Any,
+    imported: str,
+    zwave_js_devices: dict[int, dr.DeviceEntry],
+    zwave_driver: FakeDriver,
+) -> None:
+    """Otherwise it strips the old switch and writes nothing to the new one.
+
+    Nothing is planned for a device that cannot be read (E1), so a swap onto one is a plan
+    made of removals: the rules would point at the replacement, the old device would be
+    emptied, and neither would do anything. The preview says the replacement is not
+    reachable and the apply refuses.
+    """
+    # The replacement stops answering between the preview and the confirm.
+    result = await preview(client, zwave_js_devices)
+    zwave_driver.controller.unreadable.add(REPLACEMENT)
+    await device_links_refresh(client)
+
+    stale = await preview(client, zwave_js_devices)
+    error = await refused(
+        client,
+        "swap/apply",
+        old_identity=old_identity(),
+        new_device_id=zwave_js_devices[REPLACEMENT].id,
+        plan_token=stale["plan"]["token"],
+    )
+
+    assert result["new_reachable"] is True
+    assert stale["new_reachable"] is False
+    assert error["translation_key"] == "swap_replacement_unavailable"
+    assert group_of(zwave_driver, CONTROLLER, 5) == [], "a refused swap wrote something"
+
+
+async def device_links_refresh(client: Any) -> None:
+    """Re-read every device, as an unscoped Verify does."""
+    await call(client, "verify")
+
+
 async def test_a_swap_cannot_be_applied_without_a_plan_somebody_looked_at(
     client: Any, imported: str, zwave_js_devices: dict[int, dr.DeviceEntry]
 ) -> None:
@@ -626,7 +704,7 @@ async def test_a_swap_that_would_lose_work_is_refused_until_it_is_acknowledged(
 
 
 async def test_a_swap_whose_controls_are_not_all_answered_is_refused(
-    client: Any, zwave_js_devices: dict[int, dr.DeviceEntry]
+    client: Any, zwave_js_devices: dict[int, dr.DeviceEntry], zwave_driver: FakeDriver
 ) -> None:
     """FR-S2's mapping step is a question, and an unanswered question is not a default."""
     # On/off only, because the features are the second pre-fill: a rule asking for dimming
@@ -649,6 +727,14 @@ async def test_a_swap_whose_controls_are_not_all_answered_is_refused(
     assert result["proposal"]["unmapped"] == ["unknown_button"]
     assert result["proposal"]["is_applicable"] is False
     assert error["translation_key"] == "swap_mapping_incomplete"
+    # Refused before anything was stored and before anything was written, not after: a
+    # rewrite that happened and then reported a refusal would leave the rules pointing at
+    # the replacement with nobody having said which control they drive it from.
+    stored = await call(client, "profiles/get", profile_id="ceiling")
+    rules = {row["rule"]["id"]: row["rule"] for row in stored["rules"]}
+    assert rules["ceiling-paddle"]["source"]["device"] == old_identity()
+    for group in PADDLE_GROUPS:
+        assert group_of(zwave_driver, REPLACEMENT, group) == [], f"group {group}"
 
 
 async def test_a_device_no_rule_names_cannot_be_swapped(

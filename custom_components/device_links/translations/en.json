@@ -220,6 +220,9 @@
     "swap_not_possible": {
       "message": "This swap cannot be made: {reasons}."
     },
+    "swap_replacement_unavailable": {
+      "message": "{device} is not answering, so nothing can be written to it and this swap was not applied. Nothing was changed on either device."
+    },
     "swap_replacement_unreadable": {
       "message": "{device} has not been read yet, so what it can do is unknown and nothing can be moved onto it. Refresh it and try again."
     },
@@ -362,7 +365,7 @@
     },
     "swap_device_changed": {
       "title": "{device} now answers as a different model",
-      "description": "The device at {device}'s address reports a different model than the {count} rule(s) that name it were written against ({rules}), which is what Z-Wave's replace-failed-node leaves behind. Its controls may not be the same ones, so the rules are not being applied to it. Open Device Links and use Swap to say which control on {replacement} takes over from which, and to see the whole plan before anything is written."
+      "description": "The device at {device}'s address reports a different model than the {count} rule(s) that name it were written against ({rules}), which is what Z-Wave's replace-failed-node leaves behind. The rules still name the right address, so they are being applied to it, and its controls are probably not the ones they were written for: a paddle that was group 2 on the old model may be something else on this one. Open Device Links and use Swap to say which control on {replacement} takes over from which, and to see the whole plan before anything is written."
     }
   },
   "services": {

@@ -668,6 +668,7 @@ function Xe(e, t, n) {
 		swap_feature_lost: "{device} cannot carry {feature} for the rule {rule}, so that part of the rule stops working after the swap.",
 		swap_mapping_incomplete: "Nothing has been chosen to take over from these controls: {controls}. Pick one for each before applying the swap.",
 		swap_not_possible: "This swap cannot be made: {reasons}.",
+		swap_replacement_unavailable: "{device} is not answering, so nothing can be written to it and this swap was not applied. Nothing was changed on either device.",
 		swap_replacement_unreadable: "{device} has not been read yet, so what it can do is unknown and nothing can be moved onto it. Refresh it and try again.",
 		swap_same_device: "{device} is already the device the rules name, so there is nothing to swap it for.",
 		swap_target_endpoint_moved: "The rule {rule} now sends to endpoint {endpoint} of {device}, which is where that device receives.",
@@ -1840,10 +1841,13 @@ var W = class extends U {
     `;
 	}
 	_openRollback(e) {
-		this._returning = [], this._rollingBack = e;
+		this._forgetLastPlan(), this._rollingBack = e;
 	}
 	_closeRollback() {
-		this._rollingBack = null, this._returning = [];
+		this._rollingBack = null, this._forgetLastPlan();
+	}
+	_forgetLastPlan() {
+		this._returning = [], this._unreadable = [];
 	}
 	_afterRollback() {
 		this._load();

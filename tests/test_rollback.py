@@ -139,19 +139,49 @@ async def test_a_rollback_with_no_token_shows_the_plan_and_writes_nothing(
     assert result["job_id"] is None
     assert result["status"] == "preview"
     assert result["plan"]["counts"]["remove"] == len(PADDLE_GROUPS)
-    assert group_of(zwave_driver, CONTROLLER, 2) == [MAIN_LIGHTS], "a preview wrote to a device"
+    for group in PADDLE_GROUPS:
+        assert group_of(zwave_driver, CONTROLLER, group) == [MAIN_LIGHTS], (
+            f"a preview wrote to group {group}"
+        )
 
 
-async def test_a_stale_token_is_refused_rather_than_applied(
+async def test_a_token_that_is_not_one_at_all_is_refused(
     client: Any, applied: str, zwave_driver: FakeDriver
 ) -> None:
-    """FR-A3 holds here too: applying a plan nobody saw is the thing it prevents."""
+    """The plainest refusal, which is also what a client sending nonsense gets."""
     error = await refused(
         client, "snapshots/rollback", snapshot_id=applied, plan_token="not-a-token"
     )
 
     assert error["translation_key"] == "plan_out_of_date"
     assert group_of(zwave_driver, CONTROLLER, 2) == [MAIN_LIGHTS], "a refusal wrote something"
+
+
+async def test_a_token_that_was_valid_before_the_network_moved_is_refused(
+    client: Any,
+    device_links_entry: MockConfigEntry,
+    applied: str,
+    zwave_driver: FakeDriver,
+) -> None:
+    """FR-A3's real case: the plan was right when it was shown and is not right now.
+
+    Somebody edits an association in Z-Wave JS UI between the preview and the confirm, so
+    the token the user is holding describes a state that has gone. Refusing is the whole
+    point: the alternative is applying work nobody has seen.
+    """
+    preview = await call(client, "snapshots/rollback", snapshot_id=applied)
+    await unlink(zwave_driver, CONTROLLER, 2, MAIN_LIGHTS)
+    await refresh(device_links_entry)
+
+    error = await refused(
+        client,
+        "snapshots/rollback",
+        snapshot_id=applied,
+        plan_token=preview["plan"]["token"],
+    )
+
+    assert error["translation_key"] == "plan_out_of_date"
+    assert group_of(zwave_driver, CONTROLLER, 3) == [MAIN_LIGHTS], "a refusal wrote something"
 
 
 async def test_a_rollback_is_refused_while_a_job_is_already_running(
@@ -383,6 +413,119 @@ async def test_a_ticked_unmanaged_link_is_removed_by_a_rollback_like_any_other_p
 
     assert preview["plan"]["counts"]["remove"] == len(PADDLE_GROUPS) + 1
     assert group_of(zwave_driver, CONTROLLER, 9) == []
+
+
+async def test_what_is_written_is_exactly_what_the_preview_listed(
+    hass: HomeAssistant,
+    client: Any,
+    device_links_entry: MockConfigEntry,
+    applied: str,
+    zwave_driver: FakeDriver,
+) -> None:
+    """The claim this whole file is arranged around, asserted against the devices.
+
+    A rollback applied while an un-ticked foreign association is sitting on the same
+    device, which is the one case where "every removal is in the plan" can fail without
+    any test noticing: the plan is rebuilt between the token check and the write, and a
+    rebuild that widened the selection would take the foreign entry off with everything
+    else. So the devices are read before and after, and the difference is compared with
+    what the preview said, entry by entry.
+    """
+    await link(zwave_driver, CONTROLLER, 9, LOBBY)
+    await refresh(device_links_entry)
+    preview = await call(client, "snapshots/rollback", snapshot_id=applied)
+    listed = {
+        item["link"]["fingerprint"]
+        for device in preview["plan"]["devices"]
+        for item in device["remove"]
+    }
+    before = {group: group_of(zwave_driver, CONTROLLER, group) for group in (*PADDLE_GROUPS, 9)}
+
+    await call(
+        client, "snapshots/rollback", snapshot_id=applied, plan_token=preview["plan"]["token"]
+    )
+    await hass.async_block_till_done()
+
+    after = {group: group_of(zwave_driver, CONTROLLER, group) for group in (*PADDLE_GROUPS, 9)}
+    changed = {group for group in before if before[group] != after[group]}
+
+    assert listed, "the preview listed no removals, so this proves nothing"
+    assert changed == set(PADDLE_GROUPS), (
+        f"the rollback changed {changed} and the preview listed only {sorted(PADDLE_GROUPS)}"
+    )
+    assert after[9] == [LOBBY], "an association nobody ticked was removed"
+
+
+async def test_something_the_snapshot_held_that_is_nobodys_is_never_written_back(
+    hass: HomeAssistant,
+    client: Any,
+    device_links_entry: MockConfigEntry,
+    zwave_driver: FakeDriver,
+) -> None:
+    """A snapshot holds a device whole, and a rollback puts back only the managed half.
+
+    The other direction from the lifeline test below, and the one that catches a rollback
+    treating `Snapshot.links` as its desired state rather than the managed part of it: a
+    foreign association that was on the device when the snapshot was taken, and has since
+    been removed, must not be written back. Device Links did not put it there and taking it
+    off was somebody's decision (Decision D9).
+    """
+    await link(zwave_driver, CONTROLLER, 9, LOBBY)
+    await refresh(device_links_entry)
+    activate(device_links_entry, a_profile(a_rule()))
+    await hass.async_block_till_done()
+    snapshot_id = await apply_everything(hass, client)
+    stored = next(
+        snapshot
+        for snapshot in device_links_entry.runtime_data.coordinator.state.snapshots
+        if snapshot.id == snapshot_id
+    )
+    foreign = [entry for entry in stored.links if entry.emitter_group == "9"]
+    assert foreign, "the snapshot did not keep the foreign association, so this proves nothing"
+    assert all(entry.managed_by is None for entry in foreign)
+
+    # Somebody takes their own association off, after the snapshot.
+    await unlink(zwave_driver, CONTROLLER, 9, LOBBY)
+    await refresh(device_links_entry)
+
+    result = await call(client, "snapshots/rollback", snapshot_id=snapshot_id)
+    adds = {
+        item["link"]["fingerprint"]
+        for device in result["plan"]["devices"]
+        for item in device["add"]
+    }
+
+    assert {entry.fingerprint for entry in foreign} & adds == set(), (
+        "the rollback offered to write back an association Device Links never made"
+    )
+
+
+async def test_a_lifeline_the_snapshot_held_is_never_written_back_either(
+    hass: HomeAssistant,
+    client: Any,
+    device_links_entry: MockConfigEntry,
+    applied: str,
+    zwave_driver: FakeDriver,
+) -> None:
+    """The same question about the entry that must never be planned for at all.
+
+    The removal half is guarded twice over and covered; this is the add half, which needs
+    the lifeline to be **absent** from the device at rollback time. While it is present the
+    planner files it under survivors either way, so a rollback that had taken system links
+    into its desired state would look identical.
+    """
+    await unlink(zwave_driver, CONTROLLER, 1, 1)
+    await refresh(device_links_entry)
+    assert group_of(zwave_driver, CONTROLLER, 1) == [], "the lifeline is still there"
+
+    result = await call(client, "snapshots/rollback", snapshot_id=applied)
+    adds = {
+        item["link"]["emitter_group"]
+        for device in result["plan"]["devices"]
+        for item in device["add"]
+    }
+
+    assert "1" not in adds, "a rollback planned to write the lifeline group"
 
 
 async def test_a_lifeline_in_a_snapshot_is_never_planned_for_anything(

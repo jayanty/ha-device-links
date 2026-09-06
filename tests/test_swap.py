@@ -37,6 +37,7 @@ from custom_components.device_links.swap import (
     find_replacements,
     propose,
 )
+from custom_components.device_links.yaml_io import rule_to_data
 from tests.factories import CEILING_LIGHTS_OLD, capabilities_for, handle
 
 # Node 42 is the replacement, and node 37 is a light both the old rule and the new one
@@ -253,9 +254,46 @@ def test_a_disabled_rule_is_carried_across_too() -> None:
 
 
 def test_the_source_endpoint_comes_from_the_control_that_took_over() -> None:
-    """The same rule the editor follows: a control drives from its own endpoint."""
+    """The same rule the editor follows: a control drives from its own endpoint.
+
+    Every Z-Wave control answers endpoint 0, so a Z-Wave-to-Z-Wave swap cannot tell the
+    control's endpoint from the rule's old one. The replacement here therefore drives from
+    endpoint 2, the way an Inovelli Blue's paddle does, which is the case a swap onto a
+    device of a different shape really produces (open item T48's model).
+    """
+    on_endpoint_two = replace(
+        network(REPLACEMENT)[handle(REPLACEMENT).identity],
+        emitters=(
+            Emitter(
+                emitter_id="paddle",
+                label="Paddle",
+                endpoint=2,
+                group_ids=("2", "3", "4"),
+                actions=dict.fromkeys(DIMMING, "2"),
+                capacity=5,
+                supports_endpoint_targets=True,
+                is_lifeline=False,
+                grouping="profile_db",
+            ),
+        ),
+    )
+    proposal = propose(
+        old=handle(CEILING_LIGHTS_OLD),
+        new=handle(REPLACEMENT),
+        rules=(a_rule(),),
+        capabilities={**network(LIGHT), handle(REPLACEMENT).identity: on_endpoint_two},
+    )
+
+    assert a_rule().source.endpoint == 0, "the rule being rewritten drove from the root"
+    assert proposal.mappings[0].new_endpoint == 2
+    assert proposal.rewrites[0].after.source.endpoint == 2
+
+
+def test_a_control_that_names_no_endpoint_leaves_the_rules_own() -> None:
+    """None means "this protocol does not spell one out", which is not "endpoint 0"."""
     proposal = a_proposal()
 
+    assert proposal.mappings[0].new_endpoint == 0
     assert proposal.rewrites[0].after.source.endpoint == 0
 
 
@@ -313,7 +351,11 @@ def test_a_rewritten_rule_that_cannot_compile_at_all_carries_the_compilers_own_r
     assert [error.translation_key for error in rewrite.errors] == [
         "self_association_use_hybrid_leg"
     ]
-    assert rewrite.is_lossy
+    # And every feature is reported lost as well, because the rule compiles to no link at
+    # all. Asserted rather than left to `is_lossy`, which the errors alone would satisfy.
+    assert {loss.placeholders["feature"] for loss in rewrite.losses} == {
+        str(feature) for feature in DIMMING
+    }
 
 
 # --------------------------------------------------------------------------------------
@@ -555,15 +597,28 @@ def _empty(device: object) -> DeviceCapabilities:
     )
 
 
-def test_a_profile_is_only_ever_read_and_never_changed_by_a_proposal() -> None:
-    """Nothing here writes or stores: a proposal is a description (FR-S2)."""
+def test_a_proposal_changes_nothing_it_was_given() -> None:
+    """Nothing here writes or stores: a proposal is a description (FR-S2).
+
+    The rules the caller holds are the same objects afterwards, and the rewritten ones are
+    new: a swap that mutated a profile in place would have changed somebody's configuration
+    before they had been shown anything.
+    """
     rule = a_rule()
     profile = Profile(id="imported", name="Imported", rules=(rule,))
-    proposal = a_proposal(rule)
+    before = rule_to_data(rule)
 
-    assert profile.rules[0] is rule
+    proposal = propose(
+        old=handle(CEILING_LIGHTS_OLD),
+        new=handle(REPLACEMENT),
+        rules=profile.rules,
+        capabilities=network(REPLACEMENT, LIGHT),
+    )
+
+    assert rule_to_data(rule) == before, "the rule that was handed in was changed"
+    assert profile.rules == (rule,)
     assert proposal.rewrites[0].before is rule
-    assert proposal.rewrites[0].after is not rule
+    assert rule_to_data(proposal.rewrites[0].after) != before
 
 
 def test_an_emitter_that_carries_nothing_the_rules_need_is_not_pre_filled() -> None:

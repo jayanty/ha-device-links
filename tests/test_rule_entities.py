@@ -343,9 +343,16 @@ def test_a_protocol_with_no_loaded_backend_is_not_attachable(
         async_upstream_device,
     )
 
-    matter = replace(handle(CONTROLLER), backend=BackendId.MATTER, protocol_id="5")
+    # A well-formed Z-Wave address under a backend that is not loaded, so the refusal is
+    # the missing backend and not a protocol id nothing could parse: the same handle with
+    # `backend=ZWAVE` resolves to a device, and the next assertion is what says so.
+    matter = replace(handle(CONTROLLER), backend=BackendId.MATTER)
 
     assert async_upstream_device(hass, device_links_entry, matter) is None  # type: ignore[arg-type]
+    assert (
+        async_upstream_device(hass, device_links_entry, handle(CONTROLLER))  # type: ignore[arg-type]
+        is not None
+    ), "the same address under a loaded backend does resolve, so the refusal is the backend"
 
 
 # --------------------------------------------------------------------------------------

@@ -424,7 +424,11 @@ def test_every_command_the_panel_sends_is_one_the_backend_registers() -> None:
 
 
 def test_the_panel_never_sends_a_deliberately_deferred_command() -> None:
-    """`unmanaged/adopt` and the swap commands are Phase 2. Calling one can only fail."""
+    """`unmanaged/adopt` is the one left. Calling a deferred command can only fail.
+
+    The swap commands were here until Phase 2B implemented them; they are now uncalled on
+    purpose instead, which `UNCALLED_ON_PURPOSE` above says and this no longer covers.
+    """
     deferred = {f"device_links/{command}" for command in DEFERRED_COMMANDS}
     assert not _commands_the_panel_sends() & deferred
 

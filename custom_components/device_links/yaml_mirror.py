@@ -41,7 +41,7 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.util import slugify
 
 from .const import DEFAULT_YAML_MIRROR_PATH, OPTION_YAML_MIRROR, OPTION_YAML_MIRROR_PATH
-from .yaml_io import HEADER_FIRST_LINE, dump_profile
+from .yaml_io import HEADER_PREFIX, dump_profile
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -264,9 +264,12 @@ def _is_ours(path: Path) -> bool:
     Only the header is read. The mirror directory is meant to hold this integration's own
     files and may hold anything, and reading a whole file into memory to look at its first
     line is a foot-gun waiting for the day somebody keeps something large beside them.
+
+    The prefix carries no schema version, so a file written at an older one is still ours:
+    the day the schema changes, every mirror file already on disk must stay prunable.
     """
     try:
         with path.open(encoding="utf-8") as handle:
-            return handle.read(len(HEADER_FIRST_LINE)) == HEADER_FIRST_LINE
+            return handle.read(len(HEADER_PREFIX)) == HEADER_PREFIX
     except (OSError, UnicodeDecodeError):
         return False

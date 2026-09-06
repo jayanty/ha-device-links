@@ -295,13 +295,24 @@ export class DeviceLinksActivity extends DeviceLinksView {
   // ------------------------------------------------------------------------------------
 
   private _openRollback(snapshot: Snapshot): void {
-    this._returning = [];
+    this._forgetLastPlan();
     this._rollingBack = snapshot;
   }
 
   private _closeRollback(): void {
     this._rollingBack = null;
+    this._forgetLastPlan();
+  }
+
+  /**
+   * Drop what the last rollback plan said, so a notice cannot outlive the plan it is about.
+   *
+   * Both fields together, because both are set by the same call and describing one plan
+   * with the other's consequences is worse than saying nothing.
+   */
+  private _forgetLastPlan(): void {
     this._returning = [];
+    this._unreadable = [];
   }
 
   private _afterRollback(): void {

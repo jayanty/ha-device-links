@@ -438,6 +438,11 @@ class DeviceLinksCoordinator:
         would be radio traffic for a question whose answer changes when a person changes it;
         `async_setup` asks it once, and an unscoped Verify asks it again, which is the
         surface somebody uses precisely when they think the picture is out of date.
+
+        The read it does is shallow, which is what makes it cheap enough to sit in front of
+        a Verify's own deep pass: on Z-Wave a shallow read is the driver's cache and on
+        Zigbee it is the retained bridge state, so neither costs a radio conversation. Only
+        the deep pass that follows reaches the devices themselves.
         """
         await self.async_refresh()
 

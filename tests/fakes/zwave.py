@@ -242,6 +242,13 @@ class FakeController(EventBase):
         # Set to an int to make every check return it, including a value no current driver
         # returns, so an adapter can be shown to fail closed on one.
         self.force_check_result: int | None = None
+        # Node ids that are on the network and will not answer a read. A node that has been
+        # excluded leaves `nodes` entirely; this is the other state, and the one nothing
+        # could reproduce before: listed, and silent. It is what an unreachable device
+        # really looks like to the coordinator (E1), and it is what a swap onto a device
+        # that stopped answering has to be tested against.
+        self.unreadable: set[int] = set()
+
         # How many times a CC value refresh was asked for.
         self.refresh_count = 0
         # How long the device takes to answer a refresh.
@@ -266,6 +273,7 @@ class FakeController(EventBase):
 
         Two levels. The associations call below is three. See the module docstring.
         """
+        self._require_answering(node.node_id)
         return self.get_all_association_groups_sync(node.node_id)
 
     async def async_get_all_associations(
@@ -276,7 +284,17 @@ class FakeController(EventBase):
         Three levels, one deeper than the groups call. Reading this at the groups call's
         depth yields plausible empty groups instead of an error.
         """
+        self._require_answering(node.node_id)
         return self.get_all_associations_sync(node.node_id)
+
+    def _require_answering(self, node_id: int) -> None:
+        """Raise the way a node that is on the network and silent makes a read raise."""
+        if node_id in self.unreadable:
+            raise FailedZWaveCommand(
+                "controller.get_all_association_groups",
+                201,
+                f"node {node_id} did not respond",
+            )
 
     async def async_get_association_groups(
         self, source: AssociationAddress
