@@ -4,6 +4,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 PY=${PY:-.venv/bin/python}
 
+if [ "${1:-}" = "--slow-executor" ]; then
+  # Makes the executor race deterministic. See tests/conftest.py::slow_executor.
+  export DEVICE_LINKS_SLOW_EXECUTOR=1
+  shift
+fi
+
 if [ "${1:-}" = "--live" ]; then
   : "${HA_URL:?set HA_URL, for example http://10.10.1.11:8123}"
   : "${HA_TOKEN:?set HA_TOKEN to a long-lived access token}"
