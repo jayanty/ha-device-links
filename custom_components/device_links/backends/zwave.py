@@ -22,8 +22,9 @@ Two things it does that nothing else may:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 import logging
+from time import monotonic
 from typing import TYPE_CHECKING, Final
 
 from custom_components.device_links.backends import zwave_protocol
@@ -33,6 +34,8 @@ from custom_components.device_links.backends.base import (
     LinkResult,
     LinkResultStatus,
     ObservedDevice,
+    SettingResult,
+    SettingValue,
 )
 from custom_components.device_links.backends.zwave_accessor import ZWaveAccessorError
 from custom_components.device_links.models import Backend as BackendId
@@ -84,6 +87,19 @@ DEFAULT_DEEP_VERIFY_TIMEOUT: Final = 5.0
 # to would burn the whole timeout to learn what its status already said.
 SKIPPED_ASLEEP: Final = "asleep"
 
+# Configuration CC, where the settings adapters point. FR-B3 watches it alongside the two
+# association command classes: a parameter changed by hand is drift like any other.
+CONFIGURATION_CC: Final = 0x70
+_WATCHED_CCS: Final = _ASSOCIATION_CCS | {CONFIGURATION_CC}
+
+# FR-B3's debounce window, leading edge. One refresh of one node emits an event per group,
+# and the callback says only that the node is worth re-reading, so the burst is one call.
+DEFAULT_DEBOUNCE_SECONDS: Final = 2.0
+
+# Longer ago than any monotonic clock reading, so the first event about a device is never
+# inside the debounce window whatever the clock started at.
+_FOREVER_AGO: Final = 1e9
+
 
 class ZWaveBackend:
     """One Z-Wave network, as the `Backend` protocol sees it.
@@ -99,11 +115,16 @@ class ZWaveBackend:
         driver: Driver,
         profiles: ProfileDatabase | None,
         deep_verify_timeout: float = DEFAULT_DEEP_VERIFY_TIMEOUT,
+        debounce_seconds: float = DEFAULT_DEBOUNCE_SECONDS,
     ) -> None:
         """Hold what this adapter needs, and read nothing yet."""
         self._driver = driver
         self._profiles = profiles
         self._deep_verify_timeout = deep_verify_timeout
+        self._debounce_seconds = debounce_seconds
+        # The callbacks a live subscription is still delivering to. Membership, rather
+        # than the listener list, is what an unsubscribed callback is tested against.
+        self._live_subscriptions: set[Callable[[str], None]] = set()
 
     # Reading.
 
@@ -399,6 +420,159 @@ class ZWaveBackend:
 
         return AssociationAddress(self._driver.controller, node_id=node_id, endpoint=endpoint)
 
+    # Settings.
+
+    async def async_read_setting(self, handle: DeviceHandle, capability: str) -> SettingValue:
+        """Read one named setting off the device.
+
+        The parameter and bitmask come back with the value, so a diagnostic can say which
+        parameter was read without resolving the adapter a second time. A value of None
+        means the device has not reported that parameter, which is not the same as zero.
+        """
+        node = self._node(handle)
+        adapter = self._adapter_of(node, capability)
+        value = _value_for(node.get_configuration_values(), adapter)
+        return SettingValue(
+            capability=capability,
+            parameter=adapter.parameter,
+            bitmask=adapter.bitmask,
+            value=value.value if value is not None and isinstance(value.value, int) else None,
+        )
+
+    async def async_write_setting(
+        self, handle: DeviceHandle, capability: str, value: int
+    ) -> SettingResult:
+        """Write one named setting to the device and read it back.
+
+        Only the value the named capability points at is written. A bitmask adapter names
+        a partial parameter, which the driver exposes as its own value, so writing it
+        touches that bit and leaves the rest of the parameter alone: Decision D4's
+        parameter 19 on a ZEN35 is never written by a rule that asked about parameter 35.
+
+        PRD Section 8.4 requires the read-back, and the read-back is what decides the
+        result. A device that accepts a write and ignores it is a real failure mode, and
+        reporting it as success is how a rule comes to look applied and do nothing.
+        """
+        node = self._node(handle)
+        try:
+            adapter = self._adapter_of(node, capability)
+        except ZWaveAccessorError:
+            return SettingResult(
+                ok=False,
+                reason=Diagnostic(
+                    "settings_not_available",
+                    {"device": handle.name_at_authoring, "setting": capability},
+                ),
+            )
+        target = _value_for(node.get_configuration_values(), adapter)
+        if target is None:
+            return SettingResult(
+                ok=False,
+                reason=Diagnostic(
+                    "setting_not_reported",
+                    {"device": handle.name_at_authoring, "setting": capability},
+                ),
+            )
+        try:
+            await node.async_set_value(target, value)
+        # The caller asked for one setting and needs one answer about it.
+        except Exception as err:
+            _LOGGER.debug("write of %s on node %s failed: %s", capability, node.node_id, err)
+            return SettingResult(
+                ok=False,
+                reason=Diagnostic(
+                    "setting_write_failed",
+                    {"device": handle.name_at_authoring, "setting": capability},
+                ),
+            )
+        read_back = await self.async_read_setting(handle, capability)
+        if read_back.value == value:
+            return SettingResult(ok=True, read_back=read_back.value)
+        return SettingResult(
+            ok=False,
+            read_back=read_back.value,
+            reason=Diagnostic(
+                "setting_not_applied",
+                {"device": handle.name_at_authoring, "setting": capability},
+            ),
+        )
+
+    def _adapter_of(self, node: Node, capability: str) -> SettingsAdapter:
+        """Return where this named setting lives on this model, or say it does not."""
+        entry = self._entry_of(node)
+        adapter = None if entry is None else entry.settings.get(capability)
+        if adapter is None:
+            raise ZWaveAccessorError(
+                f"node {node.node_id} has no {capability} setting in the profile database"
+            )
+        return adapter
+
+    # Change subscriptions.
+
+    def subscribe(self, callback: Callable[[str], None]) -> Callable[[], None]:
+        """Call `callback` with a device identity whenever that device's state changes.
+
+        FR-B3: observed state follows the driver's value-updated events for Association
+        (0x85), Multi Channel Association (0x8E) and Configuration (0x70), rather than
+        polling. The callback says only which device is worth re-reading, so one refresh
+        emitting an event per group is one call: the debounce is leading edge, delivering
+        the first event about a device at once and swallowing the burst behind it, because
+        a drift that is reported two seconds late is a drift the user watches happen.
+
+        The returned callable removes every listener it registered, and closes the door
+        behind it: `EventBase.emit` iterates a copy of its listener list, so a callback
+        already dispatched in the burst being delivered would still arrive after removal.
+        At a config entry unload that is a callback reaching a coordinator that has already
+        torn itself down, which is the leak that survives a reload and confuses everyone.
+
+        Nodes included after this call are not watched. Re-subscribing on node added is the
+        coordinator's job, because it is the thing that knows a device appeared.
+
+        NOTE: whether a real driver emits these for a change made outside Home Assistant is
+        Stage 0 item Z5, which was never run: see docs/open-items.md J4 and issue #8. The
+        event shape here is modelled from the library, not observed on that path.
+        """
+        listeners = [
+            node.on("value updated", self._on_value_updated(callback))
+            for node in self._driver.controller.nodes.values()
+        ]
+
+        def _unsubscribe() -> None:
+            self._live_subscriptions.discard(callback)
+            for remove in listeners:
+                remove()
+
+        self._live_subscriptions.add(callback)
+        return _unsubscribe
+
+    def _on_value_updated(
+        self, callback: Callable[[str], None]
+    ) -> Callable[[Mapping[str, object]], None]:
+        """Return the listener that turns one node event into at most one callback."""
+        last_seen: dict[str, float] = {}
+
+        def _listen(event: Mapping[str, object]) -> None:
+            if callback not in self._live_subscriptions:
+                return
+            if _command_class_of(event) not in _WATCHED_CCS:
+                return
+            node_id = _node_id_of_event(event)
+            if node_id is None:
+                return
+            identity = f"{BackendId.ZWAVE}:{self._protocol_id(node_id)}"
+            now = monotonic()
+            if now - last_seen.get(identity, -_FOREVER_AGO) < self._debounce_seconds:
+                return
+            last_seen[identity] = now
+            callback(identity)
+
+        return _listen
+
+    def wake_instructions(self, handle: DeviceHandle) -> str | None:
+        """Return how a user wakes this device, or None when it is always listening."""
+        entry = self._entry_of(self._node(handle))
+        return None if entry is None else entry.wake_instruction
+
     # Devices and their identity.
 
     def _handle_of(self, node: Node) -> DeviceHandle:
@@ -499,6 +673,17 @@ def _command_class_of(event: Mapping[str, object]) -> int | None:
     """
     command_class = getattr(event.get("value"), "command_class", None)
     return None if command_class is None else int(command_class)
+
+
+def _node_id_of_event(event: Mapping[str, object]) -> int | None:
+    """Return the node a driver event is about, or None when it does not say.
+
+    `Node.receive_event` puts the node object into every event it emits. Read defensively
+    all the same: this runs inside somebody else's emit loop, where a raised exception is
+    caught and logged as an error nobody asked for.
+    """
+    node_id = getattr(event.get("node"), "node_id", None)
+    return None if node_id is None else int(node_id)
 
 
 def _local_refusal(
