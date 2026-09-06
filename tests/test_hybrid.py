@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import timedelta
+import logging
 from typing import Any
 
 from homeassistant.const import (
@@ -20,7 +21,7 @@ from homeassistant.const import (
     STATE_ON,
     EntityCategory,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
@@ -256,8 +257,43 @@ async def hybrid_entry(
     )
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     return entry
+
+
+@pytest.fixture
+async def booting_hybrid_entry(
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    zwave_js_entry: MockConfigEntry,
+    zwave_js_devices: dict[int, dr.DeviceEntry],
+) -> MockConfigEntry:
+    """The same entry, set up the way a Home Assistant restart sets it up.
+
+    `hybrid_entry` is the other of FR-H1's two cases: somebody adding the integration to a
+    Home Assistant that is already up, where every entity a leg could want already exists.
+    This one is the restart, where config entries are set up before Home Assistant fires
+    its started event and the entities `zwave_js` will register do not exist yet. The two
+    cases take different paths through `async_setup`, and only this one has ever been able
+    to register a leg against a device Home Assistant cannot yet name an entity of.
+    """
+    hass.set_state(CoreState.not_running)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        title="Device Links",
+        options={OPTION_HYBRID_LEGS: True},
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    return entry
+
+
+def has_started(hass: HomeAssistant) -> None:
+    """Finish the start-up the `booting_hybrid_entry` fixture left half done."""
+    hass.set_state(CoreState.running)
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
 
 
 def a_light(
@@ -296,7 +332,7 @@ async def _after_the_rate_limit(hass: HomeAssistant) -> None:
     async_fire_time_changed(
         hass, dt_util.utcnow() + timedelta(seconds=INDICATION_MIN_INTERVAL_SECONDS + 1)
     )
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
 
 def legs_of(entry: MockConfigEntry) -> HybridLegs:
@@ -310,7 +346,7 @@ async def test_no_leg_is_registered_while_the_global_option_is_off(
 ) -> None:
     """FR-H1's first gate: a rule may carry the opt-in and still be inert (D3)."""
     activate(device_links_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     hybrid = legs_of(device_links_entry)
     assert not hybrid.allowed
@@ -323,13 +359,13 @@ async def test_a_press_turns_the_target_off_through_one_service_call(
     """The whole of kind (a): Home Assistant is the wire the association cannot be."""
     light = a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
     activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert len(legs_of(hybrid_entry).running) == 1
 
     calls: list[Any] = []
     hass.services.async_register("homeassistant", "turn_off", calls.append)
     press(hass, zwave_js_devices, BUTTON_SCENE)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     assert [call.data["entity_id"] for call in calls] == [[light]]
     assert legs_of(hybrid_entry).status_for("hybrid").fired == 1
@@ -341,12 +377,12 @@ async def test_a_press_on_another_button_of_the_same_device_does_nothing(
     """A filter on the device alone would fire every leg on a five-button controller."""
     a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
     activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     calls: list[Any] = []
     hass.services.async_register("homeassistant", "turn_off", calls.append)
     press(hass, zwave_js_devices, BUTTON_SCENE + 1)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     assert calls == []
 
@@ -357,13 +393,13 @@ async def test_a_burst_of_identical_presses_produces_one_command(
     """FR-H2's de-duplication, on the leading edge so the light still responds at once."""
     a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
     activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     calls: list[Any] = []
     hass.services.async_register("homeassistant", "turn_off", calls.append)
     for _ in range(4):
         press(hass, zwave_js_devices, BUTTON_SCENE)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     assert len(calls) == 1
 
@@ -387,12 +423,12 @@ async def test_the_own_load_leg_acts_on_the_controller_rather_than_the_target(
             )
         ),
     )
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     calls: list[Any] = []
     hass.services.async_register("homeassistant", "turn_off", calls.append)
     press(hass, zwave_js_devices, BUTTON_SCENE)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     assert [call.data["entity_id"] for call in calls] == [[own_load]]
 
@@ -409,7 +445,7 @@ async def test_the_button_led_leg_writes_the_indicator_and_puts_it_back(
     light = a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
     rule = hybrid_rule(HybridKind.BUTTON_LED, features=frozenset({Feature.STATUS_REPORT}))
     activate(hybrid_entry, a_profile(rule))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     backend = hybrid_entry.runtime_data.coordinator.backend_for(handle(CONTROLLER))
     assert backend is not None
@@ -419,7 +455,7 @@ async def test_the_button_led_leg_writes_the_indicator_and_puts_it_back(
     # them says the same thing to a binary indicator, so they are deduplicated to nothing.
     for level in (50, 80, 100):
         hass.states.async_set(light, STATE_ON, {"brightness": level})
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     # The next real change lands inside the rate limit, so it is coalesced into a write
     # that happens when the limit expires rather than sent as a second radio frame. The
@@ -427,7 +463,7 @@ async def test_the_button_led_leg_writes_the_indicator_and_puts_it_back(
     hass.states.async_set(light, STATE_OFF)
     hass.states.async_set(light, STATE_ON)
     hass.states.async_set(light, STATE_OFF)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert await backend.async_read_indication(handle(CONTROLLER), BUTTON) is True
     await _after_the_rate_limit(hass)
     assert await backend.async_read_indication(handle(CONTROLLER), BUTTON) is False
@@ -436,7 +472,7 @@ async def test_the_button_led_leg_writes_the_indicator_and_puts_it_back(
     hass.states.async_set(light, STATE_ON)
     await _after_the_rate_limit(hass)
     hybrid_entry.runtime_data.coordinator.async_set_rule_enabled(rule.id, enabled=False)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert legs_of(hybrid_entry).running == ()
     assert await backend.async_read_indication(handle(CONTROLLER), BUTTON) is False
 
@@ -448,20 +484,20 @@ async def test_a_leg_dies_when_its_rule_is_disabled_and_comes_back_when_it_is_en
     a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
     coordinator = hybrid_entry.runtime_data.coordinator
     activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     coordinator.async_set_rule_enabled("hybrid", enabled=False)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     calls: list[Any] = []
     hass.services.async_register("homeassistant", "turn_off", calls.append)
     press(hass, zwave_js_devices, BUTTON_SCENE)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert calls == []
 
     coordinator.async_set_rule_enabled("hybrid", enabled=True)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     press(hass, zwave_js_devices, BUTTON_SCENE)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert len(calls) == 1
 
 
@@ -476,17 +512,17 @@ async def test_a_leg_dies_when_the_profile_is_switched(
         a_profile(hybrid_rule(HybridKind.OFF_ONLY)),
         a_profile(profile_id="guest", name="Guest"),
     )
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert len(legs_of(hybrid_entry).running) == 1
 
     coordinator.async_activate_profile("guest")
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     assert legs_of(hybrid_entry).running == ()
     calls: list[Any] = []
     hass.services.async_register("homeassistant", "turn_off", calls.append)
     press(hass, zwave_js_devices, BUTTON_SCENE)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert calls == []
 
 
@@ -496,34 +532,109 @@ async def test_a_leg_dies_when_the_entry_is_unloaded(
     """A listener that survives an unload survives a reload as a second copy of itself."""
     a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
     activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     calls: list[Any] = []
     hass.services.async_register("homeassistant", "turn_off", calls.append)
     await hass.config_entries.async_unload(hybrid_entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     press(hass, zwave_js_devices, BUTTON_SCENE)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     assert calls == []
 
 
-async def test_home_assistant_starting_registers_the_legs_again(
-    hass: HomeAssistant, hybrid_entry: MockConfigEntry, zwave_js_devices: dict[int, dr.DeviceEntry]
+async def test_a_press_leg_acts_on_an_entity_that_appeared_after_it_registered(
+    hass: HomeAssistant,
+    booting_hybrid_entry: MockConfigEntry,
+    zwave_js_devices: dict[int, dr.DeviceEntry],
 ) -> None:
-    """FR-H2 registers on start as well, because the entities may not exist before it."""
-    activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
-    await hass.async_block_till_done()
+    """A leg registered during start-up works on the entities start-up went on to make.
+
+    A press leg is the easy half of that and it is easy for a reason worth writing down:
+    it resolves what to act on when it fires rather than when it registers, so an entity
+    that turned up in between is simply found. The hard half is kind (c), which has to name
+    entity ids to watch them, and is the test below.
+    """
+    activate(booting_hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
+    await hass.async_block_till_done(wait_background_tasks=True)
     light = a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
 
-    hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
-    await hass.async_block_till_done()
+    has_started(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     calls: list[Any] = []
     hass.services.async_register("homeassistant", "turn_off", calls.append)
     press(hass, zwave_js_devices, BUTTON_SCENE)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert [call.data["entity_id"] for call in calls] == [[light]]
+
+
+async def test_issue_80_a_button_led_leg_finds_the_entity_start_up_registered_after_it(
+    hass: HomeAssistant,
+    booting_hybrid_entry: MockConfigEntry,
+    zwave_js_devices: dict[int, dr.DeviceEntry],
+) -> None:
+    """A kind (c) leg that started before its light existed follows it once it does.
+
+    This is the case the started trigger exists for, and the one it did not handle. A
+    restart sets this integration up before `zwave_js` has registered its entities, so the
+    leg registers, finds no entity id to watch and watches nothing. The started event then
+    re-synced, saw the same leg already in the running map and replaced only the
+    bookkeeping, so the leg stayed blind until somebody edited the profile: a button that
+    never lit again after a restart, with nothing in the log above debug to say so.
+    """
+    rule = hybrid_rule(HybridKind.BUTTON_LED, features=frozenset({Feature.STATUS_REPORT}))
+    activate(booting_hybrid_entry, a_profile(rule))
+    await hass.async_block_till_done(wait_background_tasks=True)
+    backend = booting_hybrid_entry.runtime_data.coordinator.backend_for(handle(CONTROLLER))
+    assert backend is not None
+    # The leg is running and watching nothing, which is not yet a fault: the entity it
+    # wants has not been registered by anybody yet.
+    assert len(legs_of(booting_hybrid_entry).running) == 1
+    assert await backend.async_read_indication(handle(CONTROLLER), BUTTON) is False
+
+    # Start-up carries on and `zwave_js` registers the light, which has been on all along.
+    light = a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
+    has_started(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    # The button is lit to match at once, which is the whole point of the immediate write.
+    assert await backend.async_read_indication(handle(CONTROLLER), BUTTON) is True
+
+    # And it goes on following the light, which is the listener the leg did not have.
+    hass.states.async_set(light, STATE_OFF)
+    await _after_the_rate_limit(hass)
+    assert await backend.async_read_indication(handle(CONTROLLER), BUTTON) is False
+
+
+async def test_issue_80_unloading_does_not_reach_for_a_listener_the_bus_has_dropped(
+    hass: HomeAssistant,
+    hybrid_entry: MockConfigEntry,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Shutting down releases the started trigger without an error, however it ended.
+
+    A one-time bus listener is consumed by the event it waited for, and the unsubscribe it
+    handed back is then a reference to something the bus has already dropped: calling it
+    logged `Unable to remove unknown job listener` with a traceback on every unload that
+    followed a start. `async_at_started` hands back an unsubscribe that is safe either way.
+    """
+    legs = legs_of(hybrid_entry)
+    activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    caplog.clear()
+    await hass.config_entries.async_unload(hybrid_entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    # Twice, because unload is not the only caller and a manager torn down again must not
+    # go looking for anything it has already let go of.
+    legs.async_shutdown()
+
+    assert [
+        record.getMessage() for record in caplog.records if record.levelno >= logging.ERROR
+    ] == []
 
 
 async def test_a_firing_that_fails_is_counted_and_raises_an_issue_above_the_threshold(
@@ -541,7 +652,7 @@ async def test_a_firing_that_fails_is_counted_and_raises_an_issue_above_the_thre
     monkeypatch.setattr(hybrid_module, "PRESS_DEBOUNCE_SECONDS", 0.0)
     a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
     activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     def _refuse(_call: Any) -> None:
         raise ValueError("the light is not answering")
@@ -549,7 +660,7 @@ async def test_a_firing_that_fails_is_counted_and_raises_an_issue_above_the_thre
     hass.services.async_register("homeassistant", "turn_off", _refuse)
     for _ in range(5):
         press(hass, zwave_js_devices, BUTTON_SCENE)
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
 
     status = legs_of(hybrid_entry).status_for("hybrid")
     assert status.errors == status.fired == 5
@@ -563,10 +674,10 @@ async def test_the_status_and_health_sensors_report_the_counters(
     """FR-H2 puts the counts on the rule's own sensor and the aggregate on Health."""
     a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
     activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     hass.services.async_register("homeassistant", "turn_off", lambda _call: None)
     press(hass, zwave_js_devices, BUTTON_SCENE)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     health = hass.states.get("sensor.device_links_health")
     assert health is not None
@@ -584,7 +695,7 @@ async def test_a_rule_that_is_only_hybrid_reads_in_sync_rather_than_blocked(
 ) -> None:
     """A rule with nothing on a device has nothing to be out of sync with (E4)."""
     activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     assert hybrid_entry.runtime_data.coordinator.drift_state()["hybrid"] is RuleState.IN_SYNC
 
@@ -594,7 +705,7 @@ async def test_the_same_rule_reads_blocked_when_the_option_is_off(
 ) -> None:
     """The other half of the same question: nothing is running, so nothing is in sync."""
     activate(device_links_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     assert device_links_entry.runtime_data.coordinator.drift_state()["hybrid"] is (
         RuleState.BLOCKED
@@ -626,7 +737,7 @@ async def test_a_notification_that_is_not_this_button_being_pressed_does_nothing
     assert why
     a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
     activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     calls: list[Any] = []
     hass.services.async_register("homeassistant", "turn_off", calls.append)
@@ -641,7 +752,7 @@ async def test_a_notification_that_is_not_this_button_being_pressed_does_nothing
             **data,
         },
     )
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     assert calls == []
 
@@ -652,7 +763,7 @@ async def test_a_notification_with_only_the_padded_scene_name_still_matches(
     """Which of the two fields carries the number has changed between zwave-js versions."""
     light = a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
     activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     calls: list[Any] = []
     hass.services.async_register("homeassistant", "turn_off", calls.append)
@@ -666,7 +777,7 @@ async def test_a_notification_with_only_the_padded_scene_name_still_matches(
             "value": "KeyPressed",
         },
     )
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     assert [call.data["entity_id"] for call in calls] == [[light]]
 
@@ -681,10 +792,10 @@ async def test_a_press_with_nothing_to_act_on_is_counted_as_an_error(
     silently skipped: the counter is the whole report.
     """
     activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     press(hass, zwave_js_devices, BUTTON_SCENE)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     status = legs_of(hybrid_entry).status_for("hybrid")
     assert status.fired == status.errors == 1
@@ -696,7 +807,7 @@ async def test_a_service_call_that_fails_once_is_retried_and_counted_as_a_succes
     """FR-H2's one retry. Two tries and no more: a press has a moment to be for."""
     a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
     activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     attempts: list[Any] = []
 
@@ -707,7 +818,7 @@ async def test_a_service_call_that_fails_once_is_retried_and_counted_as_a_succes
 
     hass.services.async_register("homeassistant", "turn_off", _flaky)
     press(hass, zwave_js_devices, BUTTON_SCENE)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     assert len(attempts) == 2
     status = legs_of(hybrid_entry).status_for("hybrid")
@@ -720,7 +831,7 @@ async def test_a_button_led_leg_whose_target_has_no_entity_writes_nothing(
     """Nothing to watch means nothing to mirror, and nothing to put back afterwards."""
     rule = hybrid_rule(HybridKind.BUTTON_LED, features=frozenset({Feature.STATUS_REPORT}))
     activate(hybrid_entry, a_profile(rule))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     backend = hybrid_entry.runtime_data.coordinator.backend_for(handle(CONTROLLER))
     assert backend is not None
@@ -730,7 +841,7 @@ async def test_a_button_led_leg_whose_target_has_no_entity_writes_nothing(
     # has no "before" to put back, and inventing one would be this integration deciding
     # what somebody's button looked like.
     hybrid_entry.runtime_data.coordinator.async_set_rule_enabled(rule.id, enabled=False)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert await backend.async_read_indication(handle(CONTROLLER), BUTTON) is False
 
 
@@ -750,7 +861,7 @@ async def test_a_device_that_does_not_report_its_indicator_is_counted_as_an_erro
         hybrid_entry,
         a_profile(hybrid_rule(HybridKind.BUTTON_LED, features=frozenset({Feature.STATUS_REPORT}))),
     )
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     status = legs_of(hybrid_entry).status_for("hybrid")
     assert status.errors == status.fired == 1
@@ -761,11 +872,11 @@ async def test_a_press_whose_target_has_no_device_record_is_counted_as_an_error(
 ) -> None:
     """The target left the registry, so there is nothing named to turn off."""
     activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     dr.async_get(hass).async_remove_device(zwave_js_devices[MAIN_LIGHTS].id)
 
     press(hass, zwave_js_devices, BUTTON_SCENE)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     assert legs_of(hybrid_entry).status_for("hybrid").errors == 1
 
@@ -777,7 +888,7 @@ async def test_a_leg_on_a_device_home_assistant_has_no_record_of_registers_nothi
     a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
     dr.async_get(hass).async_remove_device(zwave_js_devices[CONTROLLER].id)
     activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     # The leg is running, and it is listening for nothing: registering a filter on a device
     # id we do not have would mean firing on every press in the house.
@@ -793,7 +904,7 @@ async def test_a_leg_on_a_device_home_assistant_has_no_record_of_registers_nothi
             "value": "KeyPressed",
         },
     )
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert calls == []
 
 
@@ -804,16 +915,16 @@ async def test_retiring_a_leg_mid_coalesce_cancels_the_write_it_was_waiting_to_m
     light = a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
     rule = hybrid_rule(HybridKind.BUTTON_LED, features=frozenset({Feature.STATUS_REPORT}))
     activate(hybrid_entry, a_profile(rule))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     backend = hybrid_entry.runtime_data.coordinator.backend_for(handle(CONTROLLER))
     assert backend is not None
     assert await backend.async_read_indication(handle(CONTROLLER), BUTTON) is True
 
     # Inside the rate limit, so the write is pending on a timer rather than sent.
     hass.states.async_set(light, STATE_OFF)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     hybrid_entry.runtime_data.coordinator.async_set_rule_enabled(rule.id, enabled=False)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     await _after_the_rate_limit(hass)
 
     # The restore ran and the cancelled write did not, so the indicator is where it began.
@@ -832,7 +943,7 @@ async def test_a_backend_that_raises_while_writing_is_counted_rather_than_escapi
         hybrid_entry,
         a_profile(hybrid_rule(HybridKind.BUTTON_LED, features=frozenset({Feature.STATUS_REPORT}))),
     )
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     before = legs_of(hybrid_entry).status_for("hybrid").errors
 
     # The node leaves the network between the registration and the next state change,
@@ -865,12 +976,12 @@ async def test_a_leg_leaves_a_devices_configuration_entities_alone(
     )
     hass.states.async_set(config.entity_id, STATE_ON)
     activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     calls: list[Any] = []
     hass.services.async_register("homeassistant", "turn_off", calls.append)
     press(hass, zwave_js_devices, BUTTON_SCENE)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     assert [call.data["entity_id"] for call in calls] == [[light]]
 
@@ -887,7 +998,7 @@ async def test_the_plan_lists_the_legs_and_leaves_them_out_of_the_work(
     from custom_components.device_links.serialize import Serializer  # noqa: PLC0415
 
     activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     coordinator = hybrid_entry.runtime_data.coordinator
 
     payload = Serializer(hass, hybrid_entry).plan(  # type: ignore[arg-type]
@@ -910,7 +1021,7 @@ async def test_the_plan_lists_no_leg_while_the_option_is_off(
     from custom_components.device_links.serialize import Serializer  # noqa: PLC0415
 
     activate(device_links_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     coordinator = device_links_entry.runtime_data.coordinator
 
     payload = Serializer(hass, device_links_entry).plan(  # type: ignore[arg-type]
@@ -1017,10 +1128,10 @@ async def test_the_button_led_restore_survives_being_turned_off_and_on_again(
 
     for _cycle in (1, 2):
         activate(hybrid_entry, a_profile(rule))
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
         assert await backend.async_read_indication(handle(CONTROLLER), BUTTON) is True
         coordinator.async_set_rule_enabled(rule.id, enabled=False)
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
         # False is what the fixture device reported before any leg touched it, and it is
         # what has to come back every time, not only the first.
         assert await backend.async_read_indication(handle(CONTROLLER), BUTTON) is False
@@ -1038,13 +1149,13 @@ async def test_a_leg_that_moves_to_another_rule_is_counted_against_that_rule(
     """
     a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
     activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY, rule_id="first")))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY, rule_id="second")))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     hass.services.async_register("homeassistant", "turn_off", lambda _call: None)
     press(hass, zwave_js_devices, BUTTON_SCENE)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     hybrid = legs_of(hybrid_entry)
     assert hybrid.status_for("second").fired == 1
@@ -1077,7 +1188,7 @@ async def test_a_leg_that_fails_while_it_registers_does_not_register_itself_agai
         hybrid_entry,
         a_profile(hybrid_rule(HybridKind.BUTTON_LED, features=frozenset({Feature.STATUS_REPORT}))),
     )
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     assert legs_of(hybrid_entry).status_for("hybrid").fired == 1
 
@@ -1097,7 +1208,7 @@ async def test_the_repairs_issue_clears_once_the_legs_are_working_again(
     monkeypatch.setattr(hybrid_module, "PRESS_DEBOUNCE_SECONDS", 0.0)
     a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
     activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     working = False
 
@@ -1108,13 +1219,13 @@ async def test_the_repairs_issue_clears_once_the_legs_are_working_again(
     hass.services.async_register("homeassistant", "turn_off", _sometimes)
     for _ in range(5):
         press(hass, zwave_js_devices, BUTTON_SCENE)
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
     assert (DOMAIN, ISSUE_HYBRID_LEGS_FAILING) in ir.async_get(hass).issues
 
     working = True
     for _ in range(16):
         press(hass, zwave_js_devices, BUTTON_SCENE)
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
 
     assert (DOMAIN, ISSUE_HYBRID_LEGS_FAILING) not in ir.async_get(hass).issues
 
@@ -1137,7 +1248,7 @@ async def test_a_value_that_flips_and_comes_back_inside_the_rate_limit_sends_not
         hybrid_entry,
         a_profile(hybrid_rule(HybridKind.BUTTON_LED, features=frozenset({Feature.STATUS_REPORT}))),
     )
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert zwave_driver.controller.written_indicators == [(BUTTON_INDICATOR, True)]
 
     hass.states.async_set(light, STATE_OFF)
@@ -1157,12 +1268,12 @@ async def test_a_restore_that_the_device_refuses_is_logged_and_not_raised(
     a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
     rule = hybrid_rule(HybridKind.BUTTON_LED, features=frozenset({Feature.STATUS_REPORT}))
     activate(hybrid_entry, a_profile(rule))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     # The node leaves the network between the leg being registered and being turned off,
     # which is what an exclusion looks like from inside the adapter.
     del zwave_driver.controller.nodes[CONTROLLER]
     hybrid_entry.runtime_data.coordinator.async_set_rule_enabled(rule.id, enabled=False)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     assert legs_of(hybrid_entry).running == ()

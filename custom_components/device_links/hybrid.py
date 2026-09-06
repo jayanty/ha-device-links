@@ -47,10 +47,11 @@ import logging
 from time import monotonic
 from typing import TYPE_CHECKING, Any, Final
 
-from homeassistant.const import ATTR_ENTITY_ID, EVENT_HOMEASSISTANT_STARTED, STATE_ON
-from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, callback
+from homeassistant.const import ATTR_ENTITY_ID, STATE_ON
+from homeassistant.core import CALLBACK_TYPE, CoreState, Event, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
+from homeassistant.helpers.start import async_at_started
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
@@ -139,6 +140,12 @@ class _Running:
 
     leg: HybridLeg
     unsubscribes: list[CALLBACK_TYPE] = field(default_factory=list)
+    # The entities this leg's listeners were built from, which is what makes "the same leg
+    # is already running" a question with two answers: the same leg watching the entities
+    # that exist now, and the same leg watching a set that has since changed. Always empty
+    # for a press leg, which resolves what it acts on when it fires rather than when it
+    # registers, so there is nothing about it that can go stale.
+    watching: tuple[str, ...] = ()
     # Leading-edge debounce for a press, and the coalescing state for an indication.
     last_fired_at: float | None = None
     wanted: bool | None = None
@@ -204,14 +211,24 @@ class HybridLegs:
         """Start following the active profile, and re-sync once Home Assistant is up.
 
         Two triggers, because they answer different questions. The coordinator says the
-        rules changed; the started event says the entities a leg acts on now exist, which
-        they may not during setup, and a leg registered against an entity that is not there
-        yet would watch a state that never arrives.
+        rules changed; the started trigger says the entities a leg acts on now exist, which
+        they may not during setup. It is a real trigger rather than belt and braces, and the
+        reason is narrower than it looks: `async_track_state_change_event` is perfectly
+        happy to watch an entity that does not exist yet and fires when it appears, so a
+        leg is not blocked by a missing **state**. What blocks it is a missing **entity
+        registry entry**, because that is the only thing that can say which entity ids this
+        rule's device even has, and during setup `zwave_js` may not have registered them.
+        A kind (c) leg that resolved an empty set would have nothing to name and would
+        watch nothing at all, for as long as the profile went unedited.
+
+        `async_at_started` rather than a one-time bus listener. Adding this integration to a
+        Home Assistant that is already up is the ordinary case, and a listener for an event
+        that has already been fired never runs; this runs the callback immediately instead.
+        The unsubscribe it hands back is safe to call whether or not it has fired, which is
+        what stops `async_shutdown` reaching for a listener the bus has already dropped.
         """
         self._unsubscribes.append(self._coordinator.async_add_listener(self._async_resync))
-        self._unsubscribes.append(
-            self._hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, self._async_started)
-        )
+        self._unsubscribes.append(async_at_started(self._hass, self._async_started))
         self._async_resync()
 
     @callback
@@ -234,8 +251,12 @@ class HybridLegs:
         self._running.clear()
 
     @callback
-    def _async_started(self, _event: Event) -> None:
-        """Re-register once Home Assistant is running and the entities exist."""
+    def _async_started(self, _hass: HomeAssistant) -> None:
+        """Re-register once Home Assistant is running and the entities exist.
+
+        Takes the `HomeAssistant` instance, not an `Event`: that is what `async_at_started`
+        passes, both when it waits for the event and when it runs the callback at once.
+        """
         self._async_resync()
 
     # What should be running.
@@ -270,10 +291,15 @@ class HybridLegs:
             else:
                 # The same leg, asked for by a different rule. `HybridLeg.identity` leaves
                 # the rule out on purpose (a leg moved between rules is the same leg to the
-                # device), so the listeners are still the right ones and only the
-                # bookkeeping has moved: replacing the leg here is what keeps the firing
-                # counters on the rule that is actually asking for it now.
+                # device), so only the bookkeeping has moved: replacing the leg here is what
+                # keeps the firing counters on the rule that is actually asking for it now.
                 running.leg = leg
+                # The listeners, on the other hand, may no longer be the right ones. This is
+                # the half that makes the started trigger mean anything: a leg that
+                # registered before its device had entities is still "running" and is
+                # watching nothing, and a re-sync that only replaced the leg would leave it
+                # that way for the life of the profile.
+                self._rewatch(running)
         self._recount()
 
     def _wanted_legs(self) -> list[HybridLeg]:
@@ -322,16 +348,53 @@ class HybridLegs:
         no line anywhere explains.
         """
         leg = running.leg
-        if leg.kind is HybridKind.BUTTON_LED:
-            self._watch_target(running)
-        else:
-            self._watch_presses(running)
+        self._watch(running)
         _LOGGER.info(
             "hybrid leg %s is now executed by Home Assistant for rule %s, and stops working "
             "while Home Assistant does",
             leg.identity,
             leg.rule_id,
         )
+
+    def _watch(self, running: _Running) -> None:
+        """Register the listeners one leg needs, and record what they were built from."""
+        if running.leg.kind is HybridKind.BUTTON_LED:
+            self._watch_target(running)
+        else:
+            self._watch_presses(running)
+
+    def _rewatch(self, running: _Running) -> None:
+        """Re-register a leg whose entities have appeared, or changed, since it started.
+
+        Deliberately not `_retire` then `_start`: retiring a kind (c) leg puts the button
+        indicator back where its owner left it, and this leg is not going anywhere. Only its
+        listeners are being rebuilt. The coalescing state goes with them, so the leg reads
+        the light it now watches and writes the indicator to match, which is the same thing
+        a freshly started leg does and the reason a restart lights the button at all.
+        """
+        if running.watching == self._watched_entities(running.leg):
+            return
+        running.stop()
+        running.wanted = None
+        running.written = None
+        self._watch(running)
+        _LOGGER.info(
+            "hybrid leg %s now watches %s, after the entities of the device it follows changed",
+            running.leg.identity,
+            ", ".join(running.watching) or "nothing",
+        )
+
+    def _watched_entities(self, leg: HybridLeg) -> tuple[str, ...]:
+        """Return the entities a leg's listeners depend on, which is none for a press leg.
+
+        A press leg listens to the bus for its device's scene notifications and resolves
+        what to act on when it fires, so nothing about its registration can go stale. Only
+        kind (c) names entity ids at registration time, and only kind (c) is therefore worth
+        re-registering when the set of them changes.
+        """
+        if leg.kind is not HybridKind.BUTTON_LED:
+            return ()
+        return self._entities_of(leg.target.handle.identity)
 
     def _retire(self, running: _Running) -> None:
         """Stop one leg, and put back what it changed.
@@ -448,12 +511,24 @@ class HybridLegs:
         """
         leg = running.leg
         entities = self._entities_of(leg.target.handle.identity)
+        running.watching = entities
         if not entities:
-            _LOGGER.warning(
-                "hybrid leg %s watches a device with nothing Home Assistant can read a state "
-                "from, so the button LED will not follow it",
-                leg.identity,
-            )
+            if self._hass.state is CoreState.running:
+                _LOGGER.warning(
+                    "hybrid leg %s watches a device with nothing Home Assistant can read a "
+                    "state from, so the button LED will not follow it",
+                    leg.identity,
+                )
+            else:
+                # Home Assistant is still starting, so the entities this leg needs may
+                # simply not have been registered yet. Saying the LED will not follow the
+                # light would be a warning per leg per restart for something the started
+                # trigger is about to fix.
+                _LOGGER.debug(
+                    "hybrid leg %s has no entities to watch yet, and will look again once "
+                    "Home Assistant has started",
+                    leg.identity,
+                )
             return
 
         @callback

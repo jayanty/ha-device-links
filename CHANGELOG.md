@@ -67,6 +67,16 @@ All notable changes to this project are documented here. The format follows
   are ever changed or deleted.
 
 ### Fixed
+- A hybrid button-LED leg went blind across every Home Assistant restart. Config
+  entries are set up before `zwave_js` has registered its entities, so the leg had
+  no entity id to watch and watched nothing; the re-sync on start-up saw the same
+  leg already running and replaced only its bookkeeping, so the button never lit
+  again until somebody edited the profile. The re-sync now re-registers a leg whose
+  entities have appeared or changed, and the start-up trigger is
+  `homeassistant.helpers.start.async_at_started`, which also runs when the
+  integration is added to a Home Assistant that is already up and hands back an
+  unsubscribe that unloading can call whether or not it has fired. Unloading after
+  a start no longer logs `Unable to remove unknown job listener` with a traceback.
 - A Zigbee device could not be opened, refreshed or chosen as a rule's source
   anywhere in the panel, because only Z-Wave handles resolved to a Home Assistant
   device id. Every backend now names its own devices, so a Zigbee rule can be
