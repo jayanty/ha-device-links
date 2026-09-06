@@ -303,7 +303,7 @@ async def test_apply_refuses_a_stale_plan_token(api: Any, zwave_driver: FakeDriv
 
     message = await send(api, "apply", plan_token="a-token-from-another-plan")
 
-    assert message["error"]["translation_key"] == "stale_plan"
+    assert message["error"]["translation_key"] == "plan_out_of_date"
     assert zwave_driver.controller.write_count == writes_before
 
 
@@ -860,3 +860,16 @@ async def test_rules_validate_reports_the_device_settings_a_rule_would_write(
             "value": 1,
         }
     ]
+
+
+async def test_importing_a_file_naming_devices_this_network_does_not_have_is_refused(
+    hass: HomeAssistant, api: Any, device_links_entry: MockConfigEntry
+) -> None:
+    """E38, refused the same way and with the same message as the service (whole, not partly)."""
+    text = dump_profile(AWAY).replace("3538613642:35", "3538613642:222")
+
+    message = await send(api, "profiles/import", yaml=text)
+
+    assert message["error"]["translation_key"] == "import_unknown_devices"
+    stored = device_links_entry.runtime_data.coordinator.state.profiles
+    assert {profile.id for profile in stored} == {"home", "away"}

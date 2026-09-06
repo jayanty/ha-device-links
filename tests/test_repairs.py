@@ -19,6 +19,7 @@ from freezegun.api import FrozenDateTimeFactory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 import pytest
 from pytest_homeassistant_custom_component.common import (
@@ -358,3 +359,21 @@ async def test_the_issues_of_an_entry_that_unloads_do_not_linger(
     await hass.async_block_till_done()
 
     assert issue(hass, f"{ISSUE_BACKEND_UNAVAILABLE}_zwave") is None
+
+
+async def test_our_repairs_module_can_live_beside_the_repairs_integration(
+    hass: HomeAssistant, device_links_entry: MockConfigEntry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`repairs.py` is a name Home Assistant reserves for a fix-flow platform.
+
+    None of our issues is fixable, so no fix flow is ever asked for and this module is
+    never loaded as one. That is a fact about how Home Assistant loads platforms, which
+    makes it a fact worth pinning: the Repairs integration ships in `default_config`, so
+    it is loaded on essentially every system this will run on.
+    """
+    assert await async_setup_component(hass, "repairs", {})
+    await hass.async_block_till_done()
+
+    await break_the_backend(hass, device_links_entry, monkeypatch)
+
+    assert issue(hass, f"{ISSUE_BACKEND_UNAVAILABLE}_zwave") is not None

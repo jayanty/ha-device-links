@@ -445,7 +445,7 @@ async def _async_import_profile(call: ServiceCall) -> ServiceResponse:
             translation_key="profile_invalid",
             translation_placeholders={"error": str(error)},
         ) from error
-    _refuse_unknown_devices(coordinator, profile)
+    refuse_unknown_devices(coordinator, profile)
 
     stored = coordinator.state.profiles
     profiles = (
@@ -472,8 +472,11 @@ async def _async_import_profile(call: ServiceCall) -> ServiceResponse:
     }
 
 
-def _refuse_unknown_devices(coordinator: DeviceLinksCoordinator, profile: Profile) -> None:
+def refuse_unknown_devices(coordinator: DeviceLinksCoordinator, profile: Profile) -> None:
     """Refuse an import naming devices this network does not have (E38).
+
+    Shared with the WebSocket API's own import, so a file refused in one place is refused
+    in the other, for the same reason and with the same message.
 
     Whole, not partially. The rules that could not be resolved are the ones somebody would
     go looking for later, so an import that kept the rest would report success about a
@@ -763,9 +766,11 @@ def _node_id_of(handle: DeviceHandle) -> int | None:
 
 __all__ = [
     "CORE_SERVICES",
+    "NOTHING_TO_DO",
     "RAW_SERVICES",
     "SERVICE_SCHEMAS",
     "async_setup_raw_services",
     "async_setup_services",
     "async_unload_raw_services",
+    "refuse_unknown_devices",
 ]

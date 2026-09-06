@@ -53,7 +53,7 @@ from .executor import JobRunningError
 from .models import Plan, Profile, Rule, Template
 from .rule_entity import async_handle_of_device
 from .serialize import Serializer
-from .services import NOTHING_TO_DO
+from .services import NOTHING_TO_DO, refuse_unknown_devices
 from .yaml_io import (
     ProfileFormatError,
     devices_to_data,
@@ -453,12 +453,15 @@ async def _profiles_import(
     entry, runtime = _runtime(hass)
     coordinator = runtime.coordinator
     try:
-        parsed = parse_profile(msg["yaml"])
+        profile = parse_profile(msg["yaml"])
     except ProfileFormatError as error:
         raise _invalid_profile(error) from error
-    # Re-read through the same door the panel uses, so a file naming a device this network
-    # does not have is refused for the same reason and with the same message.
-    profile = _read_profile(coordinator, _profile_payload(parsed))
+    # The file's own device handles are kept, rather than re-resolved against the network
+    # the way a profile the panel sends is. A file records what each device was when it was
+    # exported, fingerprint included, and that record is what a later release compares
+    # against to notice that a node id now answers as a different model (E20). Re-resolving
+    # would quietly adopt whatever is at that address today and lose the difference.
+    refuse_unknown_devices(coordinator, profile)
     coordinator.async_update_state(
         replace(coordinator.state, profiles=_stored_with(coordinator.state, profile))
     )
@@ -468,15 +471,6 @@ async def _profiles_import(
         runtime.pending_plan = await coordinator.async_plan()
         result["plan"] = Serializer(hass, entry).plan(runtime.pending_plan)
     connection.send_result(msg["id"], {**result, "is_active": is_active})
-
-
-def _profile_payload(profile: Profile) -> dict[str, Any]:
-    """Return a parsed profile as the payload shape the readers above take."""
-    from .yaml_io import profile_to_data  # noqa: PLC0415
-
-    data = profile_to_data(profile)
-    del data["devices"]
-    return data
 
 
 def _saved(hass: HomeAssistant, entry: DeviceLinksConfigEntry, profile: Profile) -> dict[str, Any]:
@@ -746,12 +740,15 @@ def _check_token(plan: Plan, token: str) -> None:
     is the whole point: the alternative is applying work nobody has seen.
     """
     if plan.token != token:
+        # Deliberately not the executor's `stale_plan`, which is about one link on one
+        # device and says which. This is about the whole plan, and filling that message's
+        # placeholders with empty strings to reuse it would print a sentence with holes
+        # where the device names should be.
         raise ServiceValidationError(
             "this plan was built against a state that has since changed, so it was not "
             "applied; plan again and look at what it says now",
             translation_domain=DOMAIN,
-            translation_key="stale_plan",
-            translation_placeholders={"device": "", "target": "", "group": ""},
+            translation_key="plan_out_of_date",
         )
 
 
@@ -925,6 +922,10 @@ async def _unmanaged_remove(
     rule 5 requires: this is somebody else's association, made by hand, and taking it off
     is not something they can undo from here. The plan is built with exactly these
     fingerprints selected, so nothing else can come along with them.
+
+    Awaited rather than run in the background, unlike `apply`: this is a handful of
+    entries the user ticked in a dialog and is waiting for an answer about, and the answer
+    is what they pressed the button to find out. `apply` can be a whole house.
     """
     _entry, runtime = _runtime(hass)
     fingerprints = frozenset(msg["fingerprints"])

@@ -145,6 +145,9 @@
     "operation_timeout": {
       "message": "'{device}' did not answer within {seconds} seconds while writing the group {group} link to '{target}'. It was retried twice and then reported as failed."
     },
+    "plan_out_of_date": {
+      "message": "This plan was made before something changed, so nothing was written. Plan again and look at what it says now."
+    },
     "profile_exists": {
       "message": "A profile with the id '{profile}' already exists. Update that one, or give this one a different id."
     },
