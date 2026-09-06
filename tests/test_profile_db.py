@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from custom_components.device_links import profile_db
-from custom_components.device_links.backends import zigbee_protocol
+from custom_components.device_links.backends import matter_protocol, zigbee_protocol
 from custom_components.device_links.backends.zwave_protocol import features_of_group
 from custom_components.device_links.models import (
     Feature,
@@ -18,7 +18,7 @@ from custom_components.device_links.models import (
     ZWaveFingerprint,
 )
 from custom_components.device_links.profile_db import ProfileDatabase, load_profiles
-from tests.factories import profiles, zigbee_devices
+from tests.factories import matter_nodes, profiles, zigbee_devices
 
 PROFILES_DIR = Path("custom_components/device_links/profiles_db")
 FIXTURE = Path(__file__).parent / "fixtures" / "z2_associations.json"
@@ -796,6 +796,84 @@ def test_two_zigbee_emitters_with_one_id_are_refused() -> None:
         load_profiles(
             _files(_zigbee_device(emitters=[_zigbee_emitter(), _zigbee_emitter(endpoint=3)]))
         )
+
+
+# --- Matter entries, validated against the Stage 0 M1 capture ------------------------------
+
+
+def _matter_entries() -> tuple[Any, ...]:
+    return profiles().matter_entries
+
+
+def _matching_nodes(entry: Any) -> list[Any]:
+    """Return every node in the M1 capture this entry's fingerprints claim."""
+    wanted = [(f.vendor, f.product) for f in entry.fingerprints]
+    return [
+        node
+        for node in matter_nodes().values()
+        if (node.get("vendor"), node.get("product")) in wanted
+    ]
+
+
+def test_the_shipped_matter_entry_is_the_one_model_the_capture_supports() -> None:
+    """The Aqara H2 and the IKEA BILRESA are deliberately absent, and PRD 3.1 names both.
+
+    Neither exposes a control client cluster or a Binding cluster on any endpoint, so neither
+    is a binding source and there is nothing about either that a curated entry could say. An
+    entry nobody could check against hardware is exactly the entry not to ship.
+    """
+    products = {f.product for entry in _matter_entries() for f in entry.fingerprints}
+
+    assert products == {"VTM31-SN"}
+
+
+def test_every_matter_entry_claims_a_node_that_is_really_on_this_fabric() -> None:
+    for entry in _matter_entries():
+        assert _matching_nodes(entry), f"no node in the capture matches {entry.fingerprints}"
+
+
+def test_every_endpoint_a_matter_entry_names_really_drives_what_it_claims() -> None:
+    """The check that stops a curated entry writing a binding to a cluster nobody drives.
+
+    Three things have to hold on a real node for each emitter, and a curated entry that got
+    any of them wrong would write a binding to the wrong place with complete confidence: the
+    endpoint exists, it drives the cluster as a client, and it serves a Binding cluster so
+    there is somewhere to keep the entry.
+    """
+    for entry in _matter_entries():
+        for node in _matching_nodes(entry):
+            for emitter in entry.emitters:
+                assert matter_protocol.has_binding_cluster(node, emitter.endpoint), (
+                    f"node {node['node_id']} endpoint {emitter.endpoint} has no Binding cluster"
+                )
+                for feature, cluster in emitter.actions.items():
+                    assert matter_protocol.emits(node, emitter.endpoint, cluster), (
+                        f"node {node['node_id']} endpoint {emitter.endpoint} does not drive "
+                        f"cluster {cluster}, which the entry maps {feature} to"
+                    )
+                    assert feature in matter_protocol.features_of_cluster(cluster)
+
+
+def test_a_curated_matter_entry_survives_resolution_on_the_nodes_it_describes() -> None:
+    """The end to end check: nothing the entry says is contradicted by a real node."""
+    for entry in _matter_entries():
+        for node in _matching_nodes(entry):
+            warnings: list[str] = []
+            resolved = matter_protocol.resolve_emitters(node, entry, warnings=warnings)
+
+            assert warnings == [], f"node {node['node_id']}: {warnings}"
+            assert [emitter.label for emitter in resolved] == [
+                emitter.label for emitter in entry.emitters
+            ]
+
+
+def test_the_matter_load_endpoint_is_receivable_without_being_curated() -> None:
+    """Endpoint 1 is what a rule targets, and the node already says what it can act on."""
+    for entry in _matter_entries():
+        for node in _matching_nodes(entry):
+            assert Feature.ON_OFF in matter_protocol.receivable_features(node)
+            assert matter_protocol.accepts(node, 1, matter_protocol.ON_OFF_CLUSTER)
+            assert matter_protocol.receiving_endpoint(node) == 1
 
 
 # --- the Matter half: a third shape, validated its own way ---------------------------------
