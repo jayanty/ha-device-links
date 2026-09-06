@@ -1,0 +1,114 @@
+{
+  "$schema": "./schema.json",
+  "notes": "Inovelli Blue series, Zigbee. Every endpoint and every cluster named here comes from tests/fixtures/g1_bridge.json, the Stage 0 G1 capture of Jayant's live bridge on Zigbee2MQTT 2.14.1, and the test suite cross-checks each one against that capture device by device. The settings adapters are the exception and are marked as such on each entry: the capture trimmed definition.exposes out, which is the only thing that would have confirmed the property names and their payload labels, so those come from Zigbee2MQTT's own converter rather than from observation. Nothing writes them today (the adapter refuses, and says why), so the cost of one being wrong is a refusal rather than a wrong write. VZM35-SN is deliberately absent: no device of that model is on this network, so nothing here could be checked against hardware, and a curated entry nobody has validated writes a binding to the wrong place with complete confidence.",
+  "devices": [
+    {
+      "backend": "zigbee2mqtt",
+      "model": "VZM31-SN",
+      "manufacturer": "Inovelli",
+      "notes": "Nine of these are on the network. Endpoint 1 is the load, and is what a rule targets: it serves genOnOff and genLevelCtrl, which is what makes it receivable, and nothing about that needs curating. Endpoint 2 is the paddle and endpoint 3 is the config button, and both drive genOnOff and genLevelCtrl. This entry exists for the labels rather than for the endpoints: the generic derivation already gets endpoint 2 and endpoint 3 right, so it keeps its own ids and takes the wording from here. Two of the nine (Hallway Side Lights and House Front Lights, both on software 2.00) report no endpoint 3 at all, so the config button is dropped for those two and their paddle is unaffected.",
+      "fingerprints": [{ "vendor": "Inovelli", "model": "VZM31-SN" }],
+      "emitters": [
+        {
+          "emitter_id": "paddle",
+          "label": "Paddle",
+          "kind": "paddle",
+          "endpoint": 2,
+          "actions": {
+            "on_off": "genOnOff",
+            "level_set": "genLevelCtrl",
+            "level_hold": "genLevelCtrl"
+          }
+        },
+        {
+          "emitter_id": "config_button",
+          "label": "Config button",
+          "kind": "config_button",
+          "endpoint": 3,
+          "actions": {
+            "on_off": "genOnOff",
+            "level_set": "genLevelCtrl",
+            "level_hold": "genLevelCtrl"
+          },
+          "semantics": "unknown"
+        }
+      ],
+      "settings": {
+        "smart_bulb_mode": {
+          "property": "smartBulbMode",
+          "values": { "off": 0, "on": 1 },
+          "payloads": { "off": "Disabled", "on": "Enabled" }
+        },
+        "local_protection": {
+          "property": "localProtection",
+          "values": { "off": 0, "on": 1 },
+          "payloads": { "off": "Disabled", "on": "Enabled" }
+        },
+        "remote_protection": {
+          "property": "remoteProtection",
+          "values": { "off": 0, "on": 1 },
+          "payloads": { "off": "Disabled", "on": "Enabled" }
+        },
+        "binding_off_to_on_sync_level": {
+          "property": "bindingOffToOnSyncLevel",
+          "values": { "off": 0, "on": 1 },
+          "payloads": { "off": "Disabled", "on": "Enabled" }
+        }
+      }
+    },
+    {
+      "backend": "zigbee2mqtt",
+      "model": "VZM32-SN",
+      "manufacturer": "Inovelli",
+      "notes": "The mmWave dimmer. Six are on the network and the capture shows the same endpoint layout as the VZM31-SN for our purposes: endpoint 1 is the load and serves genOnOff and genLevelCtrl, endpoint 2 is the paddle and endpoint 3 is the config button, and both drive genOnOff and genLevelCtrl. The one difference the capture shows is that endpoint 3 does not drive manuSpecificInovelli, which nothing here uses. Kept as a separate entry rather than folded into the VZM31-SN's fingerprints because the two are different products and their notes differ.",
+      "fingerprints": [{ "vendor": "Inovelli", "model": "VZM32-SN" }],
+      "emitters": [
+        {
+          "emitter_id": "paddle",
+          "label": "Paddle",
+          "kind": "paddle",
+          "endpoint": 2,
+          "actions": {
+            "on_off": "genOnOff",
+            "level_set": "genLevelCtrl",
+            "level_hold": "genLevelCtrl"
+          }
+        },
+        {
+          "emitter_id": "config_button",
+          "label": "Config button",
+          "kind": "config_button",
+          "endpoint": 3,
+          "actions": {
+            "on_off": "genOnOff",
+            "level_set": "genLevelCtrl",
+            "level_hold": "genLevelCtrl"
+          },
+          "semantics": "unknown"
+        }
+      ],
+      "settings": {
+        "smart_bulb_mode": {
+          "property": "smartBulbMode",
+          "values": { "off": 0, "on": 1 },
+          "payloads": { "off": "Disabled", "on": "Enabled" }
+        },
+        "local_protection": {
+          "property": "localProtection",
+          "values": { "off": 0, "on": 1 },
+          "payloads": { "off": "Disabled", "on": "Enabled" }
+        },
+        "remote_protection": {
+          "property": "remoteProtection",
+          "values": { "off": 0, "on": 1 },
+          "payloads": { "off": "Disabled", "on": "Enabled" }
+        },
+        "binding_off_to_on_sync_level": {
+          "property": "bindingOffToOnSyncLevel",
+          "values": { "off": 0, "on": 1 },
+          "payloads": { "off": "Disabled", "on": "Enabled" }
+        }
+      }
+    }
+  ]
+}
