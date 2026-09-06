@@ -42,6 +42,8 @@ from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
 from .backends.base import Backend
@@ -60,6 +62,11 @@ from .models import Backend as BackendId
 from .models import Plan
 from .profile_db import ProfileDatabase, load_profiles
 from .rule_toggle import RuleToggleLimiter
+from .services import (
+    async_setup_raw_services,
+    async_setup_services,
+    async_unload_raw_services,
+)
 from .storage import DeviceLinksStore, StorageSchemaError
 
 if TYPE_CHECKING:
@@ -68,13 +75,18 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 __all__ = [
+    "CONFIG_SCHEMA",
     "DOMAIN",
     "PLATFORMS",
     "DeviceLinksConfigEntry",
     "DeviceLinksRuntimeData",
+    "async_setup",
     "async_setup_entry",
     "async_unload_entry",
 ]
+
+# Set up through the UI only, so YAML under our domain is a mistake rather than a config.
+CONFIG_SCHEMA: Final = cv.config_entry_only_config_schema(DOMAIN)
 
 # The platforms this integration forwards its entry to. Order is the order they are set
 # up in and, reversed, the order they come down in.
@@ -132,6 +144,18 @@ class DeviceLinksRuntimeData:
 type DeviceLinksConfigEntry = ConfigEntry[DeviceLinksRuntimeData]
 
 
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register the services, whether or not a config entry ever loads.
+
+    Quality-scale rule action-setup. An automation calling `device_links.apply` validates
+    when it is loaded rather than failing while this integration is still retrying its
+    setup, and a call that arrives with no entry loaded is answered with a translated
+    reason instead of "service not found".
+    """
+    async_setup_services(hass)
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry) -> bool:
     """Set up Device Links from a config entry."""
     profiles = await hass.async_add_executor_job(_load_profile_database)
@@ -176,6 +200,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry) 
             profiles=profiles,
         )
         events.async_setup()
+        async_setup_raw_services(hass, entry)
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     except Exception:
         # `async_setup_entry` already subscribed to every backend, and Home Assistant does
@@ -184,13 +209,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry) 
         # refresh timer running for the life of the process, and a later reload adds a
         # second set on top of them.
         events.async_shutdown()
+        async_unload_raw_services(hass)
         await coordinator.async_shutdown()
         raise
+    # An option that needs a restart to take effect is an option nobody turns on, and the
+    # one this listens for decides whether services that write to a group directly exist
+    # at all (Decision D14).
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     _LOGGER.info(
         "Device Links is set up with the %s backend(s)",
         ", ".join(sorted(str(backend_id) for backend_id in backends)),
     )
     return True
+
+
+async def _async_options_updated(hass: HomeAssistant, entry: DeviceLinksConfigEntry) -> None:
+    """Reload the entry, because its options decide what is built and what is registered."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry) -> bool:
@@ -203,6 +238,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry)
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
     runtime = entry.runtime_data
+    async_unload_raw_services(hass)
     runtime.toggles.async_shutdown()
     await runtime.runner.async_shutdown()
     runtime.events.async_shutdown()

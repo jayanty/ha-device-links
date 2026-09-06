@@ -28,3 +28,8 @@ EVENT_PENDING_WAKEUP: Final = f"{DOMAIN}_pending_wakeup"
 # (FR-E1): a select box is a control people try in order to find out what it does, and
 # this one names whole sets of associations across a house.
 OPTION_AUTO_APPLY_ON_PROFILE_SWITCH: Final = "auto_apply_on_profile_switch"
+
+# The advanced Z-Wave services write to an association group directly, with no rule and no
+# plan behind them (Decision D14). They are absent until somebody turns this on, which is
+# what makes them expert tools rather than a shortcut past the plan dialog.
+OPTION_ENABLE_RAW_SERVICES: Final = "enable_raw_services"

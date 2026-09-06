@@ -187,6 +187,9 @@ this is the index.
 | 11 | Python 3.13 is not usable. Home Assistant 2026.8.3 requires 3.14.2 or newer. |
 | Appendix A | The ZEN37 group layout is not a Basic/Multilevel pair per button, and capacity is 5, not 10. |
 | Appendix C | The Matter library is `matter-python-client`, not the retired `python-matter-server`. |
+| 6.6 (FR-E3) | `device_links.apply` takes `remove_unmanaged` as a list of link fingerprints, not as a boolean. A boolean would put "remove every link Device Links did not create" behind one word in a YAML automation, which is the whole-network deletion CLAUDE.md Section 3 rule 5 and Decision D9 exist to prevent. The panel ticks fingerprints; an automation names them. |
+| 6.6 (FR-E3) | `device_links.apply` has no `deep_verify` field. The executor deep-verifies every device it wrote to, always (Phase 1C), so a field offering to turn that off would describe a behaviour that does not exist. `device_links.verify` reads deeply by definition. |
+| 6.6 (FR-E3) | `device_links.zigbee_bind` and `device_links.zigbee_unbind` are not registered. There is no Zigbee adapter until Phase 2, and a service that can only refuse is worse than one that is absent. |
 
 ---
 

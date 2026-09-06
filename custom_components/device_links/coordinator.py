@@ -291,6 +291,32 @@ class DeviceLinksCoordinator:
         """Return the adapter that speaks this device's protocol, if it is loaded."""
         return self._backends.get(handle.backend)
 
+    @property
+    def devices(self) -> Mapping[str, DeviceHandle]:
+        """Return every device any backend has listed, by identity.
+
+        What the WebSocket API lists and what diagnostics dumps. A device that has stopped
+        answering is still here, because it is still on the network: ask `is_available`
+        before treating what is cached about it as current.
+        """
+        return dict(self._handles)
+
+    def capabilities_for(self, identity: str) -> DeviceCapabilities | None:
+        """Return what this device can do, as it was last read, or None if never read."""
+        return self._capabilities.get(identity)
+
+    def compiled_for(self, rule_id: str) -> CompiledRule | None:
+        """Return what one rule of the active profile compiled to, disabled or not."""
+        return self._compiled.get(rule_id)
+
+    def compile_rule(self, rule: Rule) -> CompiledRule:
+        """Compile a rule against the devices as they are now, storing nothing.
+
+        What `rules/validate` answers with: a rule the user is still editing, checked
+        against real capabilities, without it having to exist in a profile first.
+        """
+        return compile_rule(rule, self._capabilities)
+
     # What is stored, and what that means for ownership.
 
     @callback
@@ -583,7 +609,7 @@ class DeviceLinksCoordinator:
         the caller never saw is a plan they cannot reason about. The executor refreshes and
         then plans.
         """
-        identities = self._identities_in_scope(scope)
+        identities = self.identities_in_scope(scope)
         observed: list[ObservedLink] = []
         for identity in sorted(identities):
             observed.extend(self._observed[identity].links)
@@ -633,7 +659,7 @@ class DeviceLinksCoordinator:
             return item.link.fingerprint in selected
         return item.link.rule_id in rule_ids
 
-    def _identities_in_scope(self, scope: PlanScope | None) -> set[str]:
+    def identities_in_scope(self, scope: PlanScope | None) -> set[str]:
         """Return the devices this plan may touch, which never includes an unreadable one.
 
         A device we cannot read is left out of both halves: its desired links are not added

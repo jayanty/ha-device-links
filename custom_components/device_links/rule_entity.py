@@ -86,6 +86,28 @@ def async_upstream_device(
     return device
 
 
+@callback
+def async_handle_of_device(
+    hass: HomeAssistant, entry: DeviceLinksConfigEntry, device_id: str
+) -> DeviceHandle | None:
+    """Return the device handle behind a Home Assistant device id, if we know one.
+
+    The inverse of `async_upstream_device`, and deliberately built on it rather than on a
+    second derivation: a service and a WebSocket command take a device id because that is
+    what a user can see and pick, and the answer has to be the same device the rule
+    entities attached to. Deriving the identifier the other way round would be a second
+    place for the near miss this module exists to prevent.
+
+    Linear over the devices this integration has listed, which is tens on a large house
+    and is asked once per service call.
+    """
+    for handle in entry.runtime_data.coordinator.devices.values():
+        device = async_upstream_device(hass, entry, handle)
+        if device is not None and device.id == device_id:
+            return handle
+    return None
+
+
 def _upstream_identifier(handle: DeviceHandle) -> tuple[str, str] | None:
     """Return the registry identifier this handle's device carries upstream, if derivable."""
     if handle.backend is not BackendId.ZWAVE:
