@@ -640,12 +640,24 @@ class JobRunner:
         though the new entry does not exist. A device this coordinator has never read
         answers nothing here and is left to the adapter, which is defence in depth rather
         than a hole: the two guards are independent and both would have to fail.
+
+        **The group is identified by its endpoint as well as by its name**, which is not a
+        detail. `emitter_group` names the writable slot within an endpoint, not within a
+        device: Z-Wave endpoint 2 can have an association group 1 of its own, and on Zigbee
+        the slot is a cluster, so the reporting bindings Zigbee2MQTT puts on a switch's load
+        endpoint carry the very cluster names a rule binds from its paddle endpoint. Asking
+        by group alone made every Zigbee link the coordinator also reports look like a
+        system link, and blocked the lot. The fix is protocol-neutral and was always the
+        right question: an endpoint's group is what a backend writes to.
         """
         if isinstance(link, ObservedLink) and link.is_system:
             return True
         device = self._coordinator.observed_for(link.source)
         return device is not None and any(
-            entry.is_system and entry.emitter_group == link.emitter_group for entry in device.links
+            entry.is_system
+            and entry.source_endpoint == link.source_endpoint
+            and entry.emitter_group == link.emitter_group
+            for entry in device.links
         )
 
     def _resolve_devices(self, job: _Job) -> tuple[dict[str, DeviceHandle], dict[str, Backend]]:

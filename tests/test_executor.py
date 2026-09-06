@@ -795,6 +795,40 @@ async def test_adding_to_a_group_the_device_reports_as_its_lifeline_is_refused_t
     assert backend.writes == []
 
 
+async def test_the_system_group_guard_is_about_one_endpoint_and_not_the_whole_device(
+    coordinator: DeviceLinksCoordinator, runner: JobRunner
+) -> None:
+    """A group belongs to an endpoint, and asking without one refuses work that is fine.
+
+    `emitter_group` names the writable slot within an endpoint, not within a device. Asked
+    by group alone, this guard reads "endpoint 0 group 1 is the lifeline" as "group 1 is a
+    system group everywhere on this device", which is wrong on a multi-endpoint Z-Wave
+    device and catastrophic on Zigbee, where the slot is a cluster and the bridge's own
+    reporting bindings carry the very cluster names a rule binds from another endpoint: it
+    blocked every Zigbee link the coordinator also reports, which is all of them.
+
+    Asked directly, because on this Z-Wave network the only system group is group 1 and the
+    adapter refuses that on its own account whatever this layer says. That refusal is the
+    other half of the same defence and is tested above; what is pinned here is the question
+    this layer asks.
+    """
+    lifeline = next(link for link in links_of(coordinator, 36) if link.is_system)
+
+    def at(endpoint: int) -> Link:
+        return Link(
+            backend=BackendId.ZWAVE,
+            source=handle(36),
+            source_endpoint=endpoint,
+            emitter_id="lifeline",
+            emitter_group=lifeline.emitter_group,
+            target=LinkTarget(handle=handle(37), endpoint=None),
+            feature=Feature.ON_OFF,
+        )
+
+    assert runner._is_system(at(lifeline.source_endpoint)) is True
+    assert runner._is_system(at(lifeline.source_endpoint + 2)) is False
+
+
 async def test_an_unmanaged_link_nobody_selected_is_never_removed(
     coordinator: DeviceLinksCoordinator,
     runner: JobRunner,

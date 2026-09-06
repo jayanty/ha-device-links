@@ -587,3 +587,16 @@ def test_with_no_entry_the_derivation_stands() -> None:
     assert zp.resolve_controls(zigbee_device(AUX_IEEE)) == zp.derive_controls(
         zigbee_device(AUX_IEEE)
     )
+
+
+def test_a_binding_on_a_cluster_we_cannot_drive_still_describes_itself() -> None:
+    """What a control can be offered for and what a binding is are different questions.
+
+    Zigbee2MQTT's own reporting setup is built out of clusters no rule could ever bind, so
+    an observed binding on one has to be describable or a device's binding table is only
+    half reported: nothing would show them, and a group's capacity would be counted short.
+    """
+    assert zp.features_of_binding("seMetering") == frozenset({Feature.STATUS_REPORT})
+    assert zp.features_of_binding("manuSpecificInovelli") == frozenset({Feature.STATUS_REPORT})
+    assert zp.features_of_binding(zp.GEN_LEVEL_CTRL) == zp.features_of_cluster(zp.GEN_LEVEL_CTRL)
+    assert zp.features_of_cluster("seMetering") == frozenset()

@@ -7,6 +7,7 @@ starting state of Jayant's network is true of the hardware.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import pytest
@@ -18,7 +19,13 @@ from custom_components.device_links.backends.zigbee2mqtt import (
     ZigbeeBackendError,
 )
 from custom_components.device_links.models import Backend as BackendId
-from custom_components.device_links.models import DeviceHandle, Feature, ZigbeeFingerprint
+from custom_components.device_links.models import (
+    DeviceHandle,
+    Feature,
+    Link,
+    LinkTarget,
+    ZigbeeFingerprint,
+)
 from tests.factories import (
     AUX_IEEE,
     COORDINATOR_IEEE,
@@ -215,7 +222,7 @@ async def test_an_observed_link_names_the_control_a_rule_would_name(
     observed = await backend.async_observed(_handle(AUX_IEEE))
 
     assert {link.emitter_id for link in observed.links} == {"ep1", "ep2"}
-    assert [link.emitter_id for link in observed.links if link.source_endpoint == 2] == ["ep2"]
+    assert {link.emitter_id for link in observed.links if link.source_endpoint == 2} == {"ep2"}
 
 
 async def test_a_binding_to_a_device_the_bridge_does_not_list_still_produces_a_link(
@@ -271,7 +278,7 @@ async def test_a_binding_to_a_foreign_group_is_reported_as_a_link_to_that_group(
     _bind_to_group(bridge, 3)
 
     observed = await backend.async_observed(_handle(AUX_IEEE))
-    to_group = [link for link in observed.links if link.source_endpoint == 2]
+    to_group = [link for link in observed.links if link.source_endpoint == 2 and not link.is_system]
 
     assert [link.target.handle.protocol_id for link in to_group] == ["group:3"]
     assert to_group[0].target.handle.name_at_authoring == "kitchen"
@@ -292,7 +299,9 @@ async def test_a_binding_to_a_managed_group_is_expanded_into_its_members(
     _bind_to_group(bridge, 4)
 
     observed = await backend.async_observed(_handle(AUX_IEEE))
-    to_members = [link for link in observed.links if link.source_endpoint == 2]
+    to_members = [
+        link for link in observed.links if link.source_endpoint == 2 and not link.is_system
+    ]
 
     assert {link.target.handle.protocol_id for link in to_members} == {
         LIGHT_IEEE,
@@ -472,3 +481,142 @@ async def test_wake_instructions_come_from_the_curated_entry(
     """None today: no Zigbee model in the capture is battery powered and bindable."""
     assert backend.wake_instructions(_handle(AUX_IEEE)) is None
     assert backend.wake_instructions(_handle("0x0011223344556677")) is None
+
+
+# --------------------------------------------------------------------------------------
+# The paths that only run when something has gone wrong
+# --------------------------------------------------------------------------------------
+
+
+class _LostPublishClient:
+    """A broker that delivers everything and carries nothing: the request never arrives.
+
+    Not the same as the fake bridge's `silent`, which loses the answer after the bridge has
+    already acted and republished. This loses the request, so nothing happens and nothing is
+    announced, which is what a broker that dropped the message looks like from here.
+    """
+
+    def __init__(self, bridge: FakeBridge) -> None:
+        self.bridge = bridge
+
+    async def async_publish(self, topic: str, payload: str) -> None:
+        return
+
+    async def async_subscribe(self, topic: str, callback: object) -> object:
+        return await self.bridge.async_subscribe(topic, callback)  # type: ignore[arg-type]
+
+
+async def _lost(bridge: FakeBridge, **kwargs: float) -> ZigbeeBackend:
+    backend = ZigbeeBackend(
+        client=_LostPublishClient(bridge),
+        profiles=profiles(),
+        request_timeout=kwargs.get("request_timeout", 0.05),
+        refresh_timeout=kwargs.get("refresh_timeout", 0.05),
+    )
+    await backend.async_start()
+    return backend
+
+
+async def test_stopping_wakes_whatever_was_waiting_on_a_response(
+    bridge: FakeBridge,
+) -> None:
+    """A pending request left waiting at unload holds a coroutine nobody will ever wake."""
+    backend = await _lost(bridge, request_timeout=30.0)
+    pending = asyncio.create_task(backend.async_add_link(_link(target_ieee=LIGHT_IEEE)))
+    await asyncio.sleep(0)
+
+    backend.async_stop()
+
+    with pytest.raises(asyncio.CancelledError):
+        await pending
+
+
+async def test_stopping_wakes_a_deep_read_that_was_waiting_for_a_republish(
+    bridge: FakeBridge,
+) -> None:
+    backend = await _lost(bridge, refresh_timeout=30.0)
+    await backend.async_add_link(_link(target_ieee=LIGHT_IEEE))
+    waiting = asyncio.create_task(backend.async_observed(_handle(AUX_IEEE), deep=True))
+    await asyncio.sleep(0)
+
+    backend.async_stop()
+
+    with pytest.raises(asyncio.CancelledError):
+        await waiting
+
+
+async def test_a_deep_read_that_never_gets_its_republish_says_it_timed_out(
+    bridge: FakeBridge,
+) -> None:
+    """The whole point of the flag: a read after a write that the bridge never announced.
+
+    How long a real bridge takes to republish `bridge/devices` after a bind was never
+    measured, because item G2 was not approved (docs/open-items.md J2). Reading a stale
+    device list straight after a bind would report a link that landed as missing, so a read
+    that did not get its republish says so rather than answering from what it holds.
+    """
+    backend = await _lost(bridge)
+    await backend.async_add_link(_link(target_ieee=LIGHT_IEEE))
+
+    observed = await backend.async_observed(_handle(AUX_IEEE), deep=True)
+
+    assert observed.deep_verified is False
+    assert observed.deep_verify_timed_out is True
+
+
+async def test_a_deep_read_is_confirmed_once_the_republish_arrives(
+    bridge: FakeBridge,
+) -> None:
+    backend = await _lost(bridge, refresh_timeout=30.0)
+    await backend.async_add_link(_link(target_ieee=LIGHT_IEEE))
+    waiting = asyncio.create_task(backend.async_observed(_handle(AUX_IEEE), deep=True))
+    await asyncio.sleep(0)
+
+    bridge._republish(zp.DEVICES_TOPIC)
+
+    observed = await waiting
+    assert observed.deep_verified is True
+
+
+async def test_a_response_that_answers_nobody_is_dropped(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    """It belongs to another client of the same broker, or to a request that timed out."""
+    bridge._deliver("zigbee2mqtt/bridge/response/device/bind", '"not an object"')
+    bridge._deliver("zigbee2mqtt/bridge/response/device/bind", '{"status": "ok"}')
+
+    assert await backend.async_devices()
+
+
+async def test_a_device_list_entry_that_is_not_an_object_is_skipped(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    before = len(await backend.async_devices())
+
+    bridge.devices.insert(0, "not a device")  # type: ignore[arg-type]
+    bridge._republish(zp.DEVICES_TOPIC)
+
+    assert len(await backend.async_devices()) == before
+
+
+async def test_a_group_list_entry_that_is_not_an_object_is_skipped(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    bridge.groups.append("not a group")  # type: ignore[arg-type]
+    bridge.add_group("dl_x", 2)
+
+    assert backend.managed_group_rule_ids() == frozenset({"x"})
+
+
+def _link(*, target_ieee: str, source_endpoint: int = 2) -> Link:
+    """Return one desired link from the aux paddle, for the tests that need a write."""
+    return Link(
+        backend=BackendId.ZIGBEE2MQTT,
+        source=_handle(AUX_IEEE, AUX),
+        source_endpoint=source_endpoint,
+        emitter_id="ep2",
+        target=LinkTarget(handle=_handle(target_ieee, LIGHT), endpoint=1),
+        feature=Feature.ON_OFF,
+        emitter_group=zp.GEN_ON_OFF,
+        rule_id=None,
+    )

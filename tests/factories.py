@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from custom_components.device_links.backends.zigbee_protocol import Device as ZigbeeDevice
+from custom_components.device_links.backends.zigbee_protocol import handle_of as zigbee_handle_of
 from custom_components.device_links.backends.zwave_protocol import (
     AssociationGroup,
     resolve_emitters,
@@ -285,6 +286,16 @@ def zigbee_devices() -> dict[str, ZigbeeDevice]:
 def zigbee_device(ieee: str) -> ZigbeeDevice:
     """Return one device from the capture by its IEEE address."""
     return zigbee_devices()[ieee]
+
+
+def zigbee_handle(ieee: str) -> DeviceHandle:
+    """Return the handle the Zigbee adapter would build for a captured device.
+
+    Built through the adapter's own path rather than by hand, so a rule in a test names the
+    device the same way `async_devices` does. A handle assembled independently could agree
+    by luck and diverge the moment the real one changed.
+    """
+    return zigbee_handle_of(zigbee_device(ieee))
 
 
 def zigbee_devices_of(model: str) -> list[ZigbeeDevice]:

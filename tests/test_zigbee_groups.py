@@ -112,7 +112,7 @@ async def test_everything_the_rule_asked_for_reads_back(
     reached = {
         connection.target.handle.protocol_id
         for connection in observed.links
-        if connection.source_endpoint == 2
+        if connection.source_endpoint == 2 and not connection.is_system
     }
 
     assert reached == {LIGHT_IEEE, SECOND_LIGHT_IEEE}
@@ -335,3 +335,157 @@ async def test_a_failed_membership_change_does_not_leave_the_link_looking_applie
     result = await backend.async_add_link(link(target=SECOND_LIGHT_IEEE, rule_id="hallway"))
 
     assert result.status is LinkResultStatus.FAILED
+
+
+async def test_a_group_that_vanishes_between_the_plan_and_the_write_is_nothing_to_do(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    """Somebody deleted it in Zigbee2MQTT while the apply was running.
+
+    There is nothing on the device answering to this link any more, and nothing went wrong,
+    so it is `already_present` in the sense that matters: the removal has happened.
+    """
+    for target in (LIGHT_IEEE, SECOND_LIGHT_IEEE):
+        await backend.async_add_link(link(target=target, rule_id="hallway"))
+    bridge.groups.clear()
+    bridge._republish(zp.GROUPS_TOPIC)
+
+    result = await backend.async_remove_link(link(target=SECOND_LIGHT_IEEE, rule_id="hallway"))
+
+    assert result.status is LinkResultStatus.ALREADY_PRESENT
+
+
+async def test_the_group_a_link_already_names_is_not_wrapped_in_another_one(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    """A link whose target is a group is written as it stands, rule or no rule."""
+    bridge.add_group("dl_hall", 3, [{"ieee_address": LIGHT_IEEE, "endpoint": 1}])
+
+    result = await backend.async_add_link(
+        link(target="group:3", target_endpoint=None, rule_id="hallway")
+    )
+
+    assert result.status is LinkResultStatus.APPLIED
+    assert bridge.group_named("dl_hallway") is None
+
+
+async def test_a_group_the_bridge_accepts_and_then_does_not_list_is_a_failure(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    """Answered, and still not there. Nothing is reported as applied on the strength of a
+    response alone when the thing it was about cannot be found afterwards.
+    """
+    await backend.async_add_link(link(target=LIGHT_IEEE, rule_id="hallway"))
+
+    def _delete_it_again(topic: str, payload: str) -> None:
+        bridge.groups.clear()
+        bridge._republish(zp.GROUPS_TOPIC)
+
+    await bridge.async_subscribe("zigbee2mqtt/bridge/response/group/add", _delete_it_again)
+
+    result = await backend.async_add_link(link(target=SECOND_LIGHT_IEEE, rule_id="hallway"))
+
+    assert result.status is LinkResultStatus.FAILED
+    assert result.reason is not None
+    assert result.reason.translation_key == "zigbee_group_failed"
+
+
+async def test_the_adapter_guard_refuses_a_foreign_group_by_name(
+    backend: ZigbeeBackend,
+) -> None:
+    """Redundant with the payload builders on purpose: both would have to fail."""
+    with pytest.raises(zp.ForeignGroupError):
+        await backend._remove_group("kitchen")
+
+
+async def test_a_link_naming_a_group_that_is_gone_by_the_time_it_is_written_is_refused(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    """Between `_absolute_refusal` saying the group is there and the request being built,
+    somebody deleted it in Zigbee2MQTT. Refused rather than sent to a name that means
+    nothing.
+    """
+    bridge.add_group("dl_hall", 3)
+
+    def _delete_it(topic: str, payload: str) -> None:
+        bridge.groups.clear()
+        bridge._republish(zp.GROUPS_TOPIC)
+
+    await bridge.async_subscribe("zigbee2mqtt/bridge/response/group/members/add", _delete_it)
+    await backend.async_add_link(link(target=LIGHT_IEEE, rule_id="hall"))
+
+    result = await backend.async_add_link(link(target=SECOND_LIGHT_IEEE, rule_id="hall"))
+
+    assert result.status is LinkResultStatus.FAILED
+
+
+async def test_a_control_bound_to_a_group_that_does_not_hold_the_target_is_not_removable_there(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    """Two managed groups on one cluster, and only one of them holds what is being removed."""
+    bridge.add_group("dl_other", 8, [{"ieee_address": OLD_FIRMWARE_IEEE, "endpoint": 1}])
+    bridge.add_binding(AUX, 2, zp.GEN_ON_OFF, {"type": "group", "id": 8})
+    for target in (LIGHT_IEEE, SECOND_LIGHT_IEEE):
+        await backend.async_add_link(link(target=target, rule_id="hallway"))
+
+    result = await backend.async_remove_link(link(target=SECOND_LIGHT_IEEE, rule_id="hallway"))
+
+    assert result.status is LinkResultStatus.APPLIED
+    assert bridge.group_named("dl_other") is not None
+    assert bridge.group_named("dl_hallway") is None
+
+
+async def test_a_membership_removal_the_bridge_will_not_answer_is_a_failed_link(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    """Half a removal is worse than none: the group would still drive what the rule dropped."""
+    for target in (LIGHT_IEEE, SECOND_LIGHT_IEEE, OLD_FIRMWARE_IEEE):
+        await backend.async_add_link(link(target=target, rule_id="hallway"))
+    bridge.silent = True
+
+    result = await backend.async_remove_link(link(target=SECOND_LIGHT_IEEE, rule_id="hallway"))
+
+    assert result.status is LinkResultStatus.FAILED
+    assert result.reason is not None
+    assert result.reason.translation_key == "zigbee_group_failed"
+
+
+async def test_a_group_deletion_the_bridge_will_not_answer_is_a_failed_link(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    """The last member came out and the group did not, so the link is not done."""
+    for target in (LIGHT_IEEE, SECOND_LIGHT_IEEE):
+        await backend.async_add_link(link(target=target, rule_id="hallway"))
+
+    def _swallow(topic: str, payload: str) -> None:
+        bridge.silent = True
+
+    await bridge.async_subscribe("zigbee2mqtt/bridge/response/group/members/remove", _swallow)
+
+    result = await backend.async_remove_link(link(target=SECOND_LIGHT_IEEE, rule_id="hallway"))
+
+    assert result.status is LinkResultStatus.FAILED
+    assert result.reason is not None
+    assert result.reason.translation_key == "zigbee_group_failed"
+
+
+async def test_a_binding_to_a_foreign_group_is_not_a_membership_this_rule_can_remove(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    """The control drives a group that is not ours, and the target is not in it either.
+
+    Nothing here is removable through a group: what makes the link present is the plain
+    binding, and that is what comes off.
+    """
+    bridge.add_group("kitchen", 5, [{"ieee_address": LIGHT_IEEE, "endpoint": 1}])
+    bridge.add_binding(AUX, 2, zp.GEN_ON_OFF, {"type": "group", "id": 5})
+    await backend.async_add_link(link(target=LIGHT_IEEE, rule_id=None))
+
+    result = await backend.async_remove_link(link(target=LIGHT_IEEE, rule_id=None))
+
+    assert result.status is LinkResultStatus.APPLIED
+    assert bridge.group_named("kitchen") == {
+        "id": 5,
+        "friendly_name": "kitchen",
+        "members": [{"ieee_address": LIGHT_IEEE, "endpoint": 1}],
+    }

@@ -622,3 +622,98 @@ async def test_writing_a_setting_no_entry_knows_says_that_instead(
     assert not result.ok
     assert result.reason is not None
     assert result.reason.translation_key == "settings_not_available"
+
+
+# --------------------------------------------------------------------------------------
+# The paths only a broken bridge or a hand-built link reaches
+# --------------------------------------------------------------------------------------
+
+
+async def test_a_link_whose_source_the_bridge_forgot_is_refused_rather_than_written(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    """The device was removed from the network between the plan and the apply."""
+    bridge.devices = [d for d in bridge.devices if d["ieee_address"] != AUX_IEEE]
+    bridge._republish(zp.DEVICES_TOPIC)
+
+    result = await backend.async_add_link(link())
+
+    assert result.status is LinkResultStatus.BLOCKED
+    assert result.reason is not None
+    assert result.reason.translation_key == "zigbee_unknown_device"
+
+
+async def test_a_link_pointing_at_a_group_the_bridge_does_not_report_is_refused(
+    backend: ZigbeeBackend,
+) -> None:
+    result = await backend.async_add_link(
+        link(target="group:12", target_endpoint=None, rule_id=None)
+    )
+
+    assert result.status is LinkResultStatus.BLOCKED
+    assert result.reason is not None
+    assert result.reason.translation_key == "zigbee_unknown_device"
+
+
+async def test_a_link_pointing_at_a_managed_group_is_written_as_it_stands(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    """A group has no clusters of its own, so what its members can act on is not asked here."""
+    bridge.add_group("dl_hall", 3, [{"ieee_address": LIGHT_IEEE, "endpoint": 1}])
+
+    result = await backend.async_add_link(
+        link(target="group:3", target_endpoint=None, rule_id=None)
+    )
+
+    assert result.status is LinkResultStatus.APPLIED
+    assert bridge.bindings_of(AUX, 2)[-1]["target"] == {"type": "group", "id": 3}
+
+
+async def test_a_battery_device_the_bridge_forgot_is_not_reported_as_asleep(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    """`_is_battery` has to answer for a device it cannot see, and the answer is no."""
+    bridge.silent = True
+    bridge.devices = [
+        d if d["ieee_address"] != AUX_IEEE else {**d, "power_source": None} for d in bridge.devices
+    ]
+    bridge._republish(zp.DEVICES_TOPIC)
+
+    result = await backend.async_add_link(link())
+
+    assert result.status is LinkResultStatus.FAILED
+
+
+async def test_a_binding_to_a_device_the_bridge_has_forgotten_still_reads_back(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    """The entry is on the device, so it has to be reportable, whoever it points at.
+
+    A link nobody can see is a link nobody can plan to remove, so a target the bridge no
+    longer lists gets a handle carrying its address and nothing else.
+    """
+    bridge.add_binding(
+        AUX,
+        2,
+        zp.GEN_ON_OFF,
+        {"type": "endpoint", "ieee_address": "0x00158d0001aabbcc", "endpoint": 1},
+    )
+
+    observed = await backend.async_observed(handle(AUX_IEEE, AUX))
+    orphan = next(
+        item for item in observed.links if item.target.handle.protocol_id.startswith("0x0015")
+    )
+
+    assert orphan.target.handle.name_at_authoring == "0x00158d0001aabbcc"
+    assert not orphan.is_system
+
+
+async def test_a_source_the_bridge_forgot_is_not_treated_as_a_battery_device(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    """`_is_battery` is asked after a failure, when the device may already be gone.
+
+    A wake-up prompt for a device that is no longer on the network would be an instruction
+    nobody can follow, so an unknown device is not a battery one.
+    """
+    assert backend._is_battery(handle("0x0011223344556677")) is False

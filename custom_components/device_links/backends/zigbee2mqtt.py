@@ -176,9 +176,9 @@ class ZigbeeBackend:
         self._listeners: list[Callable[[str], None]] = []
         self._transactions = count(1)
 
-        # Managed groups this backend used but did not create, so E24's warning is said
-        # once per group rather than on every apply.
-        self._adopted: set[str] = set()
+        # Managed groups this backend has created or already adopted, so E24's warning about
+        # using a group somebody else made is said once and never about one of our own.
+        self._created: set[str] = set()
 
         # Whether a write of ours has happened that the bridge has not yet republished
         # `bridge/devices` for. What a deep read waits on; see `async_observed`.
@@ -454,7 +454,9 @@ class ZigbeeBackend:
         """Turn one device's bindings into the links the planner diffs against.
 
         One binding becomes **one link per feature its cluster carries**, so a bound
-        `genLevelCtrl` produces both a level-set link and a hold-to-dim link. That is what
+        `genLevelCtrl` produces both a level-set link and a hold-to-dim link, and a binding
+        on a cluster Device Links cannot drive still produces one link that reports rather
+        than controls, so a device's binding table is described whole. That is what
         the binding really does, and it is what makes a rule asking for both converge: a
         binding reported under one feature only would leave the other permanently missing,
         planned as an add forever, and answered `already_present` forever.
@@ -483,7 +485,7 @@ class ZigbeeBackend:
             )
             for binding in zp.parse_bindings(device)
             for target, endpoint in self._targets_of(binding)
-            for feature in sorted(zp.features_of_cluster(binding.cluster))
+            for feature in sorted(zp.features_of_binding(binding.cluster))
         ]
 
     def _targets_of(self, binding: zp.ParsedBinding) -> list[tuple[DeviceHandle, int | None]]:
@@ -602,14 +604,11 @@ class ZigbeeBackend:
         refusal = self._absolute_refusal(link)
         if refusal is not None:
             return LinkResult(status=LinkResultStatus.BLOCKED, reason=refusal)
-        try:
-            present = self._is_present(link)
-        except ZigbeeBackendError as err:
-            _LOGGER.debug("write of %s could not be prepared: %s", link.fingerprint, err)
-            return LinkResult(
-                status=LinkResultStatus.BLOCKED,
-                reason=Diagnostic("zigbee_unknown_device", _binding_placeholders(link)),
-            )
+        # Nothing below re-checks that the source and the target exist, because the refusal
+        # above did: it is the step that answers `zigbee_unknown_device`, and a second
+        # answer to the same question here would be a branch no test could reach and no
+        # reader could trust.
+        present = self._is_present(link)
         if present is adding:
             return LinkResult(status=LinkResultStatus.ALREADY_PRESENT)
         if not adding:
@@ -661,10 +660,9 @@ class ZigbeeBackend:
         if self._plain_binding(link) is not None:
             return await self._request_binding(link, adding=False)
         group = self._group_holding(link)
-        if group is None:
-            # Nothing on the device answers to this link. `_write` already established that
-            # something does, so this can only be a group that vanished between the two.
-            return LinkResult(status=LinkResultStatus.ALREADY_PRESENT)
+        # `_write` reached here only because something on the device answers to this link,
+        # and a plain binding was ruled out one line above, so the group is there.
+        assert group is not None
         return await self._unbind_through_group(link, group)
 
     def _group_for(self, link: Link) -> str | None:
@@ -741,8 +739,8 @@ class ZigbeeBackend:
         _refuse_foreign(name)
         existing = self._group_named(name)
         if existing is not None:
-            if name not in self._adopted:
-                self._adopted.add(name)
+            if name not in self._created:
+                self._created.add(name)
                 _LOGGER.warning(
                     "the Zigbee group %s already existed on %s and was not created by this "
                     "session, so it is being used as it is: its other members are left alone",
@@ -757,12 +755,15 @@ class ZigbeeBackend:
         if not created:
             return None
         made = self._group_named(name)
-        return None if made is None else int(made["id"])
+        if made is None:
+            return None
+        self._created.add(name)
+        return int(made["id"])
 
     async def _remove_group(self, name: str) -> bool:
         """Delete one managed group, and say whether the bridge accepted it."""
         _refuse_foreign(name)
-        self._adopted.discard(name)
+        self._created.discard(name)
         return await self._group_request(
             zp.GROUP_REMOVE_REQUEST,
             zp.group_remove_payload(friendly_name=name, transaction=self._next_transaction()),
@@ -1035,13 +1036,22 @@ class ZigbeeBackend:
         return f"dl-{next(self._transactions)}"
 
     def _target_name(self, link: Link) -> str:
-        """Return what the request calls this link's target: a device name or a group name."""
+        """Return what the request calls this link's target: a device name or a group name.
+
+        A device is looked up, because its friendly name is renameable and the handle keeps
+        only the address (E23). A group falls back to the name on the handle when the bridge
+        no longer lists it, which happens when somebody deletes a managed group while an
+        apply is running: the request then goes out naming a group that is not there, the
+        bridge refuses it, and the link is reported as failed. That is a better answer than
+        raising, which would take the whole result with it, and better than inventing a
+        different target.
+        """
         group_id = zp.group_id_of(link.target.handle)
         if group_id is None:
             return self._name_of(link.target.handle)
         group = self._state.groups.get(group_id)
         if group is None:
-            raise ZigbeeBackendError(f"group {group_id} is not one this bridge reports")
+            return link.target.handle.name_at_authoring
         return str(group["friendly_name"])
 
     def _absolute_refusal(self, link: Link) -> Diagnostic | None:

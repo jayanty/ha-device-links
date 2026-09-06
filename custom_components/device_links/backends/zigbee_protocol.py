@@ -202,6 +202,25 @@ def features_of_cluster(cluster: str) -> frozenset[Feature]:
     return FEATURES_BY_CLUSTER.get(cluster, frozenset())
 
 
+def features_of_binding(cluster: str) -> frozenset[Feature]:
+    """Return what a binding on this cluster does, for a binding that is already there.
+
+    The same answer as `features_of_cluster` for a cluster Device Links can bind, and
+    `STATUS_REPORT` for one it cannot. The two questions are different and the difference
+    matters: what a control can be **offered** for is what a user could pick, and an
+    endpoint that only drives `genOta` must not be offered at all. What an existing binding
+    **is** is another thing entirely, and Zigbee2MQTT's own reporting setup is made of
+    exactly those clusters (`seMetering`, `haElectricalMeasurement`, `manuSpecificInovelli`).
+    Dropping them would leave a device's binding table half described: a user could not see
+    them, a group's capacity would be counted short, and a device-to-device binding on a
+    manufacturer cluster could never be reported at all.
+
+    `STATUS_REPORT` is the same answer the Z-Wave side gives a group that issues nothing it
+    can use, and it means the same thing there: this entry reports rather than controls.
+    """
+    return features_of_cluster(cluster) or frozenset({Feature.STATUS_REPORT})
+
+
 def is_coordinator(device: Device) -> bool:
     """Say whether this device is the radio itself, whose bindings are never ours."""
     return device["type"] == COORDINATOR_TYPE
