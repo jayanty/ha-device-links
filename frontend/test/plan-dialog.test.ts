@@ -93,6 +93,31 @@ describe("the plan dialog", () => {
     expect(ticks.every((box) => !box.checked)).toBe(true);
   });
 
+  it("offers no tick box at all when the flow says it would ignore them", async () => {
+    // The swap is the flow that says no: it removes exactly the links its own rewrite
+    // orphans, so a tick box here would be one the job ignores, which is worse than none.
+    const hass = mockHass();
+    const answer = plan();
+    const dialog = document.createElement("dl-plan-dialog");
+    dialog.hass = hass;
+    dialog.api = new DeviceLinksApi(hass);
+    dialog.components = componentSet([]);
+    dialog.flow = {
+      plan: async () => answer,
+      apply: async () => ({ job_id: "j1", status: "running" }),
+      acceptsUnmanaged: false,
+    };
+    document.body.append(dialog);
+    dialog.open = true;
+    await dialog.updateComplete;
+    await flush();
+    await dialog.updateComplete;
+
+    expect(boxes(dialog)).toHaveLength(0);
+    expect(text(dialog)).toContain("does not touch them");
+    expect(button(dialog, "Select all")).toBeUndefined();
+  });
+
   it("offers no tick box at all for a system link, and leaves it out of select all", async () => {
     const hass = mockHass();
     hass.results.set(COMMANDS.plan, plan());

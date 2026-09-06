@@ -704,10 +704,11 @@ export class DeviceLinksSwapWizard extends LitElement {
   /**
    * How the plan dialog plans and applies a swap.
    *
-   * `removeUnmanaged` is deliberately ignored: a swap already carries the exact links it
-   * would take off the old device, computed from the rules it is rewriting, and letting the
-   * dialog's tick boxes add to that list would let a swap remove associations nobody
-   * connected it to. The token rule is unchanged, which is the part that matters.
+   * `removeUnmanaged` is deliberately ignored, and the dialog is told so rather than left
+   * to render tick boxes that do nothing: a swap already carries the exact links it would
+   * take off the old device, computed from the rules it is rewriting, and letting the ticks
+   * add to that list would let a swap remove associations nobody connected it to. The token
+   * rule is unchanged, which is the part that matters.
    */
   private _flow(): PlanFlow | null {
     const api = this.api;
@@ -736,6 +737,9 @@ export class DeviceLinksSwapWizard extends LitElement {
         return { job_id: applied.job_id, status: applied.status };
       },
       notices: () => this._planNotices(),
+      // See `PlanFlow.acceptsUnmanaged`. A swap removes exactly the links its own rewrite
+      // orphans, so the dialog reports the rest and offers no tick box for them.
+      acceptsUnmanaged: false,
     };
   }
 

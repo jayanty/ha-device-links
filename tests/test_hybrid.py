@@ -14,7 +14,12 @@ from dataclasses import replace
 from datetime import timedelta
 from typing import Any
 
-from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, STATE_OFF, STATE_ON
+from homeassistant.const import (
+    EVENT_HOMEASSISTANT_STARTED,
+    STATE_OFF,
+    STATE_ON,
+    EntityCategory,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -837,3 +842,34 @@ async def test_a_backend_that_raises_while_writing_is_counted_rather_than_escapi
     await _after_the_rate_limit(hass)
 
     assert legs_of(hybrid_entry).status_for("hybrid").errors == before + 1
+
+
+async def test_a_leg_leaves_a_devices_configuration_entities_alone(
+    hass: HomeAssistant, hybrid_entry: MockConfigEntry, zwave_js_devices: dict[int, dr.DeviceEntry]
+) -> None:
+    """A config switch is in a load's domain and is not a load.
+
+    A Zooz switch exposes its smart bulb mode as a `switch` in the config category. A leg
+    that turned that off every time somebody pressed a scene button would be a far stranger
+    fault than the one legs exist to fix, and it would look like the device forgetting its
+    own settings.
+    """
+    light = a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
+    registry = er.async_get(hass)
+    config = registry.async_get_or_create(
+        "switch",
+        "zwave_js",
+        "smart-bulb-mode",
+        device_id=zwave_js_devices[MAIN_LIGHTS].id,
+        entity_category=EntityCategory.CONFIG,
+    )
+    hass.states.async_set(config.entity_id, STATE_ON)
+    activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
+    await hass.async_block_till_done()
+
+    calls: list[Any] = []
+    hass.services.async_register("homeassistant", "turn_off", calls.append)
+    press(hass, zwave_js_devices, BUTTON_SCENE)
+    await hass.async_block_till_done()
+
+    assert [call.data["entity_id"] for call in calls] == [[light]]

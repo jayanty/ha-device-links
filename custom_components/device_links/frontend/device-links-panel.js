@@ -2326,6 +2326,14 @@ var U = class extends C {
 	_renderUnmanagedControls(e) {
 		let t = this._selectableUnmanaged(e);
 		if (t.length === 0) return b;
+		if (!this._acceptsUnmanaged()) return v`
+        <div class="notice">
+          <p>
+            ${R(t.length, "link")} on these devices belong to no rule. This
+            job does not touch them, so they are listed and left exactly as they are.
+          </p>
+        </div>
+      `;
 		let n = this._removeUnmanaged.length;
 		return v`
       <div class="notice">
@@ -2421,7 +2429,7 @@ var U = class extends C {
           <span class="chip muted">System link</span>
           <span>${L(e)}</span>
         </div>
-      ` : v`
+      ` : this._acceptsUnmanaged() ? v`
       <label class="unmanaged-item">
         <input
           type="checkbox"
@@ -2434,7 +2442,12 @@ var U = class extends C {
           ${e.ignored ? v`<span class="chip muted">Ignored</span>` : b}
         </span>
       </label>
-    `;
+    ` : v`
+        <div class="unmanaged-item">
+          <span class="chip muted">Left alone</span>
+          <span>${L(e)}</span>
+        </div>
+      `;
 	}
 	_renderProgress() {
 		let e = this._progress, t = e?.total ?? 0, n = e?.completed ?? 0;
@@ -2495,6 +2508,9 @@ var U = class extends C {
         ${e === 0 ? "Nothing to apply" : `Apply ${R(e, "change")}`}
       </button>
     `;
+	}
+	_acceptsUnmanaged() {
+		return this.flow === null || this.flow.acceptsUnmanaged !== !1;
 	}
 	_changeCount(e) {
 		return e.counts.add + e.counts.remove + e.counts.set_param;
@@ -3001,7 +3017,8 @@ var W = [
 					status: o.status
 				};
 			},
-			notices: () => this._planNotices()
+			notices: () => this._planNotices(),
+			acceptsUnmanaged: !1
 		};
 	}
 	_planNotices() {

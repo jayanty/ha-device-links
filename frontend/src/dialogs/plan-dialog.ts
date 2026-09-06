@@ -78,6 +78,16 @@ export interface PlanFlow {
   plan(removeUnmanaged: readonly string[]): Promise<Plan>;
   apply(planToken: string, removeUnmanaged: readonly string[]): Promise<JobStarted>;
   notices?(plan: Plan): string[];
+  /**
+   * Whether this flow acts on the unmanaged links the user ticks. True unless it says so.
+   *
+   * The swap is the flow that says no: it already carries the exact links it would take
+   * off the old device, computed from the rules it is rewriting, and letting the ticks add
+   * to that would let a swap remove associations nobody connected it to. A tick box that
+   * did nothing would be worse than none, so the dialog reports those links and offers no
+   * box rather than offering one it will ignore.
+   */
+  acceptsUnmanaged?: boolean;
 }
 
 /** What a caller learns when a job this dialog started has ended. */
@@ -396,6 +406,16 @@ export class DeviceLinksPlanDialog extends LitElement {
     if (selectable.length === 0) {
       return nothing;
     }
+    if (!this._acceptsUnmanaged()) {
+      return html`
+        <div class="notice">
+          <p>
+            ${plural(selectable.length, "link")} on these devices belong to no rule. This
+            job does not touch them, so they are listed and left exactly as they are.
+          </p>
+        </div>
+      `;
+    }
     const selected = this._removeUnmanaged.length;
     return html`
       <div class="notice">
@@ -524,6 +544,14 @@ export class DeviceLinksPlanDialog extends LitElement {
         </div>
       `;
     }
+    if (!this._acceptsUnmanaged()) {
+      return html`
+        <div class="unmanaged-item">
+          <span class="chip muted">Left alone</span>
+          <span>${describeLink(link)}</span>
+        </div>
+      `;
+    }
     const checked = this._removeUnmanaged.includes(link.fingerprint);
     return html`
       <label class="unmanaged-item">
@@ -637,6 +665,11 @@ export class DeviceLinksPlanDialog extends LitElement {
   // ------------------------------------------------------------------------------------
   // Loading, applying, and following the job.
   // ------------------------------------------------------------------------------------
+
+  /** Whether this dialog's ticks reach the work. See `PlanFlow.acceptsUnmanaged`. */
+  private _acceptsUnmanaged(): boolean {
+    return this.flow === null || this.flow.acceptsUnmanaged !== false;
+  }
 
   /** What one press of Apply would actually write. Blocked and pending are neither. */
   private _changeCount(plan: Plan): number {

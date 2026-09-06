@@ -556,8 +556,12 @@ class HybridLegs:
     def _entities_of(self, identity: str) -> tuple[str, ...]:
         """Return the load entities of the device this identity names.
 
-        Only the domains that are a load. A switch's power sensor and its own event
-        entities are attached to the same device and are not what "turn this off" means.
+        Two filters, and the second is the one that matters. The domain filter keeps out a
+        switch's power sensor and its own scene events. The entity-category filter keeps out
+        the ones that are in a load's domain and are not a load: a Zooz switch exposes its
+        smart bulb mode as a config `switch`, and a leg that turned somebody's device
+        configuration off every time they pressed a scene button would be a far stranger
+        fault than the one it was written to fix.
         """
         handle = self._coordinator.handle_for(identity)
         device = None if handle is None else async_upstream_device(self._hass, self._entry, handle)
@@ -568,7 +572,9 @@ class HybridLegs:
             sorted(
                 entry.entity_id
                 for entry in er.async_entries_for_device(registry, device.id)
-                if entry.domain in LOAD_DOMAINS and not entry.disabled
+                if entry.domain in LOAD_DOMAINS
+                and entry.entity_category is None
+                and not entry.disabled
             )
         )
 
