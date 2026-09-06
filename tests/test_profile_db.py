@@ -11,7 +11,12 @@ import pytest
 from custom_components.device_links import profile_db
 from custom_components.device_links.backends import zigbee_protocol
 from custom_components.device_links.backends.zwave_protocol import features_of_group
-from custom_components.device_links.models import Feature, ZigbeeFingerprint, ZWaveFingerprint
+from custom_components.device_links.models import (
+    Feature,
+    MatterFingerprint,
+    ZigbeeFingerprint,
+    ZWaveFingerprint,
+)
 from custom_components.device_links.profile_db import ProfileDatabase, load_profiles
 from tests.factories import profiles, zigbee_devices
 
@@ -676,6 +681,7 @@ def test_the_shipped_schema_documents_the_zigbee_shapes_too() -> None:
     assert {
         defs["device"]["properties"]["backend"]["const"],
         defs["zigbee_device"]["properties"]["backend"]["const"],
+        defs["matter_device"]["properties"]["backend"]["const"],
     } == profile_db.PROFILE_BACKENDS
 
 
@@ -739,7 +745,7 @@ def test_two_zigbee_entries_claiming_one_model_are_refused() -> None:
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
-        ({"backend": "matter"}, "'backend': 'matter' is not one of"),
+        ({"backend": "zha"}, "'backend': 'zha' is not one of"),
         ({"backend": 5}, "'backend': expected a string"),
         ({"capacity_override": 3}, "unknown key"),
         ({"fingerprints": [{"vendor": "Test"}]}, "missing required key"),
@@ -790,3 +796,114 @@ def test_two_zigbee_emitters_with_one_id_are_refused() -> None:
         load_profiles(
             _files(_zigbee_device(emitters=[_zigbee_emitter(), _zigbee_emitter(endpoint=3)]))
         )
+
+
+# --- the Matter half: a third shape, validated its own way ---------------------------------
+
+
+def _matter_emitter(**overrides: Any) -> dict[str, Any]:
+    return {
+        "emitter_id": "paddle",
+        "label": "Paddle",
+        "kind": "paddle",
+        "endpoint": 2,
+        "actions": {"on_off": 6},
+        **overrides,
+    }
+
+
+def _matter_device(**overrides: Any) -> dict[str, Any]:
+    return {
+        "backend": "matter",
+        "model": "Test model",
+        "manufacturer": "Test",
+        "fingerprints": [{"vendor": "Test", "product": "Test model"}],
+        "emitters": [_matter_emitter()],
+        **overrides,
+    }
+
+
+def test_a_minimal_matter_entry_loads() -> None:
+    database = load_profiles(_files(_matter_device()))
+
+    assert database.entries == ()
+    assert database.zigbee_entries == ()
+    assert len(database.matter_entries) == 1
+    assert database.matter_entries[0].emitters[0].endpoint == 2
+    assert database.matter_entries[0].emitters[0].actions[Feature.ON_OFF] == 6
+
+
+def test_a_matter_device_is_looked_up_by_vendor_and_product() -> None:
+    database = load_profiles(_files(_matter_device()))
+
+    assert database.lookup_matter(MatterFingerprint(vendor="Test", product="Test model"))
+    assert database.lookup_matter(MatterFingerprint(vendor="Test", product="Other")) is None
+
+
+def test_two_matter_entries_claiming_one_model_are_refused() -> None:
+    with pytest.raises(ValueError, match="already claimed"):
+        load_profiles(_files(_matter_device(), _matter_device()))
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"settings": {}}, "unknown key"),
+        ({"fingerprints": [{"vendor": "Test"}]}, "missing required key"),
+        ({"fingerprints": [{"vendor": "Test", "product": ""}]}, "'product': must not be empty"),
+        (
+            {"emitters": [_matter_emitter(endpoint=0)]},
+            "'endpoint': expected an integer of at least 1",
+        ),
+        ({"emitters": [_matter_emitter(actions={})]}, "must name at least one feature"),
+        ({"emitters": [_matter_emitter(actions={"nope": 6})]}, "is not a feature"),
+        (
+            {"emitters": [_matter_emitter(actions={"on_off": "genOnOff"})]},
+            "expected an integer",
+        ),
+        ({"emitters": [_matter_emitter(actions={"on_off": 0})]}, "at least 1"),
+        ({"emitters": [_matter_emitter(kind="knob")]}, "'knob' is not one of"),
+        ({"emitters": [_matter_emitter(semantics="unkown")]}, "'unkown' is not one of"),
+    ],
+)
+def test_a_malformed_matter_entry_is_rejected(overrides: dict[str, Any], message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        load_profiles(_files(_matter_device(**overrides)))
+
+
+def test_two_matter_emitters_with_one_id_are_refused() -> None:
+    with pytest.raises(ValueError, match="appears twice"):
+        load_profiles(
+            _files(_matter_device(emitters=[_matter_emitter(), _matter_emitter(endpoint=3)]))
+        )
+
+
+def test_a_matter_entry_may_carry_a_wake_instruction_and_notes() -> None:
+    database = load_profiles(
+        _files(_matter_device(wake_instruction="Press the paddle", notes="From M1"))
+    )
+
+    assert database.matter_entries[0].wake_instruction == "Press the paddle"
+    assert database.matter_entries[0].notes == "From M1"
+
+
+def test_the_shipped_schema_documents_the_matter_shapes_too() -> None:
+    """Same reasoning as the other two halves: the schema documents, profile_db.py enforces."""
+    defs = _schema()["$defs"]
+
+    def keys(node: dict[str, Any]) -> tuple[set[str], set[str]]:
+        return set(node["properties"]), set(node.get("required", []))
+
+    assert keys(defs["matter_device"]) == (
+        profile_db.MATTER_DEVICE_REQUIRED_KEYS | profile_db.MATTER_DEVICE_OPTIONAL_KEYS,
+        set(profile_db.MATTER_DEVICE_REQUIRED_KEYS),
+    )
+    assert keys(defs["matter_fingerprint"]) == (
+        set(profile_db.MATTER_FINGERPRINT_REQUIRED_KEYS),
+        set(profile_db.MATTER_FINGERPRINT_REQUIRED_KEYS),
+    )
+    assert keys(defs["matter_emitter"]) == (
+        profile_db.MATTER_EMITTER_REQUIRED_KEYS | profile_db.MATTER_EMITTER_OPTIONAL_KEYS,
+        set(profile_db.MATTER_EMITTER_REQUIRED_KEYS),
+    )
+    assert set(defs["matter_actions"]["propertyNames"]["enum"]) == {str(f) for f in Feature}

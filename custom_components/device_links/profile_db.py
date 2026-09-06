@@ -23,6 +23,14 @@ separately (`lookup` and `lookup_zigbee`), because a caller always knows which p
 is asking about and a signature that could answer with either would make every caller narrow
 it again.
 
+Phase 3 added a third, for the same reason and along the same seam. A Matter entry is the
+Zigbee entry's shape with numbers where Zigbee has names: an emitter names the endpoint it
+drives from and its actions name **cluster ids**, because a Matter binding names a cluster
+by number and nothing on the fabric ever spells it out. It carries no settings adapters at
+all, which is a fact about the protocol rather than an omission: a Matter device's settings
+are attributes of its own clusters, not a numbered parameter list, and nothing in this
+integration writes one yet.
+
 This module is pure: it imports no Home Assistant and does no file I/O. It is handed
 already-read text keyed by filename, so the caller owns reading files and this stays
 testable without a filesystem. Validation is hand written rather than delegated to
@@ -38,6 +46,7 @@ from typing import Final
 
 from custom_components.device_links.models import (
     Feature,
+    MatterFingerprint,
     SettingsAdapter,
     ZigbeeFingerprint,
     ZWaveFingerprint,
@@ -72,12 +81,28 @@ ZIGBEE_EMITTER_REQUIRED_KEYS: Final = frozenset(
 ZIGBEE_EMITTER_OPTIONAL_KEYS: Final = frozenset({"semantics"})
 ZIGBEE_ADAPTER_REQUIRED_KEYS: Final = frozenset({"property", "values", "payloads"})
 
+# The same three things for a Matter entry. It is keyed by the vendor and product names the
+# Matter server reports, and its emitters name cluster **ids**, because a Matter binding
+# carries a number and there is no name to write. `settings` is absent from both sets: a
+# Matter device has no numbered parameter list, so an entry that offered one would be
+# describing hardware that does not exist.
+MATTER_DEVICE_REQUIRED_KEYS: Final = frozenset(
+    {"backend", "model", "manufacturer", "fingerprints", "emitters"}
+)
+MATTER_DEVICE_OPTIONAL_KEYS: Final = frozenset({"wake_instruction", "notes"})
+MATTER_FINGERPRINT_REQUIRED_KEYS: Final = frozenset({"vendor", "product"})
+MATTER_EMITTER_REQUIRED_KEYS: Final = frozenset(
+    {"emitter_id", "label", "kind", "endpoint", "actions"}
+)
+MATTER_EMITTER_OPTIONAL_KEYS: Final = frozenset({"semantics"})
+
 # Which protocol an entry describes. Absent means Z-Wave, because every entry written before
 # Phase 2 is one and a default that rewrote history would be worse than a default that
 # matches it.
 BACKEND_ZWAVE: Final = "zwave"
 BACKEND_ZIGBEE2MQTT: Final = "zigbee2mqtt"
-PROFILE_BACKENDS: Final = frozenset({BACKEND_ZWAVE, BACKEND_ZIGBEE2MQTT})
+BACKEND_MATTER: Final = "matter"
+PROFILE_BACKENDS: Final = frozenset({BACKEND_ZWAVE, BACKEND_ZIGBEE2MQTT, BACKEND_MATTER})
 # `bitmask` is required and nullable rather than optional: a missing bitmask silently
 # meaning "the whole parameter" is exactly the ambiguity this database exists to remove.
 ADAPTER_REQUIRED_KEYS: Final = frozenset({"parameter", "bitmask", "values"})
@@ -225,6 +250,58 @@ class ZigbeeProfileEntry:
 
 
 @dataclass(frozen=True, slots=True)
+class MatterProfileFingerprint:
+    """The model identity a Matter entry matches on: the vendor and product names.
+
+    What the Matter server reports for a node's Basic Information cluster, which is what the
+    M1 capture recorded ("Inovelli", "VTM31-SN"). Names rather than the vendor and product
+    **ids** that are also on that cluster, so that an entry can be read and checked by a
+    contributor holding the device rather than a packet capture.
+    """
+
+    vendor: str
+    product: str
+
+    @classmethod
+    def of(cls, fingerprint: MatterFingerprint) -> MatterProfileFingerprint:
+        """Return the model identity of a node the Matter server reported."""
+        return cls(vendor=fingerprint.vendor, product=fingerprint.product)
+
+
+@dataclass(frozen=True, slots=True)
+class MatterProfileEmitter:
+    """One physical control on a Matter node, as a curated entry describes it.
+
+    `endpoint` is what a binding is written from and `actions` maps a feature to the
+    **cluster id** that carries it. Two features can name one cluster, because LevelControl
+    really does carry both setting a level and holding to dim.
+    """
+
+    emitter_id: str
+    label: str
+    kind: str
+    endpoint: int
+    actions: Mapping[Feature, int]
+    semantics: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MatterProfileEntry:
+    """Everything the curated database knows about one Matter device model.
+
+    No settings, unlike the other two shapes. A Matter device is configured through the
+    attributes of its own clusters rather than through a numbered parameter list, and
+    nothing in this integration writes one, so an entry that carried adapters would be
+    describing a mechanism that does not exist here.
+    """
+
+    fingerprints: tuple[MatterProfileFingerprint, ...]
+    emitters: tuple[MatterProfileEmitter, ...]
+    wake_instruction: str | None
+    notes: str
+
+
+@dataclass(frozen=True, slots=True)
 class ProfileDatabase:
     """Every curated entry that was loaded, and the lookups over them.
 
@@ -235,6 +312,7 @@ class ProfileDatabase:
 
     entries: tuple[ProfileEntry, ...]
     zigbee_entries: tuple[ZigbeeProfileEntry, ...] = ()
+    matter_entries: tuple[MatterProfileEntry, ...] = ()
 
     def lookup(self, fingerprint: ZWaveFingerprint) -> ProfileEntry | None:
         """Return the entry describing this device model, or None when none does.
@@ -256,6 +334,14 @@ class ProfileDatabase:
                 return entry
         return None
 
+    def lookup_matter(self, fingerprint: MatterFingerprint) -> MatterProfileEntry | None:
+        """Return the Matter entry describing this device model, or None when none does."""
+        wanted = MatterProfileFingerprint.of(fingerprint)
+        for entry in self.matter_entries:
+            if wanted in entry.fingerprints:
+                return entry
+        return None
+
 
 def load_profiles(files: Mapping[str, str]) -> ProfileDatabase:
     """Parse and validate profile JSON text into a database.
@@ -267,6 +353,7 @@ def load_profiles(files: Mapping[str, str]) -> ProfileDatabase:
     """
     entries: list[ProfileEntry] = []
     zigbee_entries: list[ZigbeeProfileEntry] = []
+    matter_entries: list[MatterProfileEntry] = []
     claimed: dict[object, str] = {}
     for filename in sorted(files):
         for entry, where in _entries_in(filename, files[filename]):
@@ -281,25 +368,35 @@ def load_profiles(files: Mapping[str, str]) -> ProfileDatabase:
                 claimed[fingerprint] = where
             if isinstance(entry, ZigbeeProfileEntry):
                 zigbee_entries.append(entry)
+            elif isinstance(entry, MatterProfileEntry):
+                matter_entries.append(entry)
             else:
                 entries.append(entry)
-    return ProfileDatabase(entries=tuple(entries), zigbee_entries=tuple(zigbee_entries))
+    return ProfileDatabase(
+        entries=tuple(entries),
+        zigbee_entries=tuple(zigbee_entries),
+        matter_entries=tuple(matter_entries),
+    )
 
 
-def _named(fingerprint: ProfileFingerprint | ZigbeeProfileFingerprint) -> str:
+def _named(
+    fingerprint: ProfileFingerprint | ZigbeeProfileFingerprint | MatterProfileFingerprint,
+) -> str:
     """Return a model identity in the form the protocol that owns it is written in."""
     if isinstance(fingerprint, ZigbeeProfileFingerprint):
         return f"{fingerprint.vendor} {fingerprint.model}"
+    if isinstance(fingerprint, MatterProfileFingerprint):
+        return f"{fingerprint.vendor} {fingerprint.product}"
     return f"{fingerprint.manufacturer_id}:{fingerprint.product_type}:{fingerprint.product_id}"
 
 
 def _entries_in(
     filename: str, text: str
-) -> Iterator[tuple[ProfileEntry | ZigbeeProfileEntry, str]]:
+) -> Iterator[tuple[ProfileEntry | ZigbeeProfileEntry | MatterProfileEntry, str]]:
     """Yield each entry in one file, with the label error messages should use for it.
 
     Which shape an entry has is decided by its `backend` key, which is absent on every entry
-    written before Phase 2 and means Z-Wave when it is. A file may hold both.
+    written before Phase 2 and means Z-Wave when it is. A file may hold all three.
     """
     document = _document(filename, text)
     for position, raw in enumerate(_list(f"{filename}: 'devices'", document["devices"])):
@@ -311,6 +408,8 @@ def _entries_in(
         )
         if backend == BACKEND_ZIGBEE2MQTT:
             yield _zigbee_entry(where, device), where
+        elif backend == BACKEND_MATTER:
+            yield _matter_entry(where, device), where
         else:
             yield _entry(where, device), where
 
@@ -482,6 +581,88 @@ def _payloads(where: str, raw: object) -> Mapping[str, str]:
     return {name: _text(f"{where}: {name!r}", value) for name, value in mapping.items()}
 
 
+def _matter_entry(where: str, device: Mapping[str, object]) -> MatterProfileEntry:
+    """Validate one Matter device object and turn it into an entry.
+
+    Separate from the other two for the reason `_zigbee_entry` gives: a validator written to
+    cover several protocols has to accept a key for one of them on an entry for another, and
+    the whole value of this database is that a wrong entry cannot load.
+    """
+    _checked_keys(where, device, MATTER_DEVICE_REQUIRED_KEYS, MATTER_DEVICE_OPTIONAL_KEYS)
+    _text(f"{where}: 'model'", device["model"])
+    _text(f"{where}: 'manufacturer'", device["manufacturer"])
+    fingerprints = tuple(
+        _matter_fingerprint(f"{where} fingerprint {position}", raw)
+        for position, raw in enumerate(_list(f"{where}: 'fingerprints'", device["fingerprints"]))
+    )
+    emitters = tuple(
+        _matter_emitter(where, raw) for raw in _list(f"{where}: 'emitters'", device["emitters"])
+    )
+    _reject_repeated_emitter_ids(where, emitters)
+    return MatterProfileEntry(
+        fingerprints=fingerprints,
+        emitters=emitters,
+        wake_instruction=_optional_text(
+            f"{where}: 'wake_instruction'", device.get("wake_instruction")
+        ),
+        notes=_optional_text(f"{where}: 'notes'", device.get("notes")) or "",
+    )
+
+
+def _matter_fingerprint(where: str, raw: object) -> MatterProfileFingerprint:
+    """Validate one Matter model identity, which is the vendor and product the node reports."""
+    mapping = _object(where, raw)
+    _checked_keys(where, mapping, MATTER_FINGERPRINT_REQUIRED_KEYS, frozenset())
+    return MatterProfileFingerprint(
+        vendor=_text(f"{where}: 'vendor'", mapping["vendor"]),
+        product=_text(f"{where}: 'product'", mapping["product"]),
+    )
+
+
+def _matter_emitter(where: str, raw: object) -> MatterProfileEmitter:
+    """Validate one Matter emitter object."""
+    mapping = _object(f"{where} emitter", raw)
+    _checked_keys(
+        f"{where} emitter", mapping, MATTER_EMITTER_REQUIRED_KEYS, MATTER_EMITTER_OPTIONAL_KEYS
+    )
+    emitter_id = _text(f"{where} emitter: 'emitter_id'", mapping["emitter_id"])
+    named = f"{where} emitter {emitter_id!r}"
+    semantics = mapping.get("semantics")
+    return MatterProfileEmitter(
+        emitter_id=emitter_id,
+        label=_text(f"{named}: 'label'", mapping["label"]),
+        kind=_one_of(f"{named}: 'kind'", mapping["kind"], EMITTER_KINDS),
+        # Endpoint 0 is the root, which administers the node and controls nothing, so an
+        # entry naming it is describing a control that cannot exist.
+        endpoint=_integer(f"{named}: 'endpoint'", mapping["endpoint"], minimum=1),
+        actions=_matter_actions(named, mapping["actions"]),
+        semantics=(
+            None
+            if semantics is None
+            else _one_of(f"{named}: 'semantics'", semantics, SEMANTICS_MARKERS)
+        ),
+    )
+
+
+def _matter_actions(where: str, raw: object) -> Mapping[Feature, int]:
+    """Validate the feature to cluster id map, which is the part that reaches the fabric.
+
+    Structural only, exactly as `_cluster` is for Zigbee. Whether the node really drives the
+    cluster, and whether that cluster can carry the feature claimed for it, is decided
+    against what the node itself reports in `matter_protocol.resolve_emitters`.
+    """
+    mapping = _object(f"{where}: 'actions'", raw)
+    if not mapping:
+        raise ValueError(f"{where}: 'actions' must name at least one feature")
+    actions: dict[Feature, int] = {}
+    for name, raw_cluster in mapping.items():
+        if name not in _FEATURE_NAMES:
+            known = ", ".join(sorted(_FEATURE_NAMES))
+            raise ValueError(f"{where}: {name!r} is not a feature; known features are {known}")
+        actions[Feature(name)] = _integer(f"{where}: '{name}'", raw_cluster, minimum=1)
+    return actions
+
+
 def _fingerprint(where: str, raw: object) -> ProfileFingerprint:
     """Validate one fingerprint triple."""
     mapping = _object(where, raw)
@@ -589,7 +770,7 @@ def _values(where: str, raw: object) -> Mapping[str, int]:
 
 
 def _reject_repeated_emitter_ids(
-    where: str, emitters: Sequence[ProfileEmitter | ZigbeeProfileEmitter]
+    where: str, emitters: Sequence[ProfileEmitter | ZigbeeProfileEmitter | MatterProfileEmitter]
 ) -> None:
     """Two emitters with one id would make the rule's `emitter_id` ambiguous."""
     seen: set[str] = set()
