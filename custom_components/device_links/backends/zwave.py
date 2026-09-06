@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 import logging
 from time import monotonic
 from typing import TYPE_CHECKING, Final
@@ -96,9 +97,18 @@ _WATCHED_CCS: Final = _ASSOCIATION_CCS | {CONFIGURATION_CC}
 # and the callback says only that the node is worth re-reading, so the burst is one call.
 DEFAULT_DEBOUNCE_SECONDS: Final = 2.0
 
-# Longer ago than any monotonic clock reading, so the first event about a device is never
-# inside the debounce window whatever the clock started at.
-_FOREVER_AGO: Final = 1e9
+
+@dataclass(slots=True)
+class _Subscription:
+    """Whether one subscription is still delivering, shared by its listener and its unsubscribe.
+
+    Unregistering the listener is not enough on its own: `EventBase.emit` iterates a copy of
+    its listener list, so a callback already dispatched in the burst being delivered still
+    arrives after removal. This flag is what an in-flight callback is tested against, so
+    "unsubscribed" means silent from that moment and not from the next event.
+    """
+
+    live: bool = True
 
 
 class ZWaveBackend:
@@ -122,9 +132,6 @@ class ZWaveBackend:
         self._profiles = profiles
         self._deep_verify_timeout = deep_verify_timeout
         self._debounce_seconds = debounce_seconds
-        # The callbacks a live subscription is still delivering to. Membership, rather
-        # than the listener list, is what an unsubscribed callback is tested against.
-        self._live_subscriptions: set[Callable[[str], None]] = set()
 
     # Reading.
 
@@ -428,6 +435,10 @@ class ZWaveBackend:
         The parameter and bitmask come back with the value, so a diagnostic can say which
         parameter was read without resolving the adapter a second time. A value of None
         means the device has not reported that parameter, which is not the same as zero.
+
+        Raises `ZWaveAccessorError` when this model has no such setting, because a read
+        has no shape to report a refusal in and inventing a value would be worse. The
+        write path answers the same question with a `SettingResult`, which does.
         """
         node = self._node(handle)
         adapter = self._adapter_of(node, capability)
@@ -532,27 +543,31 @@ class ZWaveBackend:
         Stage 0 item Z5, which was never run: see docs/open-items.md J4 and issue #8. The
         event shape here is modelled from the library, not observed on that path.
         """
+        subscription = _Subscription()
+        listener = self._listener(callback, subscription)
         listeners = [
-            node.on("value updated", self._on_value_updated(callback))
-            for node in self._driver.controller.nodes.values()
+            node.on("value updated", listener) for node in self._driver.controller.nodes.values()
         ]
 
         def _unsubscribe() -> None:
-            self._live_subscriptions.discard(callback)
+            subscription.live = False
             for remove in listeners:
                 remove()
 
-        self._live_subscriptions.add(callback)
         return _unsubscribe
 
-    def _on_value_updated(
-        self, callback: Callable[[str], None]
+    def _listener(
+        self, callback: Callable[[str], None], subscription: _Subscription
     ) -> Callable[[Mapping[str, object]], None]:
-        """Return the listener that turns one node event into at most one callback."""
+        """Return the listener that turns one node event into at most one callback.
+
+        One listener for the whole subscription, so the debounce window is shared across
+        the nodes it watches and an unsubscribe silences all of them at once.
+        """
         last_seen: dict[str, float] = {}
 
         def _listen(event: Mapping[str, object]) -> None:
-            if callback not in self._live_subscriptions:
+            if not subscription.live:
                 return
             if _command_class_of(event) not in _WATCHED_CCS:
                 return
@@ -561,7 +576,7 @@ class ZWaveBackend:
                 return
             identity = f"{BackendId.ZWAVE}:{self._protocol_id(node_id)}"
             now = monotonic()
-            if now - last_seen.get(identity, -_FOREVER_AGO) < self._debounce_seconds:
+            if identity in last_seen and now - last_seen[identity] < self._debounce_seconds:
                 return
             last_seen[identity] = now
             callback(identity)

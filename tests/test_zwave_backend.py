@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 
 import pytest
 from zwave_js_server.model.association import AssociationAddress, AssociationGroup
 
+from custom_components.device_links.backends.base import Backend
 from custom_components.device_links.backends.zwave import ZWaveBackend
 from custom_components.device_links.backends.zwave_accessor import ZWaveAccessorError
 from custom_components.device_links.models import Backend as BackendId
@@ -285,3 +287,48 @@ async def test_a_setting_the_device_has_not_reported_is_left_out_of_observed_sta
 
     assert "mirror_hub_commands" not in observed.settings
     assert observed.settings["smart_bulb_mode"] == 0
+
+
+def test_the_zwave_backend_satisfies_the_backend_protocol() -> None:
+    """Phase 1B exit criterion. Core code holds a `Backend` and must never know which one."""
+    assert isinstance(ZWaveBackend(driver=build_driver_from_fixture(), profiles=None), Backend)
+
+
+@pytest.mark.parametrize(
+    "name",
+    sorted(name for name in vars(Backend) if not name.startswith("_")),
+)
+def test_every_backend_method_is_implemented_with_the_agreed_parameters(name: str) -> None:
+    """`isinstance` only checks that the names exist, and a renamed argument breaks a caller.
+
+    Core code calls these positionally and by keyword (`async_observed(handle, deep=True)`),
+    so the parameter names are part of the contract the protocol states.
+    """
+    expected = inspect.signature(getattr(Backend, name))
+    actual = inspect.signature(getattr(ZWaveBackend, name))
+
+    assert list(actual.parameters) == list(expected.parameters), f"{name} took a different shape"
+
+
+async def test_the_group_dump_is_converted_into_the_shape_the_pure_module_reads(
+    backend: ZWaveBackend,
+) -> None:
+    """The one shape conversion in this adapter, and everything downstream depends on it.
+
+    The library reports integer group ids and a dataclass per group; `zwave_protocol` is
+    written against string ids and a TypedDict so it can be handed the JSON fixtures
+    directly. Getting this wrong makes every group look unknown, which is silent.
+    """
+    groups = await backend._groups(backend._driver.controller.nodes[37])
+
+    assert set(groups) == {0}, "the outer key stays the endpoint"
+    assert set(groups[0]) == {"1", "2", "3", "4", "5", "6", "7"}
+    assert groups[0]["1"]["is_lifeline"] is True
+    assert groups[0]["2"] == {
+        "is_lifeline": False,
+        "issued_commands": {32: [1]},
+        "label": "Basic Set",
+        "max_nodes": 10,
+        "multi_channel": True,
+        "profile": 8193,
+    }

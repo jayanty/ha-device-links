@@ -312,3 +312,18 @@ async def test_a_model_with_no_profile_has_no_wake_instructions(
 async def _handle(backend: ZWaveBackend, node_id: int) -> DeviceHandle:
     devices = await backend.async_devices()
     return next(d.handle for d in devices if d.handle.protocol_id.endswith(f":{node_id}"))
+
+
+async def test_two_subscriptions_are_independent_even_with_one_callback(
+    backend: ZWaveBackend,
+) -> None:
+    """The coordinator and a diagnostic could both watch. One unloading must not mute both."""
+    seen: list[str] = []
+    first = backend.subscribe(seen.append)
+    second = backend.subscribe(seen.append)
+
+    first()
+    backend._driver.controller.emit_association_changed(36)
+
+    assert seen == ["zwave:3538613642:36"]
+    second()
