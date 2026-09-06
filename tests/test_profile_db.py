@@ -927,6 +927,9 @@ def test_two_matter_entries_claiming_one_model_are_refused() -> None:
     ("overrides", "message"),
     [
         ({"settings": {}}, "unknown key"),
+        # An entry that curates nothing behaves exactly as if it were absent, which is a
+        # mistake nobody would otherwise see.
+        ({"emitters": []}, "'emitters': must not be empty"),
         ({"fingerprints": [{"vendor": "Test"}]}, "missing required key"),
         ({"fingerprints": [{"vendor": "Test", "product": ""}]}, "'product': must not be empty"),
         (

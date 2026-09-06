@@ -69,10 +69,11 @@ All notable changes to this project are documented here. The format follows
   Update Provider and a model that read it as a control would offer every sensor and
   lock on the fabric as a remote. A grant is Operate on one cluster of one endpoint
   and never Administer, it is merged into an existing entry for the same target when
-  there is one (headroom is 2 entries on a real Eve Energy, so merging is load
-  bearing rather than an optimisation), and the controller's own Administer entry is
-  refused by the one function every path that builds an Access Control list goes
-  through. A binding cannot be written without a receipt for the grant, and a receipt
+  there is one, and the controller's own Administer entry is refused by the one
+  function that every path building an Access Control list goes through. An entry
+  that already grants every node is never merged into either, because merging would
+  narrow it rather than widen it, and an entry carrying anything this version cannot
+  read stops the write rather than being rewritten without it. A binding cannot be written without a receipt for the grant, and a receipt
   cannot exist without reading the target's list back and finding the grant in it,
   every Administer entry still there, and the same number of other fabrics' entries
   still there.

@@ -436,7 +436,9 @@ def test_the_controllers_own_entry_is_read_as_administer() -> None:
     assert ours[0].privilege == mp.PRIVILEGE_ADMINISTER
     assert ours[0].auth_mode == mp.AUTH_MODE_CASE
     assert ours[0].subjects == (CONTROLLER,)
-    assert ours[0].targets == ()
+    assert ours[0].targets is None, "a null target list is a grant over the whole node"
+    assert not ours[0].unreadable
+    assert not ours[0].is_wildcard
 
 
 def test_another_fabrics_entries_are_read_as_redacted_rather_than_as_empty() -> None:
@@ -515,10 +517,19 @@ def test_a_targeted_entry_is_read_back_as_the_target_it_names() -> None:
     assert parsed.is_managed_grant(LIGHT)
 
 
-def test_a_target_that_is_not_a_mapping_is_not_a_target() -> None:
-    entries = mp.parse_acl([{"1": 3, "2": 2, "3": [31], "4": ["nonsense"]}])
+def test_a_target_list_that_cannot_be_read_is_not_a_grant_over_everything() -> None:
+    """The permissive reading of an unreadable field is how a binding gets written for free.
 
-    assert entries[0].targets == ()
+    A null target list grants the whole node, so reading "we could not understand this" as
+    "there was nothing there" turns not knowing what an entry grants into believing it
+    grants everything, and `grants` then hands out a receipt for a permission nobody read.
+    """
+    (entry,) = mp.parse_acl([{"1": 3, "2": 2, "3": [31], "4": ["nonsense"]}])
+
+    assert entry.unreadable
+    assert entry.targets is None
+    assert not entry.grants(31, LIGHT)
+    assert not entry.is_managed_grant(LIGHT)
 
 
 def test_a_target_naming_a_cluster_and_an_endpoint_is_the_narrowest_grant() -> None:
@@ -557,19 +568,27 @@ def test_the_administer_entry_is_carried_through_a_grant_untouched() -> None:
     assert mp.entries_of_fabric(before, 2)[0] in outcome.entries
 
 
-def test_an_inovelli_switch_is_already_a_full_target_on_this_fabric() -> None:
-    """Read off the capture rather than constructed: E28 is live on real hardware here.
+def test_only_this_fabrics_entries_are_counted_against_the_limit() -> None:
+    """`AccessControlEntriesPerFabric` is per fabric, and the capture proves it.
 
-    Both Inovelli switches report 4 entries per fabric and already hold 4, so a rule
-    pointing at one as a **target** is refused today whatever else is true. As a source they
-    are fine, because a source needs no grant of its own.
+    The Inovelli reports a limit of 4 and holds 4 entries, of which **two belong to fabric
+    3**: a device advertising 4 per fabric could not hold two for one fabric if the limit
+    were the whole list. Counting every fabric's entries would refuse a grant on 6 of the 19
+    captured nodes, including both Inovelli switches, which are the only devices on this
+    fabric that serve LevelControl and so the only ones a dimming link can point at.
+
+    This is the reading Stage 0's own arithmetic did not take, and assumption A10 records
+    what it costs if it is wrong: a write the device rejects and reports, rather than a
+    refusal a user cannot do anything about.
     """
-    outcome = mp.grant_for(
-        acl_of(INOVELLI), subject=32, target=LIGHT, capacity=capacity_of(INOVELLI)
-    )
+    entries = acl_of(INOVELLI)
+    assert len(entries) == 4
+    assert len(mp.entries_of_fabric(entries, 2)) == 1
 
-    assert outcome.refusal is mp.AclRefusal.ENTRIES_FULL
-    assert (outcome.used, outcome.capacity) == (4, 4)
+    outcome = mp.grant_for(entries, subject=32, target=LIGHT, capacity=capacity_of(INOVELLI))
+
+    assert outcome.refusal is None
+    assert (outcome.used, outcome.capacity) == (1, 4)
 
 
 def test_a_grant_that_is_already_there_writes_nothing() -> None:
@@ -601,7 +620,7 @@ def test_a_merge_never_grants_more_than_a_separate_entry_would_have() -> None:
     outcome = mp.grant_for(existing, subject=32, target=LIGHT, capacity=capacity_of(EVE_ENERGY))
 
     assert outcome.entries is not None
-    assert all(entry.targets in ((), (LIGHT,)) for entry in outcome.entries)
+    assert all(entry.targets in (None, (LIGHT,)) for entry in outcome.entries)
     assert not any(entry.grants(999, LIGHT) for entry in outcome.entries)
 
 
@@ -617,20 +636,24 @@ def test_an_entry_for_another_target_is_not_merged_into() -> None:
 
 def test_a_full_list_refuses_and_carries_the_numbers_the_message_needs() -> None:
     """E27 wants the user told how full it is, so the refusal carries both numbers."""
-    capacity = mp.AclCapacity(entries_per_fabric=4, subjects_per_entry=4, targets_per_entry=3)
+    capacity = mp.AclCapacity(entries_per_fabric=2, subjects_per_entry=4, targets_per_entry=3)
+    existing = (
+        *acl_of(EVE_ENERGY),
+        mp.grant_entry(31, mp.AclTarget(cluster=8, endpoint=1), fabric_index=3),
+    )
 
-    outcome = mp.grant_for(acl_of(EVE_ENERGY), subject=31, target=LIGHT, capacity=capacity)
+    outcome = mp.grant_for(existing, subject=31, target=LIGHT, capacity=capacity)
 
     assert outcome.refusal is mp.AclRefusal.ENTRIES_FULL
     assert outcome.entries is None
-    assert (outcome.used, outcome.capacity) == (4, 4)
+    assert (outcome.used, outcome.capacity) == (2, 2)
 
 
 def test_a_full_entry_on_a_full_list_says_so_rather_than_blaming_the_list() -> None:
     """Told apart because the two have different answers: free a slot, or use fewer controls."""
     capacity = mp.AclCapacity(entries_per_fabric=2, subjects_per_entry=1, targets_per_entry=3)
     existing = (
-        mp.AclEntry(mp.PRIVILEGE_ADMINISTER, mp.AUTH_MODE_CASE, (CONTROLLER,), (), 2),
+        mp.AclEntry(mp.PRIVILEGE_ADMINISTER, mp.AUTH_MODE_CASE, (CONTROLLER,), None, 2),
         mp.grant_entry(31, LIGHT, fabric_index=2),
     )
 
@@ -642,7 +665,7 @@ def test_a_full_entry_on_a_full_list_says_so_rather_than_blaming_the_list() -> N
 def test_a_full_entry_with_room_to_append_takes_the_second_entry() -> None:
     capacity = mp.AclCapacity(entries_per_fabric=6, subjects_per_entry=1, targets_per_entry=3)
     existing = (
-        mp.AclEntry(mp.PRIVILEGE_ADMINISTER, mp.AUTH_MODE_CASE, (CONTROLLER,), (), 2),
+        mp.AclEntry(mp.PRIVILEGE_ADMINISTER, mp.AUTH_MODE_CASE, (CONTROLLER,), None, 2),
         mp.grant_entry(31, LIGHT, fabric_index=2),
     )
 
@@ -695,7 +718,7 @@ def test_revoking_the_last_subject_removes_the_entry_rather_than_emptying_it() -
 
 def test_revoking_leaves_a_grant_this_integration_did_not_write_alone() -> None:
     """A whole-node Operate entry covers the target and is somebody else's arrangement."""
-    foreign = mp.AclEntry(mp.PRIVILEGE_OPERATE, mp.AUTH_MODE_CASE, (31,), (), 3)
+    foreign = mp.AclEntry(mp.PRIVILEGE_OPERATE, mp.AUTH_MODE_CASE, (31,), None, 3)
     existing = (*acl_of(EVE_ENERGY), foreign)
 
     outcome = mp.revoke_for(existing, subject=31, target=LIGHT)
@@ -713,15 +736,15 @@ def test_revoking_from_a_node_whose_fabric_is_unknown_is_refused() -> None:
 
 def test_nothing_can_build_a_list_that_drops_an_administer_entry() -> None:
     """The guard every path goes through, so no caller can route around it."""
-    administer = mp.AclEntry(mp.PRIVILEGE_ADMINISTER, mp.AUTH_MODE_CASE, (CONTROLLER,), (), 2)
+    administer = mp.AclEntry(mp.PRIVILEGE_ADMINISTER, mp.AUTH_MODE_CASE, (CONTROLLER,), None, 2)
 
     with pytest.raises(mp.AclError, match="Administer"):
         mp._checked((administer,), ())
 
 
 def test_nothing_can_build_a_list_that_alters_an_administer_entry() -> None:
-    administer = mp.AclEntry(mp.PRIVILEGE_ADMINISTER, mp.AUTH_MODE_CASE, (CONTROLLER,), (), 2)
-    widened = mp.AclEntry(mp.PRIVILEGE_ADMINISTER, mp.AUTH_MODE_CASE, (CONTROLLER, 9), (), 2)
+    administer = mp.AclEntry(mp.PRIVILEGE_ADMINISTER, mp.AUTH_MODE_CASE, (CONTROLLER,), None, 2)
+    widened = mp.AclEntry(mp.PRIVILEGE_ADMINISTER, mp.AUTH_MODE_CASE, (CONTROLLER, 9), None, 2)
 
     with pytest.raises(mp.AclError, match="Administer"):
         mp._checked((administer,), (widened,))
@@ -743,7 +766,7 @@ def test_an_acl_payload_is_keyed_by_tlv_tag() -> None:
 
 def test_a_whole_node_grant_serializes_its_targets_as_null() -> None:
     """Which is what the fabric reported for the controller's own entry."""
-    entry = mp.AclEntry(mp.PRIVILEGE_ADMINISTER, mp.AUTH_MODE_CASE, (CONTROLLER,), (), 2)
+    entry = mp.AclEntry(mp.PRIVILEGE_ADMINISTER, mp.AUTH_MODE_CASE, (CONTROLLER,), None, 2)
 
     assert mp.acl_payload((entry,))[0]["4"] is None
 
@@ -770,7 +793,11 @@ WANTED = mp.BindingEntry(node=8, endpoint=1, cluster=mp.ON_OFF_CLUSTER)
 
 
 def receipt(**overrides: Any) -> mp.GrantReceipt:
-    """Return a receipt for letting node 31 operate the light on node 8."""
+    """Return a receipt for letting node 31 operate the light on node 8.
+
+    Through `confirm_grant`, because that is the only way one can be made: a receipt built
+    by hand is refused, which is the whole of what makes E27's ordering structural.
+    """
     fields: dict[str, Any] = {
         "node_id": 8,
         "subject": 31,
@@ -778,7 +805,8 @@ def receipt(**overrides: Any) -> mp.GrantReceipt:
         "confirmed": (mp.grant_entry(31, LIGHT, fabric_index=3),),
     }
     fields.update(overrides)
-    return mp.GrantReceipt(**fields)
+    confirmed = fields.pop("confirmed")
+    return mp.confirm_grant(before=confirmed, after=confirmed, **fields)
 
 
 def test_both_inovelli_binding_lists_are_empty_on_the_fabric() -> None:
@@ -808,7 +836,8 @@ def test_an_entry_this_version_does_not_understand_still_takes_up_a_slot() -> No
     assert len(parsed) == 2
     assert parsed[0].group == 4
     assert not parsed[0].is_unicast
-    assert parsed[1] == mp.BindingEntry()
+    assert not parsed[0].unreadable
+    assert parsed[1].unreadable, "a tag this version does not know makes the entry unreadable"
 
 
 def test_an_unreadable_binding_list_reads_as_empty() -> None:
@@ -832,10 +861,12 @@ def test_a_binding_that_is_already_there_is_not_written_again() -> None:
     assert mp.binding_for((WANTED,), wanted=WANTED, source_node_id=31, receipt=receipt()) is None
 
 
-def test_no_binding_can_be_built_without_a_confirmed_grant() -> None:
+def test_no_receipt_is_issued_for_a_list_that_does_not_carry_the_grant() -> None:
     """E27 made structural: there is no other function that adds a binding entry."""
+    entries = acl_of(EVE_ENERGY)
+
     with pytest.raises(mp.GrantNotConfirmedError, match="does not report a grant"):
-        mp.GrantReceipt(node_id=8, subject=31, target=LIGHT, confirmed=acl_of(EVE_ENERGY))
+        mp.confirm_grant(node_id=8, subject=31, target=LIGHT, before=entries, after=entries)
 
 
 def test_a_receipt_for_another_target_cannot_be_reused() -> None:
@@ -931,11 +962,16 @@ _STARTS = (
     (mp.grant_entry(31, LIGHT, 2),),
     (mp.grant_entry(31, mp.AclTarget(cluster=8, endpoint=1), 2),),
     (mp.AclEntry(mp.PRIVILEGE_OPERATE, mp.AUTH_MODE_CASE, (31, 32), (LIGHT,), 2),),
-    (mp.AclEntry(mp.PRIVILEGE_OPERATE, mp.AUTH_MODE_CASE, (31,), (), 2),),
+    (mp.AclEntry(mp.PRIVILEGE_OPERATE, mp.AUTH_MODE_CASE, (31,), None, 2),),
     (mp.AclEntry(mp.PRIVILEGE_MANAGE, mp.AUTH_MODE_CASE, (31,), (LIGHT,), 2),),
+    # The one that makes the third property mean something: an Operate entry with a **null**
+    # subject list, which grants every node on the fabric. It has the shape of a managed
+    # grant in every respect but that one, and merging into it would narrow it to the
+    # subject being added rather than widen it, silently revoking everybody else.
+    (mp.AclEntry(mp.PRIVILEGE_OPERATE, mp.AUTH_MODE_CASE, (), (LIGHT,), 2),),
 )
 _FOREIGN = mp.AclEntry(None, None, (), (), 1)
-_ADMIN = mp.AclEntry(mp.PRIVILEGE_ADMINISTER, mp.AUTH_MODE_CASE, (CONTROLLER,), (), 2)
+_ADMIN = mp.AclEntry(mp.PRIVILEGE_ADMINISTER, mp.AUTH_MODE_CASE, (CONTROLLER,), None, 2)
 _SUBJECTS = (31, 32, 99, CONTROLLER)
 _TARGETS = (
     LIGHT,
@@ -1006,23 +1042,53 @@ def test_no_outcome_ever_loses_the_controllers_own_entry() -> None:
             )
 
 
-def test_no_outcome_ever_leaves_an_entry_with_no_subjects() -> None:
-    """An Access Control entry with an empty subject list grants every node on the fabric.
+def test_no_outcome_ever_creates_an_entry_with_no_subjects() -> None:
+    """An Access Control entry with a null subject list grants every node on the fabric.
 
     So the dangerous direction of a revocation is not failing to remove a subject: it is
     removing the last one and leaving the entry behind, which turns taking access away into
     the widest grant on the device.
+
+    Created rather than left, because the other direction is right: an entry that already
+    grants everybody is somebody else's arrangement and is carried through untouched, and a
+    property that refused to leave one behind would be asking the code to narrow it.
     """
     for existing, subject, target, capacity in _every_case():
+        before = sum(entry.is_wildcard for entry in existing)
         for outcome in (
             mp.grant_for(existing, subject=subject, target=target, capacity=capacity),
             mp.revoke_for(existing, subject=subject, target=target),
         ):
             if outcome.entries is None:
                 continue
-            assert not [
-                entry for entry in outcome.entries if not entry.subjects and not entry.is_redacted
-            ], f"{subject} on {target} against {existing} left an entry granting everybody"
+            after = sum(entry.is_wildcard for entry in outcome.entries)
+            assert after <= before, (
+                f"{subject} on {target} against {existing} made an entry granting everybody"
+            )
+
+
+def test_an_entry_that_already_grants_everybody_is_never_touched() -> None:
+    """Merging into one would narrow it, which is a revocation nobody asked for.
+
+    The subtlest thing on this path: an Operate entry with a null subject list has the shape
+    of a managed grant in every respect but the one that matters, and adding a subject to it
+    would replace "every node may operate this" with "one node may", silently taking access
+    away from everything that was using it.
+    """
+    wildcard = mp.AclEntry(mp.PRIVILEGE_OPERATE, mp.AUTH_MODE_CASE, (), (LIGHT,), 2)
+    existing = (_ADMIN, wildcard)
+
+    grant = mp.grant_for(existing, subject=999, target=LIGHT, capacity=capacity_of(EVE_ENERGY))
+    revoke = mp.revoke_for(existing, subject=999, target=LIGHT)
+
+    assert not grant.changed, "the wildcard already grants this, so there is nothing to write"
+    assert not revoke.changed
+    assert grant.entries is not None
+    assert wildcard in grant.entries
+    assert revoke.entries is not None
+    assert wildcard in revoke.entries
+    assert wildcard.grants(999, LIGHT)
+    assert not wildcard.is_managed_grant(LIGHT)
 
 
 def test_a_revocation_never_widens_access_at_all() -> None:
@@ -1044,3 +1110,133 @@ def test_a_written_list_never_carries_another_fabrics_entry() -> None:
             if outcome.entries is None:
                 continue
             mp.acl_payload(outcome.entries)
+
+
+def test_an_unreadable_entry_of_ours_stops_every_write_of_that_list() -> None:
+    """A write replaces the whole list, so what is not understood cannot be preserved.
+
+    The alternative is worse than a refusal: rewriting the list from what was parsed would
+    take whatever this version did not understand off the device, quietly, on a write about
+    something else entirely.
+    """
+    existing = mp.parse_acl(
+        [
+            {"1": 5, "2": 2, "3": [CONTROLLER], "4": None, "254": 2},
+            {
+                "1": 3,
+                "2": 2,
+                "3": [31],
+                "4": [{"0": 6, "1": 1}],
+                "254": 2,
+                "99": "a tag from the future",
+            },
+        ]
+    )
+
+    grant = mp.grant_for(existing, subject=32, target=LIGHT, capacity=capacity_of(EVE_ENERGY))
+    revoke = mp.revoke_for(existing, subject=31, target=LIGHT)
+
+    assert grant.refusal is mp.AclRefusal.UNREADABLE_ENTRY
+    assert grant.entries is None
+    assert revoke.refusal is mp.AclRefusal.UNREADABLE_ENTRY
+
+
+def test_an_unreadable_entry_can_never_be_serialized_even_if_one_reaches_the_payload() -> None:
+    (unreadable,) = mp.parse_acl([{"1": 3, "2": 2, "3": [31], "4": [{"0": 6, "7": 1}], "254": 2}])
+
+    assert unreadable.unreadable
+    with pytest.raises(mp.AclError, match="could not read"):
+        mp.acl_payload((unreadable,))
+
+
+def test_a_subject_that_is_not_a_number_makes_the_entry_unreadable() -> None:
+    """Rather than a subject silently dropped from a list that is then written back."""
+    (entry,) = mp.parse_acl([{"1": 3, "2": 2, "3": [31, "4242"], "4": None, "254": 2}])
+
+    assert entry.unreadable
+    assert not entry.grants(31, LIGHT)
+
+
+def test_an_unreadable_binding_entry_can_never_be_written_back() -> None:
+    """Same mechanism as the Access Control list, and the same reason."""
+    (known, unknown) = mp.parse_binding_list([{"1": 8, "3": 1, "4": 6, "254": 2}, {"7": 1}])
+
+    assert not known.unreadable
+    assert unknown.unreadable
+    assert mp.binding_payload((known,)) == [{"1": 8, "3": 1, "4": 6}]
+    with pytest.raises(mp.AclError, match="could not read"):
+        mp.binding_payload((known, unknown))
+
+
+def test_a_grant_receipt_cannot_be_built_by_hand() -> None:
+    """E27's ordering is only structural while this is true.
+
+    `binding_for` asks for a receipt, so the whole mechanism rests on a receipt being
+    obtainable in exactly one way: from `confirm_grant`, which builds it out of the target's
+    Access Control list as the device reports it.
+    """
+    with pytest.raises(mp.GrantNotConfirmedError, match="only be issued by confirm_grant"):
+        mp.GrantReceipt(
+            node_id=8,
+            subject=31,
+            target=LIGHT,
+            confirmed=(mp.grant_entry(31, LIGHT, fabric_index=3),),
+        )
+
+
+def test_a_binding_cannot_be_built_from_a_receipt_nobody_issued() -> None:
+    """The end to end version of the same thing, through the function that matters."""
+    with pytest.raises(mp.GrantNotConfirmedError):
+        mp.binding_for(
+            (),
+            wanted=mp.BindingEntry(node=8, endpoint=1, cluster=mp.ON_OFF_CLUSTER),
+            source_node_id=31,
+            receipt=mp.GrantReceipt(
+                node_id=8, subject=31, target=LIGHT, confirmed=(mp.grant_entry(31, LIGHT, 3),)
+            ),
+            capacity=mp.BINDING_TABLE_CAPACITY,
+        )
+
+
+def test_a_target_list_that_is_not_a_list_at_all_is_unreadable() -> None:
+    """The shape the review found: targets sent as an object rather than as a list of them.
+
+    Read as null it would have meant "grants the whole node", which would have handed out a
+    receipt for a permission nobody read and let a binding be written on the strength of it.
+    """
+    (entry,) = mp.parse_acl([{"1": 3, "2": 2, "3": [999], "4": {"0": 6, "1": 1}, "254": 2}])
+
+    assert entry.unreadable
+    assert not entry.grants(999, LIGHT)
+
+
+def test_a_subject_list_that_is_not_a_list_is_unreadable() -> None:
+    """A single subject sent bare rather than in a list would otherwise read as no subjects,
+    which is the widest grant an entry can be.
+    """
+    (entry,) = mp.parse_acl([{"1": 3, "2": 2, "3": 31, "4": None, "254": 2}])
+
+    assert entry.unreadable
+    assert not entry.grants(31, LIGHT)
+
+
+def test_a_struct_whose_keys_are_not_tags_at_all_is_unreadable() -> None:
+    (entry,) = mp.parse_acl([{"privilege": 3, "authMode": 2}])
+
+    assert entry.unreadable
+
+
+def test_the_binding_capacity_is_enforced_by_the_pure_module_as_well() -> None:
+    """Deliberately redundant with the adapter's check, which is the one a user sees."""
+    full = tuple(
+        mp.BindingEntry(node=100 + index, endpoint=1, cluster=mp.ON_OFF_CLUSTER)
+        for index in range(mp.BINDING_TABLE_CAPACITY)
+    )
+
+    with pytest.raises(mp.BindingTableFullError, match="as many as"):
+        mp.binding_for(
+            full,
+            wanted=mp.BindingEntry(node=8, endpoint=1, cluster=mp.ON_OFF_CLUSTER),
+            source_node_id=31,
+            receipt=receipt(),
+        )

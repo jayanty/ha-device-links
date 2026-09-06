@@ -264,8 +264,20 @@ class FakeMatterClient:
         return 0 if index is None else index
 
     def acl_of(self, node_id: int) -> tuple[mp.AclEntry, ...]:
-        """Return one node's Access Control list as the pure module reads it."""
+        """Return one node's Access Control list as the pure module reads it.
+
+        Convenience for a test that is about what was written rather than about how it is
+        spelled. It shares a parser with the code under test, so a test that only ever looks
+        through here cannot see a parsing mistake: `raw_acl_of` is what to use when the
+        spelling is the point, and `tests/test_matter_writes.py` uses it for the entry the
+        integration actually writes.
+        """
         return mp.parse_acl(self.attributes[node_id][mp.ACL_PATH])
+
+    def raw_acl_of(self, node_id: int) -> list[Any]:
+        """Return one node's Access Control list exactly as it is held, unparsed."""
+        held: list[Any] = self.attributes[node_id][mp.ACL_PATH]
+        return held
 
     def bindings_of(self, node_id: int, endpoint: int) -> list[Any]:
         """Return one endpoint's Binding list, raw, as the node holds it."""

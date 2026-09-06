@@ -43,7 +43,7 @@ seam is what makes the adapter testable against `tests/fakes/matter.py`, and
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 import logging
 from typing import TYPE_CHECKING, Final
@@ -104,6 +104,19 @@ class MatterNodeUnavailableError(MatterBackendError):
     gone wrong, the device is asleep or out of range, and the write is worth trying again
     when it is back.
     """
+
+
+@dataclass(frozen=True, slots=True)
+class _Granted:
+    """A confirmed access grant, and whether this attempt is the one that wrote it.
+
+    `written` is what decides whether a binding that then fails may take the grant back
+    again. A grant that was already there belongs to whatever put it there, which may be a
+    link of ours that is working: rolling that back over an unrelated failure would break it.
+    """
+
+    receipt: mp.GrantReceipt
+    written: bool
 
 
 @dataclass(slots=True)
@@ -309,6 +322,11 @@ class MatterBackend:
         cached = self._views.get(node_id)
         if cached is not None and not refresh:
             return cached
+        # Dropped before the read rather than replaced after it. A refresh that raises part
+        # way through would otherwise leave the previous view in place, and the next caller
+        # that did not ask for a refresh would be served a description of the node from
+        # before whatever made the read fail.
+        self._views.pop(node_id, None)
         view = await self._read_view(node)
         self._views[node_id] = view
         return view
@@ -485,6 +503,12 @@ class MatterBackend:
                 status=LinkResultStatus.BLOCKED,
                 reason=Diagnostic("matter_unknown_device", _about_matter(link)),
             )
+        except Exception as error:  # a client may raise whatever its server raised
+            # A node that is listed and answering and then does not answer this read. The
+            # executor would catch it and report the link as having failed unexpectedly;
+            # this reports the same thing with the fabric's own words attached, which is
+            # what every other failure on this path does.
+            return self._failed(link, error)
         return source
 
     async def _bind(self, link: Link, source: mp.Node) -> LinkResult:
@@ -492,34 +516,63 @@ class MatterBackend:
 
         NOTE: modelled, never observed. Assumption A9.
         """
-        wanted = self._wanted(link)
-        existing = mp.parse_bindings(source, link.source_endpoint)
-        if len(existing) >= mp.BINDING_TABLE_CAPACITY:
-            return LinkResult(
-                status=LinkResultStatus.BLOCKED,
-                reason=Diagnostic(
-                    "matter_binding_full",
-                    {**_about_matter(link), "used": str(len(existing))},
-                ),
-            )
+        full = self._full(link, mp.parse_bindings(source, link.source_endpoint))
+        if full is not None:
+            return LinkResult(status=LinkResultStatus.BLOCKED, reason=full)
         granted = await self._grant(link)
         if isinstance(granted, LinkResult):
             return granted
+        result = await self._write_binding(link, granted=granted)
+        if result.status is LinkResultStatus.FAILED and granted.written:
+            # E27 the rest of the way: the grant was written for this binding and the
+            # binding did not happen, so the grant is taken back rather than left holding
+            # one of the target's few Access Control entries for a link that does not
+            # exist. Only when this attempt is what wrote it: a grant that was already
+            # there belongs to whatever put it there, which may be a link that works.
+            await self._revoke(link)
+        return result
+
+    def _full(self, link: Link, existing: Sequence[mp.BindingEntry]) -> Diagnostic | None:
+        """Return why this endpoint cannot hold another binding, or None when it can (E28)."""
+        if len(existing) < mp.BINDING_TABLE_CAPACITY:
+            return None
+        return Diagnostic(
+            "matter_binding_full", {**_about_matter(link), "used": str(len(existing))}
+        )
+
+    async def _write_binding(self, link: Link, *, granted: _Granted) -> LinkResult:
+        """Write the Binding list with this link's entry in it, and read it back.
+
+        The list is read again here rather than taken from the read that came before the
+        grant. Writing an attribute replaces the whole of it, and another controller can
+        have added an entry while the access grant was being written: merging into the
+        older read would take that entry off the device, which is precisely what FR-B7 says
+        this integration must not do.
+
+        NOTE: modelled, never observed. Assumption A9.
+        """
+        wanted = self._wanted(link)
+        node_id = self._node_id(link.source)
+        try:
+            existing = await self._bindings_now(node_id, link.source_endpoint)
+        except Exception as error:  # a client may raise whatever its server raised
+            return self._failed(link, error)
+        full = self._full(link, existing)
+        if full is not None:
+            return LinkResult(status=LinkResultStatus.BLOCKED, reason=full)
         merged = mp.binding_for(
             existing,
             wanted=wanted,
-            source_node_id=self._node_id(link.source),
-            receipt=granted,
+            source_node_id=node_id,
+            receipt=granted.receipt,
         )
         if merged is None:
             return LinkResult(status=LinkResultStatus.ALREADY_PRESENT)
         try:
             await self._client.write_attribute(
-                self._node_id(link.source),
-                mp.binding_path(link.source_endpoint),
-                mp.binding_payload(merged),
+                node_id, mp.binding_path(link.source_endpoint), mp.binding_payload(merged)
             )
-            written = await self._view(self._node_id(link.source), refresh=True)
+            written = await self._view(node_id, refresh=True)
         except Exception as error:  # a client may raise whatever its server raised
             return self._failed(link, error)
         if wanted not in mp.parse_bindings(written, link.source_endpoint):
@@ -532,6 +585,15 @@ class MatterBackend:
             )
         return LinkResult(status=LinkResultStatus.APPLIED)
 
+    async def _bindings_now(self, node_id: int, endpoint: int) -> tuple[mp.BindingEntry, ...]:
+        """Return one endpoint's Binding list as it reads at this moment.
+
+        One attribute rather than the whole node, because this is asked immediately before a
+        write and re-reading twenty endpoints to learn about one would spend a round trip
+        each for nothing.
+        """
+        return mp.parse_binding_list(await self._read(node_id, mp.binding_path(endpoint)))
+
     async def _unbind(self, link: Link, source: mp.Node, *, present: bool) -> LinkResult:
         """Take the binding off, then narrow the grant that permitted it.
 
@@ -540,7 +602,12 @@ class MatterBackend:
         wanted = self._wanted(link)
         removed = False
         if present:
-            existing = mp.parse_bindings(source, link.source_endpoint)
+            try:
+                existing = await self._bindings_now(
+                    self._node_id(link.source), link.source_endpoint
+                )
+            except Exception as error:  # a client may raise whatever its server raised
+                return self._failed(link, error)
             narrowed = mp.binding_without(existing, wanted=wanted)
             if narrowed is not None:
                 try:
@@ -563,7 +630,7 @@ class MatterBackend:
             return LinkResult(status=LinkResultStatus.APPLIED)
         return LinkResult(status=LinkResultStatus.ALREADY_PRESENT)
 
-    async def _grant(self, link: Link) -> mp.GrantReceipt | LinkResult:
+    async def _grant(self, link: Link) -> _Granted | LinkResult:
         """Make sure the target lets this control operate it, and prove that it does.
 
         Answers with a receipt or with the result the caller should return. The receipt is
@@ -598,8 +665,11 @@ class MatterBackend:
                     node_id, mp.ACL_PATH, mp.acl_payload(outcome.entries)
                 )
                 after = mp.parse_acl(await self._read(node_id, mp.ACL_PATH))
-            return mp.confirm_grant(
-                node_id=node_id, subject=subject, target=target, before=before, after=after
+            return _Granted(
+                receipt=mp.confirm_grant(
+                    node_id=node_id, subject=subject, target=target, before=before, after=after
+                ),
+                written=outcome.changed,
             )
         except mp.AclError as error:
             # Includes the two that matter most: a write that lost the controller's own
@@ -684,6 +754,8 @@ class MatterBackend:
             return Diagnostic("matter_acl_not_targetable", _about_matter(link))
         if outcome.refusal is mp.AclRefusal.FABRIC_UNKNOWN:
             return Diagnostic("matter_acl_unreadable", _about_matter(link))
+        if outcome.refusal is mp.AclRefusal.UNREADABLE_ENTRY:
+            return Diagnostic("matter_acl_entry_unreadable", _about_matter(link))
         return Diagnostic("matter_acl_full", counts)
 
     def _absolute_refusal(self, link: Link) -> Diagnostic | None:
@@ -1061,15 +1133,23 @@ def _product(node: MatterNodeView) -> str:
 def _is_ours(path: str) -> bool:
     """Say whether a changed attribute is one this adapter's cache depends on.
 
-    The Binding list of any endpoint and the Access Control list of the root. Everything else
-    on a Matter node changes constantly (a light's level, a sensor's temperature) and none of
-    it touches what Device Links reads, so it is a reason to look again and not a reason to
-    read again.
+    The Binding list of any endpoint, the Access Control list of the root, and any endpoint's
+    Descriptor. Everything else on a Matter node changes constantly (a light's level, a
+    sensor's temperature) and none of it touches what Device Links reads, so it is a reason
+    to look again and not a reason to read again.
     """
     parts = path.split("/")
     if len(parts) != 3:  # noqa: PLR2004 - an attribute path is endpoint, cluster, attribute
         return False
-    return parts[1] in {str(mp.BINDING_CLUSTER), str(mp.ACCESS_CONTROL_CLUSTER)}
+    return parts[1] in {
+        str(mp.BINDING_CLUSTER),
+        str(mp.ACCESS_CONTROL_CLUSTER),
+        # The Descriptor as well, which is not obvious: what this adapter reads off a node
+        # is decided by its server cluster lists, so an endpoint that gains a Binding
+        # cluster in a firmware update would otherwise go on reading as "not a binding
+        # source" until something asked for a deep read.
+        str(mp.DESCRIPTOR_CLUSTER),
+    }
 
 
 def _node_id_of_event(data: object) -> int | None:

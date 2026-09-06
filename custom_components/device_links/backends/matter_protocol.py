@@ -626,6 +626,7 @@ class BindingEntry:
     group: int | None = None
     endpoint: int | None = None
     cluster: int | None = None
+    unreadable: bool = False
 
     @property
     def is_unicast(self) -> bool:
@@ -642,19 +643,57 @@ def parse_bindings(node: Node, endpoint: int) -> tuple[BindingEntry, ...]:
     silently dropping one would make a binding list shorter than it is, and capacity is
     counted off that length.
     """
-    raw = node.get("bindings", {}).get(str(endpoint))
+    return parse_binding_list(node.get("bindings", {}).get(str(endpoint)))
+
+
+def parse_binding_list(raw: object) -> tuple[BindingEntry, ...]:
+    """Return a Binding list from the value of the attribute itself.
+
+    The same reading as `parse_bindings` without a node around it, for the write path: a
+    binding is merged into the list as it reads at the moment of the write rather than as it
+    read when the node was last described, because a whole node is expensive to re-read and
+    an entry another controller added in between is one this integration must not drop.
+    """
     if not isinstance(raw, list | tuple):
         return ()
     return tuple(_binding_entry(item) for item in raw if isinstance(item, Mapping))
 
 
+# Every tag this module knows how to read on a Binding entry, the fabric index included: it
+# is on every entry a node reports and is never written, because the node assigns it.
+_BINDING_TAGS: Final = frozenset(
+    {
+        BINDING_TAG_NODE,
+        BINDING_TAG_GROUP,
+        BINDING_TAG_ENDPOINT,
+        BINDING_TAG_CLUSTER,
+        BINDING_TAG_FABRIC_INDEX,
+    }
+)
+
+
 def _binding_entry(raw: Mapping[object, object]) -> BindingEntry:
-    """Read one Binding entry out of its tag-keyed mapping."""
+    """Read one Binding entry out of its tag-keyed mapping.
+
+    An entry carrying a tag this module does not know is `unreadable`, for the reason an
+    Access Control entry is: a Binding write replaces the whole list, so writing back an
+    entry that was only half understood would take the other half off the device.
+    """
+    tags = (
+        _tag_list(raw, BINDING_TAG_NODE),
+        _tag_list(raw, BINDING_TAG_GROUP),
+        _tag_list(raw, BINDING_TAG_ENDPOINT),
+        _tag_list(raw, BINDING_TAG_CLUSTER),
+        _tag_list(raw, BINDING_TAG_FABRIC_INDEX),
+    )
     return BindingEntry(
         node=_tag(raw, BINDING_TAG_NODE),
         group=_tag(raw, BINDING_TAG_GROUP),
         endpoint=_tag(raw, BINDING_TAG_ENDPOINT),
         cluster=_tag(raw, BINDING_TAG_CLUSTER),
+        unreadable=not (
+            _only_known_tags(raw, _BINDING_TAGS) and all(_is_int_or_null(tag) for tag in tags)
+        ),
     )
 
 
@@ -682,13 +721,21 @@ def binding_payload(entries: Iterable[BindingEntry]) -> list[dict[str, object]]:
     Keys are the TLV tags as text, which is what the M1 read came back as and what JSON
     makes of an integer key anyway, so this is the observed spelling rather than a choice.
     A group entry is written back with its group tag and a unicast entry with its three, so
-    an entry this integration did not create survives a write of ours unchanged.
+    an entry this integration did not create survives a write of ours unchanged, and one
+    carrying anything else stops the write rather than being written back without it. The
+    fabric index is never written: the node assigns it from the session the write arrived on.
 
     NOTE: modelled, never observed. No Binding list has ever been written on this fabric.
     Assumption A9 in docs/open-items.md.
     """
     payload: list[dict[str, object]] = []
     for entry in entries:
+        if entry.unreadable:
+            raise AclError(
+                "a Binding entry this version could not read cannot be written back, "
+                "because a write replaces the whole list and would drop whatever in it was "
+                "not understood"
+            )
         written: dict[str, object] = {}
         if entry.node is not None:
             written[str(BINDING_TAG_NODE)] = entry.node
@@ -739,13 +786,25 @@ class AclEntry:
     privilege: int | None
     auth_mode: int | None
     subjects: tuple[int, ...]
-    targets: tuple[AclTarget, ...]
+    targets: tuple[AclTarget, ...] | None
     fabric_index: int | None
+    unreadable: bool = False
 
     @property
     def is_redacted(self) -> bool:
         """Say whether this entry belongs to a fabric that did not let us read it."""
         return self.privilege is None or self.auth_mode is None
+
+    @property
+    def is_wildcard(self) -> bool:
+        """Say whether this entry applies to every node rather than to named ones.
+
+        A null subject list is not an empty one: the specification says an entry with no
+        subjects applies to **all** subjects, so this is the widest grant an entry of its
+        privilege can be. It is read as such everywhere, and it is never merged into and
+        never written by this integration.
+        """
+        return not self.is_redacted and not self.subjects
 
     @property
     def is_administer(self) -> bool:
@@ -761,30 +820,46 @@ class AclEntry:
     def grants(self, subject: int, target: AclTarget) -> bool:
         """Say whether this entry already lets `subject` operate on `target`.
 
-        An entry with no targets covers the whole node, so it covers this target too, and an
-        entry with a privilege above Operate covers what Operate would have granted. Both
-        matter for the same reason: a grant that is already there must be recognised, or
-        every apply would add a second entry into a list with two free slots.
+        Three things widen an entry beyond what it appears to say, and all three are read
+        the permissive way because reading them the other way is how a second entry gets
+        added into a list that already grants what was asked for:
+
+        - **a null target list covers the whole node**, so it covers this target too,
+        - **a null subject list covers every node**, so it covers this subject too,
+        - a privilege above Operate covers what Operate would have granted.
+
+        An entry this module could not read is the one case answered the other way. It might
+        grant this and it might not, and "we could not tell" has to mean no, or a binding
+        would be written on the strength of a permission nobody has read.
         """
-        if self.is_redacted or subject not in self.subjects:
+        if self.is_redacted or self.unreadable:
             return False
         if self.privilege is None or self.privilege < PRIVILEGE_OPERATE:
             return False
-        return not self.targets or target in self.targets
+        if self.subjects and subject not in self.subjects:
+            return False
+        return self.targets is None or target in self.targets
 
     def is_managed_grant(self, target: AclTarget) -> bool:
         """Say whether this entry is the exact grant Device Links writes for this target.
 
-        Operate, CASE, and a target list that is exactly this one target. Nothing labels an
-        Access Control entry with who created it, so this is a description of shape rather
-        than a claim of ownership, and it is chosen so that the claim is not needed:
-        **adding a subject to an entry of this shape grants that subject precisely what a
-        separate entry of ours would have granted it, and nothing else.** Merging is
-        therefore safe whoever wrote the entry, which is what makes it usable at the two
-        entries of headroom the fixture's Eve Energy actually has.
+        Operate, CASE, a **named** subject list, and a target list that is exactly this one
+        target. Nothing labels an Access Control entry with who created it, so this is a
+        description of shape rather than a claim of ownership, and it is chosen so that the
+        claim is not needed: **adding a subject to an entry of this shape grants that
+        subject precisely what a separate entry of ours would have granted it, and nothing
+        else.**
+
+        The subject list has to be named for that argument to hold, and this is the trap in
+        it. An entry with a null subject list already grants every node, so merging into one
+        would not widen it: it would **narrow** it to the one subject being added, silently
+        revoking every other node the entry was letting through. So a wildcard entry is
+        never merged into, never narrowed, and never removed.
         """
         return (
             not self.is_redacted
+            and not self.unreadable
+            and not self.is_wildcard
             and self.privilege == PRIVILEGE_OPERATE
             and self.auth_mode == AUTH_MODE_CASE
             and self.targets == (target,)
@@ -816,6 +891,7 @@ class AclRefusal(StrEnum):
     SUBJECTS_FULL = "subjects_full"
     NO_TARGETED_ENTRIES = "no_targeted_entries"
     FABRIC_UNKNOWN = "fabric_unknown"
+    UNREADABLE_ENTRY = "unreadable_entry"
 
 
 @dataclass(frozen=True, slots=True)
@@ -848,32 +924,102 @@ def parse_acl(raw: object) -> tuple[AclEntry, ...]:
     return tuple(_acl_entry(item) for item in raw if isinstance(item, Mapping))
 
 
+# Every tag this module knows how to read on an Access Control entry and on one of its
+# targets. A tag outside these makes the entry unreadable, which is what stops a write from
+# quietly dropping a field nobody here has heard of: an attribute write replaces the whole
+# list, so an entry that came back with more in it than this module understands cannot be
+# written back without losing the difference.
+_ACL_TAGS: Final = frozenset(
+    {ACL_TAG_PRIVILEGE, ACL_TAG_AUTH_MODE, ACL_TAG_SUBJECTS, ACL_TAG_TARGETS, ACL_TAG_FABRIC_INDEX}
+)
+_ACL_TARGET_TAGS: Final = frozenset(
+    {ACL_TARGET_TAG_CLUSTER, ACL_TARGET_TAG_ENDPOINT, ACL_TARGET_TAG_DEVICE_TYPE}
+)
+
+
 def _acl_entry(raw: Mapping[object, object]) -> AclEntry:
-    """Read one Access Control entry out of its tag-keyed mapping."""
+    """Read one Access Control entry out of its tag-keyed mapping.
+
+    Anything this module cannot account for makes the entry `unreadable`, which fails closed
+    everywhere it matters: such an entry grants nothing as far as this module is concerned,
+    is never merged into, cannot be written back, and stops a write of the list it is in.
+    """
     subjects = _tag_list(raw, ACL_TAG_SUBJECTS)
-    targets = _tag_list(raw, ACL_TAG_TARGETS)
+    targets, targets_read = _acl_targets(_tag_list(raw, ACL_TAG_TARGETS))
+    numbers = (
+        _tag_list(raw, ACL_TAG_PRIVILEGE),
+        _tag_list(raw, ACL_TAG_AUTH_MODE),
+        _tag_list(raw, ACL_TAG_FABRIC_INDEX),
+    )
     return AclEntry(
         privilege=_tag(raw, ACL_TAG_PRIVILEGE),
         auth_mode=_tag(raw, ACL_TAG_AUTH_MODE),
         subjects=_int_list(subjects),
-        targets=_acl_targets(targets),
+        targets=targets,
         fabric_index=_tag(raw, ACL_TAG_FABRIC_INDEX),
+        unreadable=not (
+            _only_known_tags(raw, _ACL_TAGS)
+            and targets_read
+            and _is_int_list_or_null(subjects)
+            and all(_is_int_or_null(number) for number in numbers)
+        ),
     )
 
 
-def _acl_targets(raw: object) -> tuple[AclTarget, ...]:
-    """Read the target list of one entry, which is null for a whole-node grant."""
+def _acl_targets(raw: object) -> tuple[tuple[AclTarget, ...] | None, bool]:
+    """Read the target list of one entry, and say whether it was read at all.
+
+    None is a **null** target list, which grants the whole node. The second value is False
+    when the field was there and is not something this module can read, which is a different
+    thing from null and must not be confused with it: reading an unreadable target list as
+    null turns "we do not know what this grants" into "this grants everything".
+    """
+    if raw is None:
+        return None, True
     if not isinstance(raw, list | tuple):
-        return ()
-    return tuple(
-        AclTarget(
-            cluster=_tag(item, ACL_TARGET_TAG_CLUSTER),
-            endpoint=_tag(item, ACL_TARGET_TAG_ENDPOINT),
-            device_type=_tag(item, ACL_TARGET_TAG_DEVICE_TYPE),
+        return None, False
+    targets: list[AclTarget] = []
+    for item in raw:
+        if not isinstance(item, Mapping) or not _only_known_tags(item, _ACL_TARGET_TAGS):
+            return None, False
+        targets.append(
+            AclTarget(
+                cluster=_tag(item, ACL_TARGET_TAG_CLUSTER),
+                endpoint=_tag(item, ACL_TARGET_TAG_ENDPOINT),
+                device_type=_tag(item, ACL_TARGET_TAG_DEVICE_TYPE),
+            )
         )
-        for item in raw
-        if isinstance(item, Mapping)
-    )
+    return tuple(targets), True
+
+
+def _tags_of(raw: Mapping[object, object]) -> set[int]:
+    """Return the TLV tags a struct carries, however its keys are spelled."""
+    found: set[int] = set()
+    for key in raw:
+        if isinstance(key, int) and not isinstance(key, bool):
+            found.add(key)
+        elif isinstance(key, str) and key.isascii() and key.isdecimal():
+            found.add(int(key))
+    return found
+
+
+def _only_known_tags(raw: Mapping[object, object], known: frozenset[int]) -> bool:
+    """Say whether every key of a struct is a tag this module knows how to read."""
+    return len(_tags_of(raw)) == len(raw) and _tags_of(raw) <= known
+
+
+def _is_int_or_null(raw: object) -> bool:
+    """Say whether a field is a whole number or absent, which is all this module writes."""
+    return raw is None or (isinstance(raw, int) and not isinstance(raw, bool))
+
+
+def _is_int_list_or_null(raw: object) -> bool:
+    """Say whether a field is a list of whole numbers or absent."""
+    if raw is None:
+        return True
+    if not isinstance(raw, list | tuple):
+        return False
+    return all(isinstance(item, int) and not isinstance(item, bool) for item in raw)
 
 
 def our_fabric_index(entries: Iterable[AclEntry]) -> int | None:
@@ -951,19 +1097,25 @@ def grant_for(
        4, so a second rule pointing at it would not fit as a new entry. Merging adds a
        subject to an entry that already grants exactly this, so it can never grant more than
        a separate entry would have.
-    4. **Otherwise append**, if the list has room. If it has not, refuse and say by how much
-       (E27, E28).
+    4. **Otherwise append**, if this fabric's part of the list has room. If it has not,
+       refuse and say by how much (E27, E28).
 
     `existing` is everything the node reported, other fabrics' redacted entries included.
-    They are counted against capacity and never written back; see `foreign_entries` and
-    assumption A9 for what is assumed there and what it would cost to be wrong.
+    **Only this fabric's are counted**, because `AccessControlEntriesPerFabric` is per
+    fabric and the capture proves it: node 31 reports 4 and fabric 3 alone holds two of its
+    entries. Counting every fabric's would refuse a grant on 6 of the 19 captured nodes,
+    including both Inovelli switches, which are the only devices on the fabric that can be
+    dimmed. See assumption A10.
+
+    They are never written back either, and that half is `foreign_entries` and assumption A9.
     """
-    fabric_index = our_fabric_index(existing)
-    used = len(existing)
     limit = capacity["entries_per_fabric"]
-    if fabric_index is None:
-        return AclOutcome(None, AclRefusal.FABRIC_UNKNOWN, changed=False, used=used, capacity=limit)
+    fabric_index = our_fabric_index(existing)
+    refusal = _refusal_before_a_grant(existing, fabric_index)
+    if refusal is not None or fabric_index is None:
+        return AclOutcome(None, refusal, changed=False, used=0, capacity=limit)
     ours = entries_of_fabric(existing, fabric_index)
+    used = len(ours)
     if any(entry.grants(subject, target) for entry in ours):
         return AclOutcome(ours, None, changed=False, used=used, capacity=limit)
     if capacity["targets_per_entry"] < 1:
@@ -984,20 +1136,36 @@ def grant_for(
     return AclOutcome(_checked(ours, appended), None, changed=True, used=used, capacity=limit)
 
 
+def _refusal_before_a_grant(
+    existing: Sequence[AclEntry], fabric_index: int | None
+) -> AclRefusal | None:
+    """Return why this list may not be written at all, before anything about the grant.
+
+    Two conditions, and both are about the list rather than about what is being asked of it.
+    An unreadable entry of ours stops every write of this list, not just this one: a write
+    replaces the whole list, so an entry carrying something this version did not understand
+    would go back to the device with that part missing.
+    """
+    if fabric_index is None:
+        return AclRefusal.FABRIC_UNKNOWN
+    if any(entry.unreadable for entry in entries_of_fabric(existing, fabric_index)):
+        return AclRefusal.UNREADABLE_ENTRY
+    return None
+
+
 def _merged_into_existing(
     ours: Sequence[AclEntry], subject: int, target: AclTarget, subjects_per_entry: int
 ) -> tuple[AclEntry, ...] | None:
     """Return the list with `subject` added to an entry for this target, or None.
 
-    None means there was no entry of exactly this shape, or the one there was is already
-    holding as many subjects as the device allows. Both are answered by trying to append
-    instead, which is what the caller does.
+    None means there was no entry of exactly this shape with room in it. An entry of the
+    right shape that is already holding as many subjects as the device allows is passed over
+    rather than given up on, because a second one for the same target may have room: giving
+    up on the first would refuse a link over a full entry while a usable one sat beside it.
     """
     for position, entry in enumerate(ours):
-        if not entry.is_managed_grant(target):
+        if not entry.is_managed_grant(target) or len(entry.subjects) >= subjects_per_entry:
             continue
-        if len(entry.subjects) >= subjects_per_entry:
-            return None
         widened = replace(entry, subjects=(*entry.subjects, subject))
         return (*ours[:position], widened, *ours[position + 1 :])
     return None
@@ -1016,10 +1184,11 @@ def revoke_for(existing: Sequence[AclEntry], *, subject: int, target: AclTarget)
     turn a revocation into the widest grant on the device.
     """
     fabric_index = our_fabric_index(existing)
-    used = len(existing)
-    if fabric_index is None:
-        return AclOutcome(None, AclRefusal.FABRIC_UNKNOWN, changed=False, used=used, capacity=0)
+    refusal = _refusal_before_a_grant(existing, fabric_index)
+    if refusal is not None or fabric_index is None:
+        return AclOutcome(None, refusal, changed=False, used=0, capacity=0)
     ours = entries_of_fabric(existing, fabric_index)
+    used = len(ours)
     narrowed: list[AclEntry] = []
     changed = False
     for entry in ours:
@@ -1080,11 +1249,23 @@ def acl_payload(entries: Iterable[AclEntry]) -> list[dict[str, object]]:
                 "an Access Control entry belonging to another fabric cannot be written "
                 "back, because the fabric that owns it did not let us read it"
             )
+        if entry.unreadable:
+            raise AclError(
+                "an Access Control entry this version could not read cannot be written "
+                "back, because a write replaces the whole list and would drop whatever in "
+                "it was not understood"
+            )
         written: dict[str, object] = {
             str(ACL_TAG_PRIVILEGE): entry.privilege,
             str(ACL_TAG_AUTH_MODE): entry.auth_mode,
-            str(ACL_TAG_SUBJECTS): list(entry.subjects),
-            str(ACL_TAG_TARGETS): [_target_payload(target) for target in entry.targets] or None,
+            # Null and empty are not the same field value and are not written the same way.
+            # A null subject list means every node and an empty one is at best meaningless,
+            # so an entry that came back with no subjects goes back with none, spelled the
+            # way it arrived.
+            str(ACL_TAG_SUBJECTS): list(entry.subjects) or None,
+            str(ACL_TAG_TARGETS): (
+                None if entry.targets is None else [_target_payload(t) for t in entry.targets]
+            ),
         }
         payload.append(written)
     return payload
@@ -1099,6 +1280,14 @@ def _target_payload(target: AclTarget) -> dict[str, object]:
     }
 
 
+# The token `confirm_grant` passes and nothing else has. A receipt cannot be built without
+# it, so a receipt cannot be built without going through the function that reads the target's
+# Access Control list back. It is module private and not exported: forging one means reaching
+# for an underscored name in another module's namespace, which is as structural as this
+# language gets, and is exactly the deliberate act that should be hard to do by accident.
+_ISSUED_BY_CONFIRM_GRANT: Final = object()
+
+
 @dataclass(frozen=True, slots=True)
 class GrantReceipt:
     """Proof that a target's Access Control list really carries the grant a binding needs.
@@ -1107,13 +1296,15 @@ class GrantReceipt:
     binding entry is written only after the access grant succeeds, so that a rejection
     leaves no partial state. Writing the two calls in the right order satisfies that today
     and says nothing about tomorrow, so instead `binding_for` will not build a binding list
-    without one of these, and one of these cannot be built without an Access Control list,
-    read back from the device after the write, that actually contains the grant. There is no
-    argument that skips the ACL: the type system asks for the receipt and the receipt asks
-    for the evidence.
+    without one of these, and one of these can only be issued by `confirm_grant`, which
+    builds it out of the target's Access Control list as the device reports it. There is no
+    argument that skips the ACL: `binding_for` asks for the receipt, the receipt asks for a
+    token, and only the function that read the device holds the token.
 
     It checks three things, and the second and third are about damage rather than about this
-    link. `confirmed` is what the target's list reads as **now**:
+    link. `confirmed` is what the target's list reads as **now**, which is the list read back
+    after the write when there was one, and the list read before deciding no write was
+    needed when the grant was already there:
 
     - the grant is there, so the binding about to be written will be honoured,
     - every Administer entry that was there before is still there, so the controller has not
@@ -1127,9 +1318,15 @@ class GrantReceipt:
     subject: int
     target: AclTarget
     confirmed: tuple[AclEntry, ...]
+    issued_by: object = None
 
     def __post_init__(self) -> None:
-        """Refuse a receipt whose evidence does not show the grant."""
+        """Refuse a receipt that no read issued, or whose read does not show the grant."""
+        if self.issued_by is not _ISSUED_BY_CONFIRM_GRANT:
+            raise GrantNotConfirmedError(
+                "a grant receipt can only be issued by confirm_grant, which builds one out "
+                "of a target's Access Control list as the device reports it"
+            )
         if not any(entry.grants(self.subject, self.target) for entry in self.confirmed):
             raise GrantNotConfirmedError(
                 f"node {self.node_id} does not report a grant letting {self.subject} operate "
@@ -1183,7 +1380,17 @@ def confirm_grant(
             f"fabrics before this write and {now} after it, so the write was not scoped to "
             "this fabric and no binding may follow it"
         )
-    return GrantReceipt(node_id=node_id, subject=subject, target=target, confirmed=tuple(after))
+    return GrantReceipt(
+        node_id=node_id,
+        subject=subject,
+        target=target,
+        confirmed=tuple(after),
+        issued_by=_ISSUED_BY_CONFIRM_GRANT,
+    )
+
+
+class BindingTableFullError(AclError):
+    """A Binding list was about to be grown past what this integration will write to one."""
 
 
 def binding_for(
@@ -1192,6 +1399,7 @@ def binding_for(
     wanted: BindingEntry,
     source_node_id: int,
     receipt: GrantReceipt,
+    capacity: int = BINDING_TABLE_CAPACITY,
 ) -> tuple[BindingEntry, ...] | None:
     """Return what a source endpoint's Binding list must become, or None when it is there.
 
@@ -1204,12 +1412,12 @@ def binding_for(
     untouched, which is FR-B7's requirement and is the same rule the Zigbee and Z-Wave
     adapters follow for their own tables.
     """
-    if not wanted.is_unicast:
+    if not wanted.is_unicast or wanted.node is None:
         raise AclError(
             "a Matter binding Device Links writes always names a node, endpoint and cluster"
         )
     target = AclTarget(cluster=wanted.cluster, endpoint=wanted.endpoint)
-    if not receipt.covers(node_id=wanted.node or 0, subject=source_node_id, target=target):
+    if not receipt.covers(node_id=wanted.node, subject=source_node_id, target=target):
         raise GrantNotConfirmedError(
             f"the access grant confirmed for node {receipt.node_id} is not the one this "
             f"binding to node {wanted.node} endpoint {wanted.endpoint} cluster "
@@ -1217,6 +1425,14 @@ def binding_for(
         )
     if wanted in existing:
         return None
+    if len(existing) >= capacity:
+        # Deliberately redundant with the adapter's own check, which is the one a user sees
+        # and which says how full the list is. This is the guard that makes the function
+        # safe for a second caller, exactly as `zigbee_protocol._refuse_foreign_group` is.
+        raise BindingTableFullError(
+            f"this endpoint already holds {len(existing)} bindings, which is as many as "
+            "Device Links writes to one"
+        )
     return (*existing, wanted)
 
 

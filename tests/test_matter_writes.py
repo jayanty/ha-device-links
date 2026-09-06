@@ -34,7 +34,12 @@ from tests.factories import (
     matter_handle,
     matter_link,
 )
-from tests.fakes.matter import CONTROLLER_NODE_ID, FakeMatterClient, build_fabric_from_fixture
+from tests.fakes.matter import (
+    CONTROLLER_NODE_ID,
+    FakeMatterClient,
+    FakeMatterError,
+    build_fabric_from_fixture,
+)
 
 # The link every test here starts from: the Inovelli paddle on endpoint 2 driving the Eve
 # Energy's load on endpoint 1 over OnOff. The spare Eve is the target rather than the tight
@@ -135,18 +140,36 @@ async def test_a_binding_writes_the_access_grant_first_and_then_the_binding(
 async def test_the_grant_is_operate_on_the_one_cluster_and_endpoint(
     backend: MatterBackend, fabric: FakeMatterClient
 ) -> None:
-    """PRD Section 10: least privilege, never Administer, targeted where the device allows."""
+    """PRD Section 10: least privilege, never Administer, targeted where the device allows.
+
+    Asserted against the raw entry rather than against this module's own parse of it. Every
+    other assertion here reads the fake through `mp.parse_acl`, which is the code under
+    test: a mistake in how an entry is spelled on the wire would be invisible from both
+    ends, and this is the one entry whose spelling is the whole point.
+    """
     await backend.async_add_link(link())
 
-    granted = [
+    written = [
         entry
-        for entry in fabric.acl_of(SPARE_EVE)
-        if entry.subjects == (KITCHEN_ACCENT,) and not entry.is_redacted
+        for entry in fabric.raw_acl_of(SPARE_EVE)
+        if entry.get(str(mp.ACL_TAG_SUBJECTS)) == [KITCHEN_ACCENT]
     ]
-    (grant,) = granted
-    assert grant.privilege == mp.PRIVILEGE_OPERATE
-    assert grant.auth_mode == mp.AUTH_MODE_CASE
-    assert grant.targets == (mp.AclTarget(cluster=mp.ON_OFF_CLUSTER, endpoint=1),)
+
+    assert written == [
+        {
+            str(mp.ACL_TAG_PRIVILEGE): mp.PRIVILEGE_OPERATE,
+            str(mp.ACL_TAG_AUTH_MODE): mp.AUTH_MODE_CASE,
+            str(mp.ACL_TAG_SUBJECTS): [KITCHEN_ACCENT],
+            str(mp.ACL_TAG_TARGETS): [
+                {
+                    str(mp.ACL_TARGET_TAG_CLUSTER): mp.ON_OFF_CLUSTER,
+                    str(mp.ACL_TARGET_TAG_ENDPOINT): 1,
+                    str(mp.ACL_TARGET_TAG_DEVICE_TYPE): None,
+                }
+            ],
+            str(mp.ACL_TAG_FABRIC_INDEX): 2,
+        }
+    ]
 
 
 async def test_the_binding_names_the_target_node_endpoint_and_cluster(
@@ -156,7 +179,7 @@ async def test_the_binding_names_the_target_node_endpoint_and_cluster(
 
     assert fabric.bindings_of(KITCHEN_ACCENT, 2) == [
         {"1": SPARE_EVE, "3": 1, "4": mp.ON_OFF_CLUSTER}
-    ]
+    ], "the raw entry, spelled by TLV tag, with no fabric index of our choosing in it"
 
 
 async def test_the_administer_entry_survives_a_grant(
@@ -216,10 +239,8 @@ async def test_two_features_of_one_cluster_share_one_binding_and_one_grant(
 
     The other Inovelli is the target, because it is the only device on this fabric that
     serves LevelControl at all: an Eve Energy is a plug and its endpoint 1 serves OnOff and
-    nothing dimmable. Its access list is full at 4 of 4, which is a real refusal and not the
-    one this test is about, so it is widened first.
+    nothing dimmable.
     """
-    fabric.set_capacity(KITCHEN_PENDANTS, entries_per_fabric=6)
     dim = matter_link(KITCHEN_ACCENT, KITCHEN_PENDANTS, cluster=8, feature=Feature.LEVEL_SET)
     hold = matter_link(KITCHEN_ACCENT, KITCHEN_PENDANTS, cluster=8, feature=Feature.LEVEL_HOLD)
 
@@ -250,15 +271,42 @@ async def test_a_binding_somebody_else_wrote_is_carried_through_untouched(
 async def test_a_full_access_list_blocks_the_link_and_writes_nothing(
     backend: MatterBackend, fabric: FakeMatterClient
 ) -> None:
-    """E27 and E28 on real numbers: both Inovelli switches hold 4 of 4 already."""
-    result = await backend.async_add_link(matter_link(KITCHEN_ACCENT, KITCHEN_PENDANTS))
+    """E27 and E28, on a list with no room left for this fabric.
+
+    Constructed rather than captured, and that is worth saying: under the per-fabric reading
+    of `AccessControlEntriesPerFabric` (assumption A10) **no node on the M1 fabric is full**.
+    The fullest is the controller's own entry plus three free slots. So this narrows the
+    reported limit to what the controller's own entry already fills, which is the shape a
+    device with a small list and several ecosystems on it would really have.
+    """
+    fabric.set_capacity(SPARE_EVE, entries_per_fabric=1)
+
+    result = await backend.async_add_link(link())
 
     assert result.status is LinkResultStatus.BLOCKED
     assert result.reason is not None
     assert result.reason.translation_key == "matter_acl_full"
-    assert result.reason.placeholders["used"] == "4"
-    assert result.reason.placeholders["capacity"] == "4"
+    assert result.reason.placeholders["used"] == "1"
+    assert result.reason.placeholders["capacity"] == "1"
     assert fabric.write_count == 0
+
+
+async def test_no_node_on_the_captured_fabric_is_actually_full(
+    backend: MatterBackend, fabric: FakeMatterClient
+) -> None:
+    """The correction to Stage 0's arithmetic, asserted rather than described.
+
+    Stage 0 counted every fabric's entries against a limit the specification defines per
+    fabric, which made both Inovelli switches read as full at 4 of 4. They hold one entry
+    each for this fabric, and they are the only devices on the fabric that serve
+    LevelControl, so counting the other way would refuse every Matter dimming link this
+    network can express.
+    """
+    result = await backend.async_add_link(matter_link(KITCHEN_ACCENT, KITCHEN_PENDANTS))
+
+    assert result.status is LinkResultStatus.APPLIED
+    assert len(mp.entries_of_fabric(fabric.acl_of(KITCHEN_PENDANTS), 2)) == 2
+    assert len(fabric.acl_of(KITCHEN_PENDANTS)) == 5
 
 
 async def test_a_grant_that_cannot_be_written_leaves_the_source_untouched(
@@ -350,7 +398,7 @@ async def test_a_full_grant_on_a_full_list_says_which_of_the_two_it_is(
     backend: MatterBackend, fabric: FakeMatterClient
 ) -> None:
     """The two have different answers, so they are different messages."""
-    fabric.set_capacity(SPARE_EVE, entries_per_fabric=3, subjects_per_entry=1)
+    fabric.set_capacity(SPARE_EVE, entries_per_fabric=2, subjects_per_entry=1)
     await backend.async_add_link(link())
 
     result = await backend.async_add_link(matter_link(KITCHEN_PENDANTS, SPARE_EVE))
@@ -848,3 +896,167 @@ async def test_adding_a_link_to_a_node_that_has_left_the_fabric_is_still_refused
     assert result.status is LinkResultStatus.BLOCKED
     assert result.reason is not None
     assert result.reason.translation_key == "matter_unknown_device"
+
+
+async def test_a_binding_that_would_not_take_gives_the_access_grant_back(
+    backend: MatterBackend, fabric: FakeMatterClient
+) -> None:
+    """The rest of E27: no partial state means neither half of it, not just the binding.
+
+    A grant left behind for a binding that never happened holds one of the target's few
+    Access Control entries for a link that does not exist, and nothing would ever remove it:
+    the planner does not offer to remove a link that came back failed.
+    """
+    fabric.reject_writes.add(mp.binding_path(2))
+
+    result = await backend.async_add_link(link())
+
+    assert result.status is LinkResultStatus.FAILED
+    assert not [
+        entry for entry in fabric.acl_of(SPARE_EVE) if entry.subjects == (KITCHEN_ACCENT,)
+    ], "the grant this attempt wrote is still on the target"
+
+
+async def test_a_grant_that_was_already_there_is_not_taken_back_by_a_failed_binding(
+    backend: MatterBackend, fabric: FakeMatterClient
+) -> None:
+    """The other half of the same decision, and the one that would break a working link.
+
+    A grant that was already there belongs to whatever put it there. Here that is a link
+    from the other switch, which is still working: rolling it back over an unrelated failure
+    would take a light away from somebody as a side effect of a different rule failing.
+    """
+    await backend.async_add_link(matter_link(KITCHEN_PENDANTS, SPARE_EVE))
+    fabric.reject_writes.add(mp.binding_path(2))
+
+    result = await backend.async_add_link(link())
+
+    assert result.status is LinkResultStatus.FAILED
+    assert any(entry.subjects == (KITCHEN_PENDANTS,) for entry in fabric.acl_of(SPARE_EVE)), (
+        "the other switch's grant was taken back by a failure that was not its own"
+    )
+
+
+async def test_a_binding_another_controller_added_mid_write_is_not_dropped(
+    backend: MatterBackend, fabric: FakeMatterClient
+) -> None:
+    """FR-B7's requirement, at the one moment it is hardest to keep.
+
+    A binding write replaces the whole list, and there is a real gap between reading it and
+    writing it: the access grant on the target is written in between. An entry that arrived
+    during that gap has to survive, which it only does because the list is read again
+    immediately before the write rather than merged into the older read.
+    """
+    theirs = {"1": 8, "3": 1, "4": mp.ON_OFF_CLUSTER}
+    original = FakeMatterClient.write_attribute
+
+    async def add_theirs_during_the_grant(
+        client: FakeMatterClient, node_id: int, attribute_path: str, value: object
+    ) -> object:
+        if attribute_path == mp.ACL_PATH:
+            client.add_binding(KITCHEN_ACCENT, 2, theirs)
+        return await original(client, node_id, attribute_path, value)
+
+    FakeMatterClient.write_attribute = add_theirs_during_the_grant  # type: ignore[method-assign]
+    try:
+        result = await backend.async_add_link(link())
+    finally:
+        FakeMatterClient.write_attribute = original  # type: ignore[method-assign]
+
+    assert result.status is LinkResultStatus.APPLIED
+    assert theirs in fabric.bindings_of(KITCHEN_ACCENT, 2)
+
+
+async def test_an_access_list_this_version_cannot_read_stops_the_write(
+    backend: MatterBackend, fabric: FakeMatterClient
+) -> None:
+    """A write replaces the whole list, so an entry only half understood is a refusal.
+
+    The alternative is silently taking whatever was not understood off the device, on a
+    write about something else entirely.
+    """
+    fabric.set_acl(
+        SPARE_EVE,
+        [
+            {"1": 5, "2": 2, "3": [CONTROLLER_NODE_ID], "4": None, "254": 2},
+            {"1": 3, "2": 2, "3": [7], "4": None, "254": 2, "99": "a tag from the future"},
+        ],
+    )
+
+    result = await backend.async_add_link(link())
+
+    assert result.status is LinkResultStatus.BLOCKED
+    assert result.reason is not None
+    assert result.reason.translation_key == "matter_acl_entry_unreadable"
+    assert fabric.write_count == 0
+
+
+async def test_a_binding_list_that_will_not_read_before_the_write_fails_the_link(
+    backend: MatterBackend, fabric: FakeMatterClient
+) -> None:
+    """The read that closes the gap is itself a round trip, and it can fail like any other."""
+    original = FakeMatterClient.read_attribute
+
+    async def refuse_the_binding_read(
+        client: FakeMatterClient, node_id: int, attribute_path: str
+    ) -> object:
+        if attribute_path == mp.binding_path(2) and client.writes:
+            raise FakeMatterError("node 31 did not respond")
+        return await original(client, node_id, attribute_path)
+
+    FakeMatterClient.read_attribute = refuse_the_binding_read  # type: ignore[method-assign]
+    try:
+        result = await backend.async_add_link(link())
+    finally:
+        FakeMatterClient.read_attribute = original  # type: ignore[method-assign]
+
+    assert result.status is LinkResultStatus.FAILED
+    assert binding_writes(fabric) == []
+
+
+async def test_a_list_that_filled_up_while_the_grant_was_written_is_blocked(
+    backend: MatterBackend, fabric: FakeMatterClient
+) -> None:
+    """The same gap as the mid-write test, with the other kind of thing arriving in it."""
+    original = FakeMatterClient.write_attribute
+
+    async def fill_it_during_the_grant(
+        client: FakeMatterClient, node_id: int, attribute_path: str, value: object
+    ) -> object:
+        if attribute_path == mp.ACL_PATH:
+            for index in range(mp.BINDING_TABLE_CAPACITY):
+                client.add_binding(KITCHEN_ACCENT, 2, {"1": 100 + index, "3": 1, "4": 6})
+        return await original(client, node_id, attribute_path, value)
+
+    FakeMatterClient.write_attribute = fill_it_during_the_grant  # type: ignore[method-assign]
+    try:
+        result = await backend.async_add_link(link())
+    finally:
+        FakeMatterClient.write_attribute = original  # type: ignore[method-assign]
+
+    assert result.status is LinkResultStatus.BLOCKED
+    assert result.reason is not None
+    assert result.reason.translation_key == "matter_binding_full"
+    assert binding_writes(fabric) == []
+
+
+async def test_a_removal_whose_binding_list_will_not_read_is_reported_as_failed(
+    backend: MatterBackend, fabric: FakeMatterClient
+) -> None:
+    await backend.async_add_link(link())
+    original = FakeMatterClient.read_attribute
+
+    async def refuse_the_binding_read(
+        client: FakeMatterClient, node_id: int, attribute_path: str
+    ) -> object:
+        if attribute_path == mp.binding_path(2):
+            raise FakeMatterError("node 31 did not respond")
+        return await original(client, node_id, attribute_path)
+
+    FakeMatterClient.read_attribute = refuse_the_binding_read  # type: ignore[method-assign]
+    try:
+        result = await backend.async_remove_link(link())
+    finally:
+        FakeMatterClient.read_attribute = original  # type: ignore[method-assign]
+
+    assert result.status is LinkResultStatus.FAILED

@@ -158,6 +158,9 @@
     "link_write_raised": {
       "message": "Writing the group {group} link from {device} to {target} failed unexpectedly, so it was not written. The error is in the log."
     },
+    "matter_acl_entry_unreadable": {
+      "message": "The access list on {target} holds an entry this version of Device Links cannot read, and writing the list would replace the whole of it, so the {cluster} binding from {device} was not written and nothing on the device was changed. Report this with a diagnostics download: it means {target} keeps something in its access list that this integration has not been taught about."
+    },
     "matter_acl_full": {
       "message": "{target} has no room for another access grant: {used} of {capacity} entries in its access list are in use, and the ones Device Links did not create are not ours to remove. Remove a controller or app that no longer needs {target}, using the app that added it, then apply again. Until then the {cluster} binding from {device} is not written."
     },
