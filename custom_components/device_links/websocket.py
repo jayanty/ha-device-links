@@ -746,10 +746,11 @@ async def _templates_list(
 async def _plan(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return what applying this scope would do, without doing any of it."""
     entry, runtime = _runtime(hass)
+    scope = _scope(hass, entry, msg)
     plan = await runtime.coordinator.async_plan(
-        _scope(hass, entry, msg), remove_unmanaged=frozenset(msg.get("remove_unmanaged", []))
+        scope, remove_unmanaged=frozenset(msg.get("remove_unmanaged", []))
     )
-    connection.send_result(msg["id"], Serializer(hass, entry).plan(plan))
+    connection.send_result(msg["id"], Serializer(hass, entry).plan(plan, scope.rule_ids))
 
 
 @_command(

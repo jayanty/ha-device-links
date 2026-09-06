@@ -398,6 +398,8 @@ export class HarnessBackend {
       unchanged_count: 7,
       counts,
       devices,
+      // The harness's option is off, which is the shipped default, so no leg exists.
+      hybrid_legs: [],
     };
   }
 

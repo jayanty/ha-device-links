@@ -2287,6 +2287,22 @@ var U = class extends C {
       ` : v`
       ${this._renderNotices(e)} ${this._renderSummary(e)}
       ${e.devices.map((e) => this._renderDevice(e))}
+      ${this._renderHybridLegs(e)}
+    `;
+	}
+	_renderHybridLegs(e) {
+		return e.hybrid_legs.length === 0 ? b : v`
+      <section class="device">
+        <header>
+          <h3>Run by Home Assistant</h3>
+          <span class="chip warn">HA-executed</span>
+        </header>
+        <p class="secondary">
+          Already running, and not part of this apply. These stop working while Home
+          Assistant is off; everything above is written into the devices and does not.
+        </p>
+        ${e.hybrid_legs.map((e) => v`<div class="item">${Lt(e)}</div>`)}
+      </section>
     `;
 	}
 	_renderNotices(e) {

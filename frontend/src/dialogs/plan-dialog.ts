@@ -37,6 +37,7 @@ import {
 import "../components/dialog";
 import {
   backendLabel,
+  describeHybridLeg,
   describeLink,
   jobStatusLabel,
   jobStatusTone,
@@ -338,6 +339,34 @@ export class DeviceLinksPlanDialog extends LitElement {
     return html`
       ${this._renderNotices(plan)} ${this._renderSummary(plan)}
       ${plan.devices.map((device) => this._renderDevice(device))}
+      ${this._renderHybridLegs(plan)}
+    `;
+  }
+
+  /**
+   * The parts of these rules that Home Assistant carries, listed and not applied.
+   *
+   * PRD Section 6.7 asks the plan to say so rather than leaving somebody to find out that
+   * half of a rule stops when Home Assistant does. Under its own heading and never in a
+   * device's section, because a leg is not written to a device: it is already running, and
+   * pressing Apply does not change it.
+   */
+  private _renderHybridLegs(plan: Plan): TemplateResult | typeof nothing {
+    if (plan.hybrid_legs.length === 0) {
+      return nothing;
+    }
+    return html`
+      <section class="device">
+        <header>
+          <h3>Run by Home Assistant</h3>
+          <span class="chip warn">HA-executed</span>
+        </header>
+        <p class="secondary">
+          Already running, and not part of this apply. These stop working while Home
+          Assistant is off; everything above is written into the devices and does not.
+        </p>
+        ${plan.hybrid_legs.map((leg) => html`<div class="item">${describeHybridLeg(leg)}</div>`)}
+      </section>
     `;
   }
 

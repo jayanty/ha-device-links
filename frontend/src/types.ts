@@ -351,13 +351,22 @@ export interface PlanDevice {
   unmanaged: UnmanagedLink[];
 }
 
-/** `Serializer.plan`: what applying a scope would do, grouped by device. */
+/**
+ * `Serializer.plan`: what applying a scope would do, grouped by device.
+ *
+ * `hybrid_legs` is not part of the plan and not part of its token. A leg is a listener
+ * inside Home Assistant that starts the moment its rule is saved and enabled, so pressing
+ * Apply does not touch one; it is here because PRD Section 6.7 asks the plan to list them
+ * rather than leaving somebody to discover that half of a rule is HA-executed. Empty while
+ * the integration's hybrid legs option is off, because then none is running.
+ */
 export interface Plan {
   token: string;
   is_empty: boolean;
   unchanged_count: number;
   counts: Record<PlanOp | "unmanaged", number>;
   devices: PlanDevice[];
+  hybrid_legs: HybridLegRow[];
 }
 
 // --------------------------------------------------------------------------------------

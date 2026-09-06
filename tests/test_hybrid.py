@@ -873,3 +873,39 @@ async def test_a_leg_leaves_a_devices_configuration_entities_alone(
     await hass.async_block_till_done()
 
     assert [call.data["entity_id"] for call in calls] == [[light]]
+
+
+async def test_the_plan_lists_the_legs_and_leaves_them_out_of_the_work(
+    hass: HomeAssistant, hybrid_entry: MockConfigEntry
+) -> None:
+    """PRD Section 6.7: the plan lists a leg under HA-executed rather than as a write.
+
+    Not in the token and not in the counts, because a leg starts when its rule is saved and
+    enabled and pressing Apply does not touch it. Listed anyway, because a user confirming
+    a plan should not have to find out afterwards that half of a rule is HA-executed.
+    """
+    from custom_components.device_links.serialize import Serializer  # noqa: PLC0415
+
+    activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
+    await hass.async_block_till_done()
+    coordinator = hybrid_entry.runtime_data.coordinator
+
+    payload = Serializer(hass, hybrid_entry).plan(await coordinator.async_plan())  # type: ignore[arg-type]
+
+    assert [leg["kind"] for leg in payload["hybrid_legs"]] == ["off_only"]
+    assert payload["counts"]["add"] == 0
+
+
+async def test_the_plan_lists_no_leg_while_the_option_is_off(
+    hass: HomeAssistant, device_links_entry: MockConfigEntry
+) -> None:
+    """Nothing is running, so listing one would describe something that is not happening."""
+    from custom_components.device_links.serialize import Serializer  # noqa: PLC0415
+
+    activate(device_links_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
+    await hass.async_block_till_done()
+    coordinator = device_links_entry.runtime_data.coordinator
+
+    payload = Serializer(hass, device_links_entry).plan(await coordinator.async_plan())  # type: ignore[arg-type]
+
+    assert payload["hybrid_legs"] == []

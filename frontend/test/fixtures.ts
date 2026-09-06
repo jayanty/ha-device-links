@@ -187,6 +187,7 @@ export function plan(overrides: Partial<Plan> = {}): Plan {
     is_empty: false,
     unchanged_count: 4,
     counts: { add: 1, remove: 0, set_param: 1, blocked: 1, pending: 1, unmanaged: 2 },
+    hybrid_legs: [],
     devices: [
       planDevice({
         add: [

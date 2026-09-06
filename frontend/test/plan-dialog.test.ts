@@ -325,3 +325,40 @@ describe("the plan dialog", () => {
     expect(hass.unsubscribes).toBe(1);
   });
 });
+
+describe("the HA-executed legs a plan carries", () => {
+  it("lists them under their own heading and says the apply does not touch them", async () => {
+    const hass = mockHass();
+    hass.results.set(COMMANDS.plan, {
+      ...plan(),
+      hybrid_legs: [
+        {
+          identity: "off_only|zwave:home:36|button_2|on_off|zwave:home:38|",
+          kind: "off_only",
+          rule_id: "rule-1",
+          feature: "on_off",
+          emitter_id: "button_2",
+          source: {
+            identity: "zwave:home:36",
+            name: "Bedroom Scene Controller",
+            device_id: "ha36",
+          },
+          target: {
+            identity: "zwave:home:38",
+            name: "Bedside Light L",
+            device_id: "ha38",
+            endpoint: null,
+          },
+          scene_id: 2,
+          indicator_id: null,
+        },
+      ],
+    });
+    const dialog = await open(hass);
+
+    const rendered = text(dialog);
+    expect(rendered).toContain("Run by Home Assistant");
+    expect(rendered).toContain("not part of this apply");
+    expect(rendered).toContain("Bedside Light L");
+  });
+});

@@ -22,10 +22,11 @@ could not be localised at all.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from homeassistant.core import HomeAssistant, callback
 
+from .compiler import CompiledRule
 from .coordinator import RuleState
 from .models import Diagnostic, HybridLeg, Link, ObservedLink, PlanOp
 from .rule_entity import async_upstream_device
@@ -35,7 +36,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from . import DeviceLinksConfigEntry
-    from .compiler import CompiledRule
     from .diff import ProfileDiff
     from .loops import Loop
     from .models import (
@@ -50,6 +50,12 @@ if TYPE_CHECKING:
     )
     from .storage import JobSummary, Snapshot
     from .swap import EmitterMapping, Replacement, RuleRewrite, SwapProposal
+
+
+# What `compiled_for` answers with for a rule the active profile does not hold, so the
+# comprehension above can ask for its legs without a second branch. Built once, because it
+# is immutable and empty.
+_NO_LEGS: Final = CompiledRule()
 
 
 class Serializer:
@@ -188,13 +194,20 @@ class Serializer:
     # Plans.
 
     @callback
-    def plan(self, plan: Plan) -> dict[str, Any]:
+    def plan(self, plan: Plan, rule_ids: frozenset[str] = frozenset()) -> dict[str, Any]:
         """Return a plan grouped by device, with one list per kind of work.
 
         Every device the plan says anything about is here, including one that has only
         unmanaged links on it: "nothing to do here, and these four entries are not mine"
         is a thing the user has to be able to see, and a device that vanished from the list
         because it had no work would read as a device nobody looked at.
+
+        `rule_ids` is the scope the plan was built for, empty meaning the whole profile,
+        and it is here only for the HA-executed legs: PRD Section 6.7 asks that the plan
+        list them rather than leaving them to be discovered, and which of them belong to
+        this plan is a question about rules rather than about devices. They are not part of
+        the plan's token and are not applied by pressing anything, which is exactly what
+        the panel says beside them.
         """
         devices: dict[str, dict[str, Any]] = {}
         for item in plan.items:
@@ -215,7 +228,26 @@ class Serializer:
             "devices": sorted(
                 devices.values(), key=lambda entry: (entry["name"], entry["identity"])
             ),
+            "hybrid_legs": self._hybrid_legs(rule_ids),
         }
+
+    def _hybrid_legs(self, rule_ids: frozenset[str]) -> list[dict[str, Any]]:
+        """Return the HA-executed legs this plan's rules ask for, or none.
+
+        Empty while the global option is off, because no leg is running then and listing
+        one would be describing something that is not happening. Nothing here is applied:
+        a leg starts the moment its rule is saved and enabled, which is why the panel puts
+        these under their own heading and says the apply does not touch them.
+        """
+        profile = self._coordinator.active_profile
+        if profile is None or not self._coordinator.hybrid_allowed:
+            return []
+        return [
+            self.hybrid_leg(leg)
+            for rule in profile.rules
+            if rule.enabled and (not rule_ids or rule.id in rule_ids)
+            for leg in (self._coordinator.compiled_for(rule.id) or _NO_LEGS).hybrid_legs
+        ]
 
     def _bucket(self, devices: dict[str, dict[str, Any]], identity: str) -> dict[str, Any]:
         """Return the entry one device's work goes into, building it the first time."""
