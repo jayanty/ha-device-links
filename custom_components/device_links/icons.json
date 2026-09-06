@@ -26,6 +26,19 @@
           "off": "mdi:link-variant-off"
         }
       }
+    },
+    "select": {
+      "active_profile": {
+        "default": "mdi:format-list-bulleted"
+      }
+    },
+    "button": {
+      "apply_active_profile": {
+        "default": "mdi:play-circle-outline"
+      },
+      "verify": {
+        "default": "mdi:magnify-scan"
+      }
     }
   }
 }

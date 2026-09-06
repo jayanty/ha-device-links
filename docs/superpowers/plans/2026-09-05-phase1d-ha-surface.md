@@ -72,7 +72,7 @@ From PRD Section 11, these are the ones that bite here, and each needs a test:
 The Health sensor is the single entity Claude reads first when debugging remotely (PRD 17.1),
 so it earns its complexity.
 
-- [ ] **Step 1: Write the failing tests.** Cover:
+- [x] **Step 1: Write the failing tests.** Cover:
   - A hub device named "Device Links" is created, with `entry_type` service.
   - `sensor.device_links_health` exists, is enabled by default, and its state is one of
     `ok`, `degraded`, `error`.
@@ -90,7 +90,7 @@ so it earns its complexity.
   - `PARALLEL_UPDATES = 0` on every platform, since entities are push-updated.
   - Every entity has a unique id derived from the entry id, and `_attr_has_entity_name`.
 
-- [ ] **Step 2: Run, confirm failure. Step 3: Implement. Step 4: Confirm. Step 5: Commit.**
+- [x] **Step 2: Run, confirm failure. Step 3: Implement. Step 4: Confirm. Step 5: Commit.**
 
 ```bash
 git commit -m "feat(ha): hub device, health sensor and drift binary sensor"
@@ -110,7 +110,7 @@ adapter leaves `ha_device_id` empty and this layer resolves it from the registry
 **The failure mode to avoid:** a near-miss identifier does not error, it silently creates a
 second, orphaned device. Test that the entity lands on the existing device, not a new one.
 
-- [ ] **Step 1: Write the failing tests.** Cover:
+- [x] **Step 1: Write the failing tests.** Cover:
   - A rule switch is created per rule in the active profile, attached to the **existing**
     `zwave_js` device entry, asserted by counting devices before and after.
   - Turning the switch off disables the rule and plans removal of its links; turning it on
@@ -127,7 +127,7 @@ second, orphaned device. Test that the entity lands on the existing device, not 
     untouched. **This closes the unload half of Stage 0 item P2**; say so in the test
     docstring and update `docs/open-items.md` R2.
 
-- [ ] **Steps 2 to 5** as above.
+- [x] **Steps 2 to 5** as above.
 
 ```bash
 git commit -m "feat(ha): rule switches and status sensors on the source device"
@@ -139,7 +139,7 @@ git commit -m "feat(ha): rule switches and status sensors on the source device"
 
 **Files:** create `select.py`, `button.py`; modify `const.py`; tests
 
-- [ ] **Step 1: Write the failing tests.** Cover:
+- [x] **Step 1: Write the failing tests.** Cover:
   - A `select` "Active profile" lists profiles and switching activates one.
   - **Switching a profile does not auto-apply** unless the option is on. It opens a plan.
     Assert no write occurs. This is FR-E1 and it protects a user from a select box quietly
@@ -149,7 +149,7 @@ git commit -m "feat(ha): rule switches and status sensors on the source device"
     `device_links_drift_detected`, `device_links_pending_wakeup` (FR-E2).
   - Every event payload is JSON-serializable, since automations and the recorder consume it.
 
-- [ ] **Steps 2 to 5.**
+- [x] **Steps 2 to 5.**
 
 ```bash
 git commit -m "feat(ha): profile select, apply and verify buttons, bus events"

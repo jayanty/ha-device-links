@@ -22,11 +22,12 @@ something was removed after setup, and Task 6's Repairs issue (E1) is what turns
 into an explanation.
 
 **Unload is the mirror of setup, in reverse order.** The platforms come down first, so no
-entity can call into a runner that is being shut down; then the rate limiter's timers, so
-no deferred toggle starts a job during teardown; then the runner, which waits for writes
-already on the radio; then the coordinator, which drops the backend subscriptions. Every
-one of those has a listener or a timer behind it, and a single one left behind fires after
-a reload against an object that no longer exists.
+entity can call into a runner that is being shut down; then the event bridge, so no bus
+event announces a job nobody asked for; then the rate limiter's timers, so no deferred
+toggle starts a job during teardown; then the runner, which waits for writes already on
+the radio; then the coordinator, which drops the backend subscriptions. Every one of those
+has a listener or a timer behind it, and a single one left behind fires after a reload
+against an object that no longer exists.
 """
 
 from __future__ import annotations
@@ -52,8 +53,10 @@ from .backends.zwave_accessor import (
 from .const import DOMAIN
 from .coordinator import DeviceLinksCoordinator
 from .deployment import Deployment, read_deployment
+from .events import DeviceLinksEventBridge
 from .executor import JobRunner
 from .models import Backend as BackendId
+from .models import Plan
 from .profile_db import ProfileDatabase, load_profiles
 from .rule_toggle import RuleToggleLimiter
 from .storage import DeviceLinksStore, StorageSchemaError
@@ -76,6 +79,8 @@ __all__ = [
 # up in and, reversed, the order they come down in.
 PLATFORMS: Final = [
     Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.SELECT,
     Platform.SENSOR,
     Platform.SWITCH,
 ]
@@ -110,11 +115,17 @@ class DeviceLinksRuntimeData:
     coordinator: DeviceLinksCoordinator
     runner: JobRunner
     toggles: RuleToggleLimiter
+    events: DeviceLinksEventBridge
     backends: dict[BackendId, Backend]
     backend_info: tuple[BackendInfo, ...]
     version: str | None
     deployment: Deployment | None
     profiles: ProfileDatabase | None = None
+
+    # The plan a profile switch opened and nobody has applied yet. Held rather than
+    # applied, because FR-E1 makes activating a profile a decision about what should be
+    # true and applying it a separate, deliberate act. Phase 1E's panel serves it.
+    pending_plan: Plan | None = None
 
 
 type DeviceLinksConfigEntry = ConfigEntry[DeviceLinksRuntimeData]
@@ -149,17 +160,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry) 
             translation_placeholders=error.translation_placeholders,
         ) from error
 
-    runner = JobRunner(coordinator)
+    events = DeviceLinksEventBridge(hass, entry, coordinator)
+    runner = JobRunner(coordinator, on_finished=events.async_job_finished)
     entry.runtime_data = DeviceLinksRuntimeData(
         coordinator=coordinator,
         runner=runner,
         toggles=RuleToggleLimiter(hass, coordinator, runner),
+        events=events,
         backends=backends,
         backend_info=backend_info,
         version=await _async_version(hass),
         deployment=await hass.async_add_executor_job(read_deployment),
         profiles=profiles,
     )
+    events.async_setup()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _LOGGER.info(
         "Device Links is set up with the %s backend(s)",
@@ -178,6 +192,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry)
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
     runtime = entry.runtime_data
+    runtime.events.async_shutdown()
     runtime.toggles.async_shutdown()
     await runtime.runner.async_shutdown()
     await runtime.coordinator.async_shutdown()

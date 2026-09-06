@@ -104,6 +104,10 @@ SNAPSHOT_REASON: Final = "pre_apply"
 # 2 s between attempts, not that `asyncio.sleep` sleeps.
 type Sleeper = Callable[[float], Awaitable[None]]
 
+# Told about every finished job, so the Home Assistant layer can put it on the bus without
+# this module knowing that a bus exists.
+type JobFinishedCallback = Callable[["JobReport"], None]
+
 
 class JobStatus(StrEnum):
     """How a whole job ended.
@@ -342,12 +346,17 @@ class JobRunner:
         max_concurrent_devices: int = DEFAULT_MAX_CONCURRENT_DEVICES,
         operation_timeout_seconds: float = OPERATION_TIMEOUT_SECONDS,
         sleep: Sleeper = asyncio.sleep,
+        on_finished: JobFinishedCallback | None = None,
     ) -> None:
         """Hold what the runner needs. Nothing is read and nothing is written yet."""
         self._coordinator = coordinator
         self._max_concurrent_devices = max_concurrent_devices
         self._operation_timeout = operation_timeout_seconds
         self._sleep = sleep
+        # Called for every job this runner finishes, whatever started it. It is here
+        # rather than at each call site so that a service call, a button and a WebSocket
+        # command cannot differ in whether they announced what they did (FR-E2).
+        self._on_finished = on_finished
         self._job: _Job | None = None
         self._shut_down = False
 
@@ -960,7 +969,7 @@ class JobRunner:
         _LOGGER.info(
             "job %s %s: %s", job.id, status, ", ".join(sorted({r.outcome for r in results}))
         )
-        return JobReport(
+        report = JobReport(
             id=job.id,
             created_at=job.created_at,
             scope=job.scope,
@@ -968,6 +977,9 @@ class JobRunner:
             snapshot_id=job.snapshot_id,
             results=results,
         )
+        if self._on_finished is not None:
+            self._on_finished(report)
+        return report
 
 
 def _now() -> str:

@@ -35,6 +35,19 @@
       "rule_switch": {
         "name": "Link: {rule}"
       }
+    },
+    "select": {
+      "active_profile": {
+        "name": "Active profile"
+      }
+    },
+    "button": {
+      "apply_active_profile": {
+        "name": "Apply active profile"
+      },
+      "verify": {
+        "name": "Verify"
+      }
     }
   }
 }

@@ -306,6 +306,27 @@ class DeviceLinksCoordinator:
         self._store.async_schedule_save(state)
         self._resolve_ownership()
 
+    @callback
+    def async_activate_profile(self, profile_id: str) -> bool:
+        """Make one stored profile the active one, and say whether it exists.
+
+        Nothing is written to a device: activating changes which rules are wanted, and
+        making the devices match that is an apply, which the user asks for separately
+        (FR-E1). Decision D10 is why this is a single id rather than a set.
+        """
+        if not any(profile.id == profile_id for profile in self._state.profiles):
+            return False
+        self.async_update_state(replace(self._state, active_profile_id=profile_id))
+        return True
+
+    def handle_for(self, identity: str) -> DeviceHandle | None:
+        """Return the handle of a device this coordinator has seen, by its identity."""
+        return self._handles.get(identity)
+
+    def owner_of(self, fingerprint: str) -> str | None:
+        """Return the rule of the active profile that claims this link, if any."""
+        return self._owners.get(fingerprint)
+
     def is_rule_enabled(self, rule_id: str, *, default: bool) -> bool:
         """Say whether this rule of the active profile is enabled, as it stands now.
 
