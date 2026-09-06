@@ -413,18 +413,21 @@ class ZigbeeBackend:
         """Return what this device can drive and what it can be made to do."""
         device = self._device(handle)
         warnings: list[str] = []
-        controls = zp.resolve_controls(device, self._entry_of(device), warnings=warnings)
+        emitters = zp.resolve_emitters(device, self._entry_of(device), warnings=warnings)
         for warning in warnings:
             _LOGGER.debug("%s: %s", handle.identity, warning)
         entry = self._entry_of(device)
         return DeviceCapabilities(
             handle=handle,
-            emitters=tuple(control.emitter for control in controls),
+            emitters=tuple(emitters),
             receivable=zp.receivable_features(device),
             # Long Range is a Z-Wave inclusion mode and has no Zigbee equivalent, so this
             # is False rather than unknown: nothing about a Zigbee device can make it true.
             is_long_range=False,
             settings=_settings_adapters(entry),
+            # A Zigbee binding always names a target endpoint, so a link that reaches this
+            # device has to have one even where nobody was asked which. See T48.
+            receiving_endpoint=zp.receiving_endpoint(device),
         )
 
     async def async_observed(self, handle: DeviceHandle, deep: bool = False) -> ObservedDevice:
@@ -585,9 +588,9 @@ class ZigbeeBackend:
         Resolved through the same path `async_capabilities` uses, so an observed link names
         the control a rule would name rather than a second spelling of it.
         """
-        for control in zp.resolve_controls(device, self._entry_of(device)):
-            if control.endpoint == endpoint:
-                return control.emitter.emitter_id
+        for emitter in zp.resolve_emitters(device, self._entry_of(device)):
+            if emitter.endpoint == endpoint:
+                return emitter.emitter_id
         return f"ep{endpoint}"
 
     # Writing, and the refusals that come before it.

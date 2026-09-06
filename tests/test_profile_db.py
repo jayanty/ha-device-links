@@ -579,12 +579,12 @@ def test_a_curated_zigbee_entry_survives_resolution_on_the_devices_it_describes(
     for entry in _zigbee_entries():
         for device in _matching_devices(entry):
             warnings: list[str] = []
-            controls = zigbee_protocol.resolve_controls(device, entry, warnings=warnings)
+            controls = zigbee_protocol.resolve_emitters(device, entry, warnings=warnings)
 
             assert controls, f"{device['friendly_name']} was left with no controls at all"
             for control in controls:
                 assert zigbee_protocol.endpoint_of(device, control.endpoint) is not None
-                for cluster in control.emitter.group_ids:
+                for cluster in control.group_ids:
                     assert zigbee_protocol.emits(device, control.endpoint, cluster)
 
 
@@ -602,9 +602,9 @@ def test_the_two_older_switches_lose_the_config_button_and_keep_the_paddle() -> 
         "House Front Lights",
     ]
     for device in older:
-        controls = zigbee_protocol.resolve_controls(device, entry)
+        controls = zigbee_protocol.resolve_emitters(device, entry)
         assert [control.endpoint for control in controls] == [2]
-        assert controls[0].emitter.label == "Paddle"
+        assert controls[0].label == "Paddle"
 
 
 def test_the_config_button_is_marked_as_not_established() -> None:

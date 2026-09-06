@@ -350,21 +350,7 @@ def receivable_features(device: Device) -> frozenset[Feature]:
     return frozenset(found)
 
 
-@dataclass(frozen=True, slots=True)
-class Control:
-    """One control of a device: the emitter the compiler sees, and where it drives from.
-
-    The endpoint is not on `Emitter`, because a Z-Wave control has no endpoint and the
-    compiler must not learn about one. It is carried here instead, because the adapter needs
-    it twice: to name the emitter an observed binding belongs to, and to check that a link's
-    source endpoint really drives the cluster it claims.
-    """
-
-    emitter: Emitter
-    endpoint: int
-
-
-def derive_controls(device: Device, *, warnings: list[str] | None = None) -> list[Control]:
+def derive_emitters(device: Device, *, warnings: list[str] | None = None) -> list[Emitter]:
     """Return the controls this device offers, one per endpoint that drives something.
 
     One emitter per endpoint rather than per cluster, because an endpoint is the physical
@@ -372,8 +358,13 @@ def derive_controls(device: Device, *, warnings: list[str] | None = None) -> lis
     together. An endpoint that drives nothing Device Links can use is dropped and reported
     to `warnings`, so `genOta` and `greenPower` never reach a user as a control they could
     pick and then find does nothing.
+
+    The endpoint rides on the emitter itself (`models.Emitter.endpoint`), which it did not
+    before: it used to live on a `Control` wrapper that was unwrapped on the way to the
+    compiler, and the compiler then had to assume the Z-Wave root for a two-way rule's
+    reverse leg. See docs/open-items.md T48.
     """
-    controls: list[Control] = []
+    emitters: list[Emitter] = []
     for endpoint in endpoint_ids(device):
         reported = device["endpoints"][str(endpoint)]
         actions = {
@@ -388,31 +379,43 @@ def derive_controls(device: Device, *, warnings: list[str] | None = None) -> lis
                     "none of which Device Links can bind, so it is not offered as a control"
                 )
             continue
-        controls.append(
-            Control(
-                emitter=_emitter(
-                    emitter_id=f"ep{endpoint}",
-                    label=reported.get("name") or f"Endpoint {endpoint}",
-                    actions=actions,
-                    grouping=GROUPING_ENDPOINT,
-                ),
+        emitters.append(
+            _emitter(
+                emitter_id=f"ep{endpoint}",
+                label=reported.get("name") or f"Endpoint {endpoint}",
                 endpoint=endpoint,
+                actions=actions,
+                grouping=GROUPING_ENDPOINT,
             )
         )
-    return controls
+    return emitters
 
 
-def derive_emitters(device: Device, *, warnings: list[str] | None = None) -> list[Emitter]:
-    """Return just the emitters of `derive_controls`, for a caller with no endpoint to place."""
-    return [control.emitter for control in derive_controls(device, warnings=warnings)]
+def receiving_endpoint(device: Device) -> int | None:
+    """Return the endpoint a binding should address when nothing has named one.
+
+    The lowest endpoint that serves a cluster Device Links can bind, which on every Inovelli
+    switch in the G1 capture is endpoint 1, the load. None when the device can act on nothing
+    a binding could send, which is the same answer `receivable_features` gives as an empty
+    set: both are read off the same input clusters, so a device that can receive always has
+    somewhere for a link to land.
+
+    Only ever used where the user was given no way to choose (`compiler._compile_reverse`).
+    A forward leg's target endpoint is the user's, and stays the user's.
+    """
+    for endpoint in endpoint_ids(device):
+        reported = device["endpoints"][str(endpoint)]
+        if any(features_of_cluster(cluster) for cluster in reported["clusters"]["input"]):
+            return endpoint
+    return None
 
 
-def resolve_controls(
+def resolve_emitters(
     device: Device,
     entry: ZigbeeProfileEntry | None = None,
     *,
     warnings: list[str] | None = None,
-) -> list[Control]:
+) -> list[Emitter]:
     """Return a device's controls, preferring a curated entry over the generic derivation.
 
     A curated entry contributes the label, the kind of control it is, and any semantics
@@ -436,14 +439,13 @@ def resolve_controls(
     model whose derivation was already right must not rename controls out from under the
     rules already written against them.
     """
-    derived = derive_controls(device, warnings=warnings)
+    derived = derive_emitters(device, warnings=warnings)
     if entry is None:
         return derived
     derived_ids = {
-        (control.endpoint, frozenset(control.emitter.group_ids)): control.emitter.emitter_id
-        for control in derived
+        (emitter.endpoint, frozenset(emitter.group_ids)): emitter.emitter_id for emitter in derived
     }
-    curated: list[Control] = []
+    curated: list[Emitter] = []
     for profile_emitter in entry.emitters:
         conflicts = _emitter_conflicts(profile_emitter, device)
         if conflicts:
@@ -452,22 +454,20 @@ def resolve_controls(
             continue
         clusters = frozenset(profile_emitter.actions.values())
         curated.append(
-            Control(
-                emitter=_emitter(
-                    emitter_id=derived_ids.get(
-                        (profile_emitter.endpoint, clusters), profile_emitter.emitter_id
-                    ),
-                    label=profile_emitter.label,
-                    actions=profile_emitter.actions,
-                    grouping=GROUPING_PROFILE_DB,
-                    semantics=profile_emitter.semantics,
+            _emitter(
+                emitter_id=derived_ids.get(
+                    (profile_emitter.endpoint, clusters), profile_emitter.emitter_id
                 ),
+                label=profile_emitter.label,
                 endpoint=profile_emitter.endpoint,
+                actions=profile_emitter.actions,
+                grouping=GROUPING_PROFILE_DB,
+                semantics=profile_emitter.semantics,
             )
         )
     if not curated:
         return derived
-    return sorted(curated, key=lambda control: control.endpoint)
+    return sorted(curated, key=lambda emitter: emitter.endpoint)
 
 
 def _emitter_conflicts(profile_emitter: ZigbeeProfileEmitter, device: Device) -> list[str]:
@@ -488,10 +488,11 @@ def _emitter_conflicts(profile_emitter: ZigbeeProfileEmitter, device: Device) ->
     return conflicts
 
 
-def _emitter(
+def _emitter(  # noqa: PLR0913
     *,
     emitter_id: str,
     label: str,
+    endpoint: int,
     actions: Mapping[Feature, str],
     grouping: str,
     semantics: str | None = None,
@@ -506,6 +507,7 @@ def _emitter(
     return Emitter(
         emitter_id=emitter_id,
         label=label,
+        endpoint=endpoint,
         group_ids=tuple(sorted(set(actions.values()))),
         actions=dict(actions),
         capacity=BINDING_TABLE_CAPACITY,

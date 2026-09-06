@@ -307,6 +307,15 @@ class _Compilation:
         captured. Splitting the reverse leg across several controls would associate buttons
         the user never chose, so a target with no single control that can do the job gets a
         warning and the rule stays one-way.
+
+        **Both ends are asked rather than assumed**, which they were not until T48 was
+        closed. This leg used to be written from endpoint 0 to `rule.source.endpoint`, which
+        are Z-Wave shapes: 0 is the Z-Wave root, and on a Zigbee device it is nothing at all,
+        so every reverse leg of a two-way Zigbee rule was refused at apply time with a plan
+        that reported no warning and never converged. The control now says where it drives
+        from (`Emitter.endpoint`) and the receiving device says where a link lands on it
+        (`DeviceCapabilities.receiving_endpoint`), and Z-Wave answers 0 and None, which is
+        exactly what was hardcoded here before.
         """
         if self.rule.direction is not Direction.TWO_WAY or not actions:
             return
@@ -322,13 +331,30 @@ class _Compilation:
         self._add_links(
             _Leg(
                 writer=target,
-                writer_endpoint=0,
+                writer_endpoint=emitter.endpoint,
                 emitter=emitter,
                 receiver=source,
-                receiver_endpoint=self.rule.source.endpoint or None,
+                receiver_endpoint=self._reverse_receiver_endpoint(source),
             ),
             actions,
         )
+
+    def _reverse_receiver_endpoint(self, source: DeviceCapabilities) -> int | None:
+        """Return the endpoint the reverse leg lands on, back at the rule's own source.
+
+        The one place in the compiler where the user was never offered the choice: a rule
+        names the endpoint its source **drives from** and the endpoint each target is driven
+        **on**, and has no field at all for the endpoint the source is driven on when the
+        rule is two-way. So the device answers instead, when its protocol has an answer.
+
+        Z-Wave has none and reports None, which falls through to what this line always did:
+        `rule.source.endpoint or None`, so a root-endpoint source targets the whole node and
+        a multi-endpoint source targets the endpoint the rule named. Nothing about a Z-Wave
+        rule changes.
+        """
+        if source.receiving_endpoint is not None:
+            return source.receiving_endpoint
+        return self.rule.source.endpoint or None
 
     def _check_semantics(self, source: DeviceCapabilities, emitter: Emitter) -> None:
         """Warn when Off-all is asked of a control whose press is not an established OFF.

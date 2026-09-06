@@ -156,6 +156,31 @@ def test_an_emitter_can_address_an_endpoint_because_every_zigbee_binding_does() 
     assert paddle.capacity == zp.BINDING_TABLE_CAPACITY
 
 
+def test_an_emitter_says_which_endpoint_it_drives_from() -> None:
+    """Open item T48: the endpoint is on the emitter, so the compiler can see it.
+
+    It used to be on a `Control` wrapper this module returned, and unwrapping that on the
+    way to the compiler is what left a two-way rule's reverse leg written from endpoint 0.
+    """
+    assert [(e.emitter_id, e.endpoint) for e in zp.derive_emitters(zigbee_device(AUX_IEEE))] == [
+        ("ep2", 2),
+        ("ep3", 3),
+    ]
+
+
+def test_the_receiving_endpoint_is_the_load_rather_than_the_paddle() -> None:
+    """Where a binding lands when nobody was asked which endpoint it should land on."""
+    assert zp.receiving_endpoint(zigbee_device(AUX_IEEE)) == 1
+
+
+def test_a_device_that_can_act_on_nothing_has_no_receiving_endpoint() -> None:
+    """The same answer `receivable_features` gives, from the same input clusters."""
+    coordinator = zigbee_device(COORDINATOR_IEEE)
+
+    assert zp.receiving_endpoint(coordinator) is None
+    assert zp.receivable_features(coordinator) == frozenset()
+
+
 def test_an_older_firmware_reports_fewer_endpoints_and_that_is_honoured() -> None:
     """Hallway Side Lights is a VZM31-SN on software 2.00 with no endpoint 3 at all."""
     emitters = zp.derive_emitters(zigbee_device(OLD_FIRMWARE_IEEE))
@@ -510,22 +535,20 @@ CONFIG_BUTTON = {
 
 def test_a_curated_entry_supplies_the_label_and_keeps_the_derived_id() -> None:
     """Adding an entry for a model whose derivation was right must not rename its controls."""
-    controls = zp.resolve_controls(zigbee_device(AUX_IEEE), _entry(PADDLE))
+    controls = zp.resolve_emitters(zigbee_device(AUX_IEEE), _entry(PADDLE))
 
-    assert [(c.emitter.emitter_id, c.emitter.label, c.endpoint) for c in controls] == [
-        ("ep2", "Paddle", 2)
-    ]
-    assert controls[0].emitter.grouping == zp.GROUPING_PROFILE_DB
+    assert [(c.emitter_id, c.label, c.endpoint) for c in controls] == [("ep2", "Paddle", 2)]
+    assert controls[0].grouping == zp.GROUPING_PROFILE_DB
 
 
 def test_a_curated_emitter_that_regroups_is_named_by_the_entry() -> None:
     """Endpoint 2 drives both clusters, so an entry naming only one is a different control."""
     on_off_only = {**PADDLE, "actions": {"on_off": "genOnOff"}}
 
-    [control] = zp.resolve_controls(zigbee_device(AUX_IEEE), _entry(on_off_only))
+    [control] = zp.resolve_emitters(zigbee_device(AUX_IEEE), _entry(on_off_only))
 
-    assert control.emitter.emitter_id == "paddle"
-    assert control.emitter.group_ids == ("genOnOff",)
+    assert control.emitter_id == "paddle"
+    assert control.group_ids == ("genOnOff",)
 
 
 def test_an_emitter_naming_an_endpoint_this_device_does_not_have_is_dropped() -> None:
@@ -537,7 +560,7 @@ def test_an_emitter_naming_an_endpoint_this_device_does_not_have_is_dropped() ->
     """
     warnings: list[str] = []
 
-    controls = zp.resolve_controls(
+    controls = zp.resolve_emitters(
         zigbee_device(OLD_FIRMWARE_IEEE), _entry(PADDLE, CONFIG_BUTTON), warnings=warnings
     )
 
@@ -549,9 +572,9 @@ def test_an_emitter_naming_a_cluster_the_endpoint_does_not_drive_is_dropped() ->
     warnings: list[str] = []
     wrong = {**PADDLE, "endpoint": 1, "actions": {"on_off": "genOnOff"}}
 
-    controls = zp.resolve_controls(zigbee_device(AUX_IEEE), _entry(wrong), warnings=warnings)
+    controls = zp.resolve_emitters(zigbee_device(AUX_IEEE), _entry(wrong), warnings=warnings)
 
-    assert [control.emitter.emitter_id for control in controls] == ["ep2", "ep3"]
+    assert [control.emitter_id for control in controls] == ["ep2", "ep3"]
     assert any("does not drive" in warning for warning in warnings)
 
 
@@ -559,9 +582,9 @@ def test_an_emitter_claiming_a_feature_its_cluster_cannot_carry_is_dropped() -> 
     warnings: list[str] = []
     wrong = {**PADDLE, "actions": {"scene": "genOnOff"}}
 
-    controls = zp.resolve_controls(zigbee_device(AUX_IEEE), _entry(wrong), warnings=warnings)
+    controls = zp.resolve_emitters(zigbee_device(AUX_IEEE), _entry(wrong), warnings=warnings)
 
-    assert [control.emitter.emitter_id for control in controls] == ["ep2", "ep3"]
+    assert [control.emitter_id for control in controls] == ["ep2", "ep3"]
     assert any("cannot carry it" in warning for warning in warnings)
 
 
@@ -569,10 +592,10 @@ def test_an_entry_with_nothing_usable_left_falls_back_to_the_derivation() -> Non
     """An entry that has said nothing about this device must not leave it with no controls."""
     nonsense = {**PADDLE, "endpoint": 9}
 
-    controls = zp.resolve_controls(zigbee_device(AUX_IEEE), _entry(nonsense))
+    controls = zp.resolve_emitters(zigbee_device(AUX_IEEE), _entry(nonsense))
 
-    assert [control.emitter.emitter_id for control in controls] == ["ep2", "ep3"]
-    assert controls[0].emitter.grouping == zp.GROUPING_ENDPOINT
+    assert [control.emitter_id for control in controls] == ["ep2", "ep3"]
+    assert controls[0].grouping == zp.GROUPING_ENDPOINT
 
 
 def test_a_semantics_marker_is_carried_onto_the_emitter() -> None:
@@ -584,13 +607,13 @@ def test_a_semantics_marker_is_carried_onto_the_emitter() -> None:
     """
     marked = {**CONFIG_BUTTON, "semantics": "unknown"}
 
-    controls = zp.resolve_controls(zigbee_device(AUX_IEEE), _entry(PADDLE, marked))
+    controls = zp.resolve_emitters(zigbee_device(AUX_IEEE), _entry(PADDLE, marked))
 
-    assert controls[1].emitter.semantics == "unknown"
+    assert controls[1].semantics == "unknown"
 
 
 def test_with_no_entry_the_derivation_stands() -> None:
-    assert zp.resolve_controls(zigbee_device(AUX_IEEE)) == zp.derive_controls(
+    assert zp.resolve_emitters(zigbee_device(AUX_IEEE)) == zp.derive_emitters(
         zigbee_device(AUX_IEEE)
     )
 

@@ -548,26 +548,29 @@ async def test_one_backend_falling_over_leaves_the_other_working(
 
 
 # --------------------------------------------------------------------------------------
-# Two things core does that Zigbee cannot live with, pinned rather than papered over
+# The two places core used to speak Z-Wave at a Zigbee device
 # --------------------------------------------------------------------------------------
 
 
-async def test_a_two_way_zigbee_rule_compiles_a_leg_that_can_never_be_written(
-    coordinator: DeviceLinksCoordinator, runner: JobRunner
+async def test_a_two_way_zigbee_rule_drives_both_ways(
+    coordinator: DeviceLinksCoordinator, runner: JobRunner, bridge: FakeBridge
 ) -> None:
-    """Open item T48. The reverse leg of a two-way rule is compiled at endpoint 0.
+    """Open item T48, closed: the canonical two-Inovelli-Blue 3-way, end to end.
 
-    `compiler._compile_reverse` writes the reverse leg from `writer_endpoint=0`, which is
-    the Z-Wave root endpoint and does not exist on a Zigbee device at all: the paddle is
-    endpoint 2 and endpoint 0 is nothing. So the link is refused at apply time with
-    `zigbee_source_cannot_send`, and because the compiler reports neither a warning nor an
-    error, the plan looks clean and never converges.
+    **This test used to assert the opposite**, and saying what it asserted is the point of
+    keeping it. It pinned the broken behaviour: `compiler._compile_reverse` wrote the reverse
+    leg from `writer_endpoint=0` and targeted `rule.source.endpoint`, which are Z-Wave shapes.
+    Endpoint 0 is the Z-Wave root and is nothing at all on a Zigbee device (the paddle is
+    endpoint 2), and the source's paddle endpoint serves no bindable cluster (the load is
+    endpoint 1). So every reverse leg was refused at apply time with `zigbee_source_cannot_send`
+    while the compiler reported neither a warning nor an error: the plan looked clean and
+    never converged. The panel defaults `virtual_3way` to two-way, so that was the ordinary
+    case rather than an exotic one.
 
-    Not fixed here. `Emitter` deliberately carries no endpoint (that lives on
-    `zigbee_protocol.Control`), so the compiler cannot know which endpoint a target's
-    control drives from, and giving it one is a change to the shared capability model
-    rather than something the adapter can do. This test is what makes the gap visible until
-    that decision is made; it will need rewriting when it is, which is the point.
+    What changed is the shared capability model rather than anything Zigbee-shaped in core.
+    A control now says which endpoint it drives from (`Emitter.endpoint`) and a device says
+    which endpoint a link lands on (`DeviceCapabilities.receiving_endpoint`). Z-Wave answers
+    0 and None, which is exactly what the compiler used to assume for everybody.
     """
     two_way = replace(s8_rule(), template=Template.VIRTUAL_3WAY, direction=Direction.TWO_WAY)
     activate(coordinator, two_way)
@@ -576,15 +579,38 @@ async def test_a_two_way_zigbee_rule_compiles_a_leg_that_can_never_be_written(
     _, report = await plan_and_apply(coordinator, runner)
 
     assert compiled is not None
-    assert compiled.warnings == (), "the plan looks clean, which is the trap"
+    assert compiled.warnings == ()
     assert compiled.errors == ()
-    assert any(link.source_endpoint == 0 for link in compiled.links)
-    blocked = [result for result in report.results if result.outcome is LinkOutcome.BLOCKED]
-    assert blocked, "every reverse leg is refused"
-    assert {result.reason.translation_key for result in blocked if result.reason} == {
-        "zigbee_source_cannot_send"
+    assert not [link for link in compiled.links if link.source_endpoint == 0]
+    # The forward leg drives from the aux paddle onto the light's load, and the reverse leg
+    # drives from the light's paddle onto the aux's load. Both ends of both legs are the
+    # endpoints the hardware actually has.
+    assert {
+        (link.source.protocol_id, link.source_endpoint, link.target.endpoint)
+        for link in compiled.links
+    } == {(AUX_IEEE, 2, 1), (LIGHT_IEEE, 2, 1)}
+    assert report.status is JobStatus.COMPLETED
+    assert not [r for r in report.results if r.outcome is LinkOutcome.BLOCKED]
+    assert bound(coordinator, LIGHT_IEEE, 2) == {
+        (zp.GEN_ON_OFF, AUX_IEEE),
+        (zp.GEN_LEVEL_CTRL, AUX_IEEE),
     }
-    assert not (await coordinator.async_plan()).is_empty, "and it can never converge"
+    assert [b["cluster"] for b in bridge.bindings_of(LIGHT, 2)] == [
+        "manuSpecificInovelli",
+        zp.GEN_LEVEL_CTRL,
+        zp.GEN_ON_OFF,
+    ]
+
+
+async def test_a_two_way_zigbee_rule_planned_again_has_nothing_to_do(
+    coordinator: DeviceLinksCoordinator, runner: JobRunner
+) -> None:
+    """The half of T48 that mattered most: a two-way Zigbee plan converges."""
+    two_way = replace(s8_rule(), template=Template.VIRTUAL_3WAY, direction=Direction.TWO_WAY)
+    activate(coordinator, two_way)
+    await plan_and_apply(coordinator, runner)
+
+    assert (await coordinator.async_plan()).is_empty
 
 
 async def test_a_coordinator_binding_on_a_rule_s_own_cluster_blocks_that_rule(

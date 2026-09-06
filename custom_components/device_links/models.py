@@ -204,10 +204,17 @@ class Emitter:
     carries the feature it wants and puts that group on the link it produces. `semantics` is
     set when something about what this control sends is not established, which the compiler
     has to be careful about; see `profile_db.SEMANTICS_MARKERS`.
+
+    `endpoint` is where the control drives from. Every protocol has one and only some spell
+    it out: the Z-Wave root is 0, an Inovelli Blue's paddle is Zigbee endpoint 2, and Matter
+    will name its own. It has no default, for the same reason `ObservedLink.is_system` has
+    none: a default is one protocol's answer quietly given for another's, which is exactly
+    the bug this field was added to fix (docs/open-items.md T48).
     """
 
     emitter_id: str
     label: str
+    endpoint: int
     group_ids: tuple[str, ...]
     actions: Mapping[Feature, str]
     capacity: int
@@ -232,6 +239,14 @@ class DeviceCapabilities:
 
     `receivable` is what the device can act on when it is a target, so a link that could do
     nothing is rejected at compile time rather than written and left silently dead.
+
+    `receiving_endpoint` is the other half of `Emitter.endpoint`: where a link addresses this
+    device when it is the receiving end and nothing has named an endpoint for it. None means
+    a link addresses the whole device, which is the Z-Wave answer (an association names a
+    node, and an endpoint only when the user asked for one). A protocol where every link
+    names a target endpoint reports the endpoint that acts on what it receives, because
+    there is one place in the compiler where the user was never offered the choice: the
+    reverse leg of a two-way rule, whose receiver is the rule's own source device.
     """
 
     handle: DeviceHandle
@@ -239,6 +254,7 @@ class DeviceCapabilities:
     receivable: frozenset[Feature]
     is_long_range: bool
     settings: Mapping[str, SettingsAdapter] = field(default_factory=dict)
+    receiving_endpoint: int | None = None
 
 
 class Template(StrEnum):

@@ -250,6 +250,7 @@ def test_capabilities_carry_the_emitters_a_link_can_be_built_from() -> None:
     paddle = Emitter(
         emitter_id="paddle",
         label="Paddle",
+        endpoint=0,
         group_ids=("2", "3", "4"),
         actions={Feature.ON_OFF: "2", Feature.LEVEL_SET: "3", Feature.LEVEL_HOLD: "4"},
         capacity=10,

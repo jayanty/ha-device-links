@@ -106,6 +106,17 @@ def test_every_emitter_reports_whether_it_can_target_an_endpoint() -> None:
         assert emitter.supports_endpoint_targets is True
 
 
+def test_every_emitter_drives_from_the_root_endpoint() -> None:
+    """Open item T48: `Emitter.endpoint` is what the compiler reads, so Z-Wave must fill it.
+
+    Every control Device Links offers on Z-Wave is on the root, which is what the compiler
+    used to hardcode for every protocol. Saying it here rather than assuming it there is the
+    whole of the change from Z-Wave's point of view: the value is the same 0 it always was.
+    """
+    for emitter in derive_emitters(_groups(36)):
+        assert emitter.endpoint == 0
+
+
 def test_emitter_ids_are_stable_and_derived_from_groups() -> None:
     """Rules store emitter ids, so they must not move when a device is re-read."""
     first = derive_emitters(_groups(36))
