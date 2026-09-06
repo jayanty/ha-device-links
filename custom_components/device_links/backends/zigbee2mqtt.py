@@ -606,6 +606,9 @@ class ZigbeeBackend:
            Only when adding: a check about writing has nothing to say about taking an entry
            off, and refusing there would strand a binding nobody could remove.
         8. The request.
+
+        NOTE: modelled from the Zigbee2MQTT documentation, never observed. Assumption A2,
+        issue #6.
         """
         return await self._write(link, adding=True)
 
@@ -619,11 +622,17 @@ class ZigbeeBackend:
         unless `skip_disable_reporting` is set (CLAUDE.md Section 10). Device Links does not
         set it, so what happens is what the bridge would do on its own rather than a quiet
         divergence, and the plan says so before a user confirms it.
+
+        NOTE: modelled from the Zigbee2MQTT documentation, never observed. Assumption A2,
+        issue #6.
         """
         return await self._write(link, adding=False)
 
     async def _write(self, link: Link, *, adding: bool) -> LinkResult:
-        """Bind or unbind one cluster, refusing in the documented order."""
+        """Bind or unbind one cluster, refusing in the documented order.
+
+        NOTE: modelled, never observed. Assumption A2, issue #6.
+        """
         refusal = self._absolute_refusal(link)
         if refusal is not None:
             return LinkResult(status=LinkResultStatus.BLOCKED, reason=refusal)
@@ -758,6 +767,8 @@ class ZigbeeBackend:
         is ours by the only test there is, and what is said about it is a warning rather
         than a refusal. Nothing about its existing membership is disturbed, here or
         anywhere: only the one member a link names is ever added or removed.
+
+        NOTE: modelled, never observed. Assumption A2, issue #6.
         """
         _refuse_foreign(name)
         existing = self._group_named(name)
@@ -784,7 +795,10 @@ class ZigbeeBackend:
         return int(made["id"])
 
     async def _remove_group(self, name: str) -> bool:
-        """Delete one managed group, and say whether the bridge accepted it."""
+        """Delete one managed group, and say whether the bridge accepted it.
+
+        NOTE: modelled, never observed. Assumption A2, issue #6.
+        """
         _refuse_foreign(name)
         self._created.discard(name)
         return await self._group_request(
@@ -824,7 +838,10 @@ class ZigbeeBackend:
         )
 
     async def _group_request(self, topic: str, payload: Mapping[str, object]) -> bool:
-        """Send one group request and say whether the bridge carried it out."""
+        """Send one group request and say whether the bridge carried it out.
+
+        NOTE: modelled, never observed. Assumption A2, issue #6.
+        """
         self._state_stale = True
         response = await self._request(topic, payload)
         if response is None or not response.succeeded:
@@ -1044,6 +1061,8 @@ class ZigbeeBackend:
 
         Both ends are named by the friendly name they answer to now, resolved here rather
         than taken off the handle (E23).
+
+        NOTE: modelled, never observed. Assumption A2, issue #6.
         """
         return zp.BindRequest(
             source_name=self._name_of(link.source),
