@@ -690,3 +690,86 @@ class _GroupsOnlyClient:
         if topic.endswith(zp.DEVICES_TOPIC):
             return lambda: None
         return await self.bridge.async_subscribe(topic, callback)  # type: ignore[arg-type]
+
+
+# --------------------------------------------------------------------------------------
+# The coordinator's address, and what depends on getting it right
+# --------------------------------------------------------------------------------------
+
+
+async def test_the_coordinator_address_comes_from_the_bridge_rather_than_a_type_string(
+    bridge: FakeBridge,
+) -> None:
+    """`bridge/info` names it outright; the device listing only implies it.
+
+    The implication is a `type` string that is Zigbee2MQTT's to change, and if it ever did,
+    every reporting binding on the network would stop being a system link and be offered to
+    the user as something they could remove. That is the one classification that must not
+    fail open, so it has two sources.
+    """
+    for device in bridge.devices:
+        if device["type"] == "Coordinator":
+            device["type"] = "SomethingElse"
+    bridge._republish(zp.DEVICES_TOPIC)
+    backend = ZigbeeBackend(client=bridge, profiles=profiles())
+    await backend.async_start()
+
+    observed = await backend.async_observed(_handle(AUX_IEEE))
+
+    assert observed.links
+    assert all(link.is_system for link in observed.links)
+
+
+async def test_a_bridge_that_names_no_coordinator_at_all_says_so_out_loud(
+    bridge: FakeBridge, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Failing open here means offering a user their own reporting setup for removal."""
+    bridge.info = {}
+    bridge.devices = [d for d in bridge.devices if d["type"] != "Coordinator"]
+    backend = ZigbeeBackend(client=bridge, profiles=profiles())
+
+    with caplog.at_level(logging.WARNING):
+        await backend.async_start()
+
+    assert any("no coordinator is reported" in record.getMessage() for record in caplog.records)
+    observed = await backend.async_observed(_handle(AUX_IEEE))
+    assert not any(link.is_system for link in observed.links)
+
+
+async def test_a_device_listing_with_no_coordinator_does_not_unset_a_reported_one(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    """The two sources are kept apart so the weaker one cannot undo the stronger."""
+    bridge.devices = [d for d in bridge.devices if d["type"] != "Coordinator"]
+    bridge._republish(zp.DEVICES_TOPIC)
+
+    observed = await backend.async_observed(_handle(AUX_IEEE))
+
+    assert all(link.is_system for link in observed.links)
+
+
+async def test_a_binding_to_a_managed_group_with_nothing_in_it_is_still_reported(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    """There is no membership to expand, and the entry is still on the device.
+
+    A binding that produces no link at all is device state nothing in the product can see,
+    list as unmanaged, or plan to remove, which is the thing E24 is about.
+    """
+    bridge.add_group("dl_empty", 6)
+    _bind_to_group(bridge, 6)
+
+    observed = await backend.async_observed(_handle(AUX_IEEE))
+
+    assert any(link.target.handle.protocol_id == "group:6" for link in observed.links)
+
+
+async def test_an_info_payload_that_is_not_an_object_is_ignored(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    """It arrives off a broker like everything else, and the device listing still answers."""
+    bridge._deliver("zigbee2mqtt/bridge/info", '"not an object"')
+
+    observed = await backend.async_observed(_handle(AUX_IEEE))
+
+    assert all(link.is_system for link in observed.links)

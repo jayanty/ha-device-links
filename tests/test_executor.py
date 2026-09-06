@@ -39,7 +39,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 import pytest
 
-from custom_components.device_links.backends.base import ObservedDevice
+from custom_components.device_links.backends.base import LinkResultStatus, ObservedDevice
 from custom_components.device_links.backends.zwave import ZWaveBackend
 from custom_components.device_links.coordinator import DeviceLinksCoordinator, PlanScope
 from custom_components.device_links.executor import (
@@ -796,7 +796,7 @@ async def test_adding_to_a_group_the_device_reports_as_its_lifeline_is_refused_t
 
 
 async def test_the_system_group_guard_is_about_one_endpoint_and_not_the_whole_device(
-    coordinator: DeviceLinksCoordinator, runner: JobRunner
+    coordinator: DeviceLinksCoordinator, runner: JobRunner, backend: RecordingBackend
 ) -> None:
     """A group belongs to an endpoint, and asking without one refuses work that is fine.
 
@@ -827,6 +827,13 @@ async def test_the_system_group_guard_is_about_one_endpoint_and_not_the_whole_de
 
     assert runner._is_system(at(lifeline.source_endpoint)) is True
     assert runner._is_system(at(lifeline.source_endpoint + 2)) is False
+
+    # And the half that now carries it: the Z-Wave adapter refuses group 1 on any endpoint,
+    # because a group the device does not report falls back to "group 1 is the lifeline".
+    written = await backend.async_add_link(at(lifeline.source_endpoint + 2))
+    assert written.status is LinkResultStatus.BLOCKED
+    assert written.reason is not None
+    assert written.reason.translation_key == "lifeline_is_protected"
 
 
 async def test_an_unmanaged_link_nobody_selected_is_never_removed(

@@ -99,6 +99,12 @@ class FakeBridge:
         # else here: assumption A2, issue #6.
         self.ok_despite_total_failure = False
 
+        # Answer a group creation without saying which id it allocated. The documentation
+        # says the id is in `data`, and the adapter reads it there so that it does not
+        # depend on `bridge/groups` arriving before the response; this is the bridge that
+        # does not say. Unobserved like everything else here: assumption A2, issue #6.
+        self.omit_group_id = False
+
         # Every request that was published, so a test can assert that a refusal really
         # refused rather than merely reporting one.
         self.requests: list[tuple[str, Payload]] = []
@@ -242,7 +248,10 @@ class FakeBridge:
         )
         self.groups.append({"id": group_id, "friendly_name": name, "members": []})
         self._republish(zp.GROUPS_TOPIC)
-        return zp.GROUP_ADD_RESPONSE, _ok(body, extra={"friendly_name": name, "id": group_id})
+        extra: dict[str, Any] = {"friendly_name": name}
+        if not self.omit_group_id:
+            extra["id"] = group_id
+        return zp.GROUP_ADD_RESPONSE, _ok(body, extra=extra)
 
     def _group_remove(self, body: Payload) -> tuple[str, dict[str, Any]]:
         """Delete a group, and drop every binding that pointed at it."""

@@ -25,6 +25,7 @@ from tests.factories import (
     COORDINATOR_IEEE,
     LIGHT_IEEE,
     OLD_FIRMWARE_IEEE,
+    g1_bridge,
     zigbee_device,
     zigbee_devices,
 )
@@ -575,7 +576,12 @@ def test_an_entry_with_nothing_usable_left_falls_back_to_the_derivation() -> Non
 
 
 def test_a_semantics_marker_is_carried_onto_the_emitter() -> None:
-    """The compiler refuses Off-all on an emitter marked unknown, whatever the protocol."""
+    """The compiler warns about Off-all on an emitter marked unknown, whatever the protocol.
+
+    A warning rather than a refusal: `compiler._check_semantics` appends to `warnings`, so
+    the rule still compiles and the user is told that the button may toggle. What this
+    asserts is the half that lives here, which is that the marker survives resolution.
+    """
     marked = {**CONFIG_BUTTON, "semantics": "unknown"}
 
     controls = zp.resolve_controls(zigbee_device(AUX_IEEE), _entry(PADDLE, marked))
@@ -600,3 +606,42 @@ def test_a_binding_on_a_cluster_we_cannot_drive_still_describes_itself() -> None
     assert zp.features_of_binding("manuSpecificInovelli") == frozenset({Feature.STATUS_REPORT})
     assert zp.features_of_binding(zp.GEN_LEVEL_CTRL) == zp.features_of_cluster(zp.GEN_LEVEL_CTRL)
     assert zp.features_of_cluster("seMetering") == frozenset()
+
+
+def test_the_group_id_a_creation_allocated_is_read_out_of_the_response() -> None:
+    """So the request path does not depend on the retained topic arriving first.
+
+    Which of the two the bridge sends first was never measured, because item G2 was not
+    approved, and reading the id from `bridge/groups` would report a group that really was
+    created as a failure whenever the answer beat the republish. Assumption A2, issue #6.
+    """
+    response = zp.parse_response(
+        {"status": "ok", "data": {"friendly_name": "dl_hall", "id": 4}, "transaction": "t"}
+    )
+
+    assert response.group_id == 4
+
+
+def test_a_group_id_that_is_not_a_whole_number_is_not_read_as_one() -> None:
+    """JSON `true` parses to a `bool`, which is an `int`, and would read as group 1."""
+    assert zp.parse_response({"status": "ok", "data": {"id": True}}).group_id is None
+    assert zp.parse_response({"status": "ok", "data": {"id": "4"}}).group_id is None
+    assert zp.parse_response({"status": "ok", "data": {}}).group_id is None
+
+
+def test_the_coordinator_address_is_read_out_of_bridge_info() -> None:
+    """The authoritative source, and the one that does not depend on a `type` string."""
+    assert zp.coordinator_address(g1_bridge()["info"]) == COORDINATOR_IEEE
+
+
+@pytest.mark.parametrize(
+    "info",
+    [
+        {},
+        {"coordinator": "not an object"},
+        {"coordinator": {}},
+        {"coordinator": {"ieee_address": ""}},
+    ],
+)
+def test_an_info_payload_that_names_no_coordinator_answers_nothing(info: dict[str, Any]) -> None:
+    assert zp.coordinator_address(info) is None

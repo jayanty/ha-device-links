@@ -90,12 +90,19 @@ def link(  # noqa: PLR0913
 async def test_a_partial_cluster_failure_is_never_reported_as_applied(
     backend: ZigbeeBackend, bridge: FakeBridge
 ) -> None:
-    """Zigbee2MQTT reports `status: "error"` only when **every** cluster failed.
+    """A response that says `ok` and lists a cluster in `failed` is a bind that did not happen.
 
-    A response that says `ok` and lists a cluster in `failed` is a bind that did not happen
-    for that cluster. Reading `status` alone reports the link as applied, and the user gets
-    a paddle that turns the light on and cannot dim it while the panel says everything is
-    fine. This is the single most likely way to ship a Zigbee bug that looks like it works.
+    Reading `status` alone reports the link as applied, and the user gets a paddle that
+    turns the light on and cannot dim it while the panel says everything is fine.
+
+    Worth being exact about what this exercises, because it is not quite the documented
+    case. The documentation says `status` is `error` only when **every** cluster failed,
+    and this adapter asks for exactly one cluster at a time, so under the documentation a
+    failure of ours is always total and always an error: the partial shape cannot arise
+    from our own requests. `ok_despite_total_failure` makes the bridge contradict its own
+    documentation, which is the case in which the naive check ships a bug. One cluster per
+    request removes the failure mode; this is what stops it coming back if that changes, or
+    if the documentation is wrong. Assumption A2, issue #6.
     """
     bridge.fail_clusters = {zp.GEN_LEVEL_CTRL}
     bridge.ok_despite_total_failure = True
@@ -111,7 +118,12 @@ async def test_a_partial_cluster_failure_is_never_reported_as_applied(
 async def test_a_partial_failure_names_the_clusters_that_did_not_bind(
     backend: ZigbeeBackend, bridge: FakeBridge
 ) -> None:
-    """A bare "it failed" is not actionable; "genLevelCtrl did not bind" is."""
+    """A bare "it failed" is not actionable; "genLevelCtrl did not bind" is.
+
+    Same shape as the test above, and the same caveat: the bridge is being made to
+    contradict its documentation, because one cluster per request means the documented
+    partial shape cannot come from us.
+    """
     bridge.fail_clusters = {zp.GEN_LEVEL_CTRL}
     bridge.ok_despite_total_failure = True
 
@@ -717,3 +729,30 @@ async def test_a_source_the_bridge_forgot_is_not_treated_as_a_battery_device(
     nobody can follow, so an unknown device is not a battery one.
     """
     assert backend._is_battery(handle("0x0011223344556677")) is False
+
+
+async def test_a_broker_that_will_not_take_the_request_reads_as_no_answer(
+    bridge: FakeBridge,
+) -> None:
+    """The `Backend` contract says an adapter answers rather than raises.
+
+    A publish that throws is a request that got no answer, which is a thing the caller
+    already knows how to say. Raising instead would take the rest of the job's report with
+    it, including the results of the links that did work.
+    """
+
+    class _Refusing:
+        async def async_publish(self, topic: str, payload: str) -> None:
+            raise RuntimeError("the broker is not connected")
+
+        async def async_subscribe(self, topic: str, callback: object) -> object:
+            return await bridge.async_subscribe(topic, callback)  # type: ignore[arg-type]
+
+    backend = ZigbeeBackend(client=_Refusing(), profiles=profiles(), request_timeout=0.05)
+    await backend.async_start()
+
+    result = await backend.async_add_link(link())
+
+    assert result.status is LinkResultStatus.FAILED
+    assert result.reason is not None
+    assert result.reason.translation_key == "zigbee_no_response"

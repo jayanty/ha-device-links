@@ -26,6 +26,7 @@ performed on this network. Assumption A2, issue #6.
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from dataclasses import replace
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -38,6 +39,7 @@ from custom_components.device_links.coordinator import DeviceLinksCoordinator, P
 from custom_components.device_links.executor import JobRunner, JobStatus, LinkOutcome
 from custom_components.device_links.models import Backend as BackendId
 from custom_components.device_links.models import (
+    Direction,
     Feature,
     ObservedLink,
     PlanOp,
@@ -50,6 +52,7 @@ from custom_components.device_links.models import (
 from custom_components.device_links.storage import DeviceLinksStore, StoredState
 from tests.factories import (
     AUX_IEEE,
+    COORDINATOR_IEEE,
     LIGHT_IEEE,
     OLD_FIRMWARE_IEEE,
     SECOND_LIGHT_IEEE,
@@ -542,3 +545,77 @@ async def test_one_backend_falling_over_leaves_the_other_working(
     }
     assert {item.device_identity.split(":")[0] for item in plan.items} == {"zwave"}
     assert report.status is JobStatus.COMPLETED
+
+
+# --------------------------------------------------------------------------------------
+# Two things core does that Zigbee cannot live with, pinned rather than papered over
+# --------------------------------------------------------------------------------------
+
+
+async def test_a_two_way_zigbee_rule_compiles_a_leg_that_can_never_be_written(
+    coordinator: DeviceLinksCoordinator, runner: JobRunner
+) -> None:
+    """Open item T48. The reverse leg of a two-way rule is compiled at endpoint 0.
+
+    `compiler._compile_reverse` writes the reverse leg from `writer_endpoint=0`, which is
+    the Z-Wave root endpoint and does not exist on a Zigbee device at all: the paddle is
+    endpoint 2 and endpoint 0 is nothing. So the link is refused at apply time with
+    `zigbee_source_cannot_send`, and because the compiler reports neither a warning nor an
+    error, the plan looks clean and never converges.
+
+    Not fixed here. `Emitter` deliberately carries no endpoint (that lives on
+    `zigbee_protocol.Control`), so the compiler cannot know which endpoint a target's
+    control drives from, and giving it one is a change to the shared capability model
+    rather than something the adapter can do. This test is what makes the gap visible until
+    that decision is made; it will need rewriting when it is, which is the point.
+    """
+    two_way = replace(s8_rule(), template=Template.VIRTUAL_3WAY, direction=Direction.TWO_WAY)
+    activate(coordinator, two_way)
+
+    compiled = coordinator.compiled_for("s8")
+    _, report = await plan_and_apply(coordinator, runner)
+
+    assert compiled is not None
+    assert compiled.warnings == (), "the plan looks clean, which is the trap"
+    assert compiled.errors == ()
+    assert any(link.source_endpoint == 0 for link in compiled.links)
+    blocked = [result for result in report.results if result.outcome is LinkOutcome.BLOCKED]
+    assert blocked, "every reverse leg is refused"
+    assert {result.reason.translation_key for result in blocked if result.reason} == {
+        "zigbee_source_cannot_send"
+    }
+    assert not (await coordinator.async_plan()).is_empty, "and it can never converge"
+
+
+async def test_a_coordinator_binding_on_a_rule_s_own_cluster_blocks_that_rule(
+    coordinator: DeviceLinksCoordinator, runner: JobRunner, bridge: FakeBridge
+) -> None:
+    """Open item T49. `JobRunner._is_system` treats a slot holding a system entry as system.
+
+    That is true on Z-Wave, where a lifeline group holds the controller and nothing else may
+    go in it. It is false on Zigbee, where one endpoint's cluster holds many independent
+    bindings side by side, and Zigbee2MQTT puts a reporting binding on exactly the endpoint
+    and cluster a remote's presses come from.
+
+    Nothing in the G1 capture is shaped like that (the Inovelli reporting bindings sit on
+    endpoint 1 and on endpoint 2's manufacturer cluster), so no device on this network is
+    affected. The first Zigbee button or remote added would be, and there would be no way
+    out of it from the UI. Not fixed here: narrowing the guard further means deciding what
+    it is for, which is a change to what `is_system` means to every backend.
+    """
+    bridge.add_binding(
+        AUX,
+        2,
+        zp.GEN_ON_OFF,
+        {"type": "endpoint", "ieee_address": COORDINATOR_IEEE, "endpoint": 1},
+    )
+    await coordinator.async_refresh()
+    activate(coordinator, s8_rule())
+
+    _, report = await plan_and_apply(coordinator, runner)
+
+    blocked = [result for result in report.results if result.outcome is LinkOutcome.BLOCKED]
+    assert [result.reason.translation_key for result in blocked if result.reason] == [
+        "system_link_protected"
+    ]
+    assert not (await coordinator.async_plan()).is_empty

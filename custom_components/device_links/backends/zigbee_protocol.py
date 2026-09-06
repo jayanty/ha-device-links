@@ -221,6 +221,22 @@ def features_of_binding(cluster: str) -> frozenset[Feature]:
     return features_of_cluster(cluster) or frozenset({Feature.STATUS_REPORT})
 
 
+def coordinator_address(info: Mapping[str, object]) -> str | None:
+    """Return the coordinator's IEEE address as `bridge/info` reports it.
+
+    The authoritative source, and the reason it is worth having a second one: the fallback
+    scans `bridge/devices` for a device whose `type` is `Coordinator`, and that string is
+    Zigbee2MQTT's, not ours. If it ever changes, or the coordinator is missing from the
+    listing, the fallback quietly finds nothing and every reporting binding on the network
+    stops being a system link, which is the one classification that must not fail open.
+    """
+    coordinator = info.get("coordinator")
+    if not isinstance(coordinator, dict):
+        return None
+    address = coordinator.get("ieee_address")
+    return address if isinstance(address, str) and address else None
+
+
 def is_coordinator(device: Device) -> bool:
     """Say whether this device is the radio itself, whose bindings are never ours."""
     return device["type"] == COORDINATOR_TYPE
@@ -730,6 +746,7 @@ class BridgeResponse:
     requested: tuple[str, ...]
     error: str | None
     transaction: str | None
+    group_id: int | None
 
     @property
     def succeeded(self) -> bool:
@@ -762,6 +779,11 @@ def parse_response(payload: Mapping[str, object]) -> BridgeResponse:
         requested=_clusters(data_map.get("clusters")),
         error=_text(payload.get("error")),
         transaction=_text(payload.get("transaction")) or _text(data_map.get("transaction")),
+        # A group creation answers with the id it allocated. Read here rather than looked
+        # up in `bridge/groups` afterwards, because the request path would otherwise depend
+        # on the bridge republishing its retained state before it answers, which nobody has
+        # measured (assumption A2 again).
+        group_id=_whole_number(data_map.get("id")),
     )
 
 
@@ -775,6 +797,15 @@ def _clusters(raw: object) -> tuple[str, ...]:
 def _text(raw: object) -> str | None:
     """Return a payload field as text when it is text, and None otherwise."""
     return raw if isinstance(raw, str) else None
+
+
+def _whole_number(raw: object) -> int | None:
+    """Return a payload field as a whole number when it is one, and None otherwise.
+
+    `bool` is excluded because JSON `true` parses to a Python `bool`, which is an `int`,
+    and a group whose id came out as 1 that way would be the wrong group.
+    """
+    return raw if isinstance(raw, int) and not isinstance(raw, bool) else None
 
 
 def clusters_for(features: Iterable[Feature]) -> tuple[str, ...]:

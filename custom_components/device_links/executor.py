@@ -647,8 +647,24 @@ class JobRunner:
         the slot is a cluster, so the reporting bindings Zigbee2MQTT puts on a switch's load
         endpoint carry the very cluster names a rule binds from its paddle endpoint. Asking
         by group alone made every Zigbee link the coordinator also reports look like a
-        system link, and blocked the lot. The fix is protocol-neutral and was always the
-        right question: an endpoint's group is what a backend writes to.
+        system link, and blocked the lot. Adding the endpoint is protocol-neutral and is a
+        better question in both protocols.
+
+        It is a **narrowing rather than a complete answer**, and the difference is worth
+        stating where it will be read. "This slot holds a system entry, so the slot is
+        system" is a Z-Wave truth: a lifeline group holds the controller and nothing else
+        may go into it. It is false on Zigbee, where one endpoint's cluster holds many
+        independent bindings side by side, so a device whose reporting binding sits on the
+        same endpoint and cluster a rule uses (a battery remote, typically) has every rule
+        from it refused here with no way out from the UI. Nothing in the Stage 0 capture is
+        shaped that way, so no device on this network is affected today. Closing it means
+        deciding what `is_system` is for, which is a change to what it means to every
+        backend: see docs/open-items.md T49.
+
+        For Z-Wave the narrowing gives up one thing: an add to endpoint 2's group 1 on a
+        multi-endpoint device now passes this layer. The Z-Wave adapter still refuses it,
+        because a group a device does not report falls back to "group 1 is the lifeline",
+        and `tests/test_executor.py` asserts both halves together for that reason.
         """
         if isinstance(link, ObservedLink) and link.is_system:
             return True

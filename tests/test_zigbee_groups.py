@@ -340,10 +340,13 @@ async def test_a_failed_membership_change_does_not_leave_the_link_looking_applie
 async def test_a_group_that_vanishes_between_the_plan_and_the_write_is_nothing_to_do(
     backend: ZigbeeBackend, bridge: FakeBridge
 ) -> None:
-    """Somebody deleted it in Zigbee2MQTT while the apply was running.
+    """Somebody deleted the group in Zigbee2MQTT while the apply was running.
 
-    There is nothing on the device answering to this link any more, and nothing went wrong,
-    so it is `already_present` in the sense that matters: the removal has happened.
+    Nothing on the device answers to this link any more, so there is nothing to remove and
+    nothing went wrong. What that does **not** mean is that the device is tidy: the binding
+    to the group is still on it, orphaned, and is reported as an unmanaged link to
+    `group:<id>` rather than removed. This test clears the group list directly, which is a
+    thing only a test can do; a real deletion through the bridge takes the bindings with it.
     """
     for target in (LIGHT_IEEE, SECOND_LIGHT_IEEE):
         await backend.async_add_link(link(target=target, rule_id="hallway"))
@@ -353,6 +356,9 @@ async def test_a_group_that_vanishes_between_the_plan_and_the_write_is_nothing_t
     result = await backend.async_remove_link(link(target=SECOND_LIGHT_IEEE, rule_id="hallway"))
 
     assert result.status is LinkResultStatus.ALREADY_PRESENT
+    assert {b["target"]["type"] for b in bridge.bindings_of(AUX, 2)} == {"endpoint", "group"}, (
+        "the binding to the group that is gone is still on the device"
+    )
 
 
 async def test_the_group_a_link_already_names_is_not_wrapped_in_another_one(
@@ -488,4 +494,88 @@ async def test_a_binding_to_a_foreign_group_is_not_a_membership_this_rule_can_re
         "id": 5,
         "friendly_name": "kitchen",
         "members": [{"ieee_address": LIGHT_IEEE, "endpoint": 1}],
+    }
+
+
+async def test_a_group_creation_that_does_not_carry_its_id_is_looked_up_instead(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    """The id comes out of the response when it is there, and off `bridge/groups` when not.
+
+    Which of the two a real bridge sends first was never measured (assumption A2), so the
+    response is preferred and the retained topic is the fallback rather than the other way
+    round. A bridge that answers without an id still works.
+    """
+    bridge.omit_group_id = True
+    await backend.async_add_link(link(target=LIGHT_IEEE, rule_id="hallway"))
+
+    result = await backend.async_add_link(link(target=SECOND_LIGHT_IEEE, rule_id="hallway"))
+
+    assert result.status is LinkResultStatus.APPLIED
+    assert bridge.group_named("dl_hallway") is not None
+    assert bridge.bindings_of(AUX, 2)[-1]["target"] == {"type": "group", "id": 1}
+
+
+async def test_a_link_that_names_a_group_comes_off_as_one_binding(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    """What it asked for was the group, so the group is what goes, membership untouched.
+
+    Nothing compiles a link that names a group today, so this is the raw service call and
+    the future feature. It is worth having because removal and presence ask the same
+    question two different ways, and this is the shape where they used to part company.
+    """
+    bridge.add_group("dl_hall", 3, [{"ieee_address": LIGHT_IEEE, "endpoint": 1}])
+    grouped = link(target="group:3", target_endpoint=None, rule_id="hall")
+    await backend.async_add_link(grouped)
+
+    result = await backend.async_remove_link(grouped)
+
+    assert result.status is LinkResultStatus.APPLIED
+    assert all(b["target"]["type"] != "group" for b in bridge.bindings_of(AUX, 2))
+    assert bridge.group_named("dl_hall") == {
+        "id": 3,
+        "friendly_name": "dl_hall",
+        "members": [{"ieee_address": LIGHT_IEEE, "endpoint": 1}],
+    }
+
+
+async def test_removing_a_group_link_that_is_not_there_is_nothing_to_do(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    bridge.add_group("dl_hall", 3)
+    before = bridge.write_count
+
+    result = await backend.async_remove_link(
+        link(target="group:3", target_endpoint=None, rule_id="hall")
+    )
+
+    assert result.status is LinkResultStatus.ALREADY_PRESENT
+    assert bridge.write_count == before
+
+
+async def test_a_foreign_group_on_the_same_cluster_is_skipped_rather_than_mistaken_for_ours(
+    backend: ZigbeeBackend, bridge: FakeBridge
+) -> None:
+    """One endpoint's cluster can hold several group bindings, and only ours is ours.
+
+    The removal path walks the bindings looking for the managed group that holds the
+    target. A user's own group sitting in the same slot has to be stepped over, not asked
+    about and not written to.
+    """
+    # The user's group binding goes on first, so the walk really has to step over it to
+    # reach ours rather than finding ours before it gets there.
+    bridge.add_group("kitchen", 7, [{"ieee_address": SECOND_LIGHT_IEEE, "endpoint": 1}])
+    bridge.add_binding(AUX, 2, zp.GEN_ON_OFF, {"type": "group", "id": 7})
+    for target in (LIGHT_IEEE, SECOND_LIGHT_IEEE):
+        await backend.async_add_link(link(target=target, rule_id="hallway"))
+
+    result = await backend.async_remove_link(link(target=SECOND_LIGHT_IEEE, rule_id="hallway"))
+
+    assert result.status is LinkResultStatus.APPLIED
+    assert bridge.group_named("dl_hallway") is None
+    assert bridge.group_named("kitchen") == {
+        "id": 7,
+        "friendly_name": "kitchen",
+        "members": [{"ieee_address": SECOND_LIGHT_IEEE, "endpoint": 1}],
     }

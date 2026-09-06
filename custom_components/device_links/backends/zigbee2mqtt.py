@@ -140,7 +140,17 @@ class _State:
     devices: dict[str, zp.Device] = field(default_factory=dict)
     groups: dict[int, zp.Group] = field(default_factory=dict)
     online: bool = False
-    coordinator_ieee: str | None = None
+
+    # The coordinator's address as `bridge/info` reported it, which is authoritative, and
+    # as the device listing implies it, which is the fallback. Kept apart so that a listing
+    # arriving without a coordinator cannot unset an address the bridge actually told us.
+    reported_coordinator: str | None = None
+    listed_coordinator: str | None = None
+
+    @property
+    def coordinator_ieee(self) -> str | None:
+        """Return the coordinator's address, from whichever source has one."""
+        return self.reported_coordinator or self.listed_coordinator
 
 
 class ZigbeeBackend:
@@ -212,6 +222,7 @@ class ZigbeeBackend:
         for topic in (
             f"{self._base}/bridge/response/#",
             f"{self._base}/{zp.STATE_TOPIC}",
+            f"{self._base}/{zp.INFO_TOPIC}",
             f"{self._base}/{zp.GROUPS_TOPIC}",
             f"{self._base}/{zp.DEVICES_TOPIC}",
         ):
@@ -264,6 +275,8 @@ class ZigbeeBackend:
             self._on_devices(parsed)
         elif relative == zp.GROUPS_TOPIC:
             self._on_groups(parsed)
+        elif relative == zp.INFO_TOPIC:
+            self._on_info(parsed)
         elif relative == zp.STATE_TOPIC:
             self._on_state(parsed)
         elif relative.startswith("bridge/response/"):
@@ -294,9 +307,18 @@ class ZigbeeBackend:
             if self._state.devices.get(ieee) != device and ieee in self._state.devices
         ]
         self._state.devices = devices
-        self._state.coordinator_ieee = next(
-            (ieee for ieee, device in devices.items() if zp.is_coordinator(device)), None
-        )
+        listed = next((ieee for ieee, device in devices.items() if zp.is_coordinator(device)), None)
+        if listed is None and self._state.coordinator_ieee is None:
+            # The one classification that must not fail open. Without a coordinator address
+            # every reporting binding on the network stops being a system link and is
+            # offered to the user as something they could remove, which is the thing that
+            # makes their devices report at all.
+            _LOGGER.warning(
+                "no coordinator is reported on %s, so bindings to it cannot be told apart "
+                "from a user's own and are reported as unmanaged rather than as system links",
+                self._base,
+            )
+        self._state.listed_coordinator = listed
         self._state_arrived(self._awaiting_devices)
         for ieee in changed:
             self._notify(f"{BackendId.ZIGBEE2MQTT}:{ieee}")
@@ -311,6 +333,20 @@ class ZigbeeBackend:
             return
         self._state.groups = _as_groups(parsed)
         self._state_arrived([])
+
+    def _on_info(self, parsed: object) -> None:
+        """Take the bridge's own description of itself, for the coordinator's address.
+
+        The authoritative source: `bridge/info` names the coordinator outright, where the
+        device listing only implies it through a `type` string that is Zigbee2MQTT's to
+        change. Read but never required, because a bridge that has not published it yet
+        still has a device listing to fall back on.
+        """
+        if not isinstance(parsed, dict):
+            return
+        address = zp.coordinator_address(parsed)
+        if address is not None:
+            self._state.reported_coordinator = address
 
     def _on_state(self, parsed: object) -> None:
         """Follow the bridge up and down, saying so once each way (E26)."""
@@ -521,7 +557,11 @@ class ZigbeeBackend:
             # the group rather than dropped, because the entry is on the device: a link that
             # is not reported is a link nobody can plan to remove (E24).
             return [(zp.group_handle(binding.group_id, f"group {binding.group_id}"), None)]
-        if not zp.is_managed_group_name(group["friendly_name"]):
+        if not zp.is_managed_group_name(group["friendly_name"]) or not group["members"]:
+            # A group that is not ours, or one of ours with nothing in it. Either way there
+            # is no membership to expand, and the entry is still on the device: a binding
+            # that produces no link at all is device state nothing in the product can see,
+            # list as unmanaged, or plan to remove (E24).
             return [(zp.group_handle(binding.group_id, group["friendly_name"]), None)]
         return [
             (self._handle_of_ieee(member["ieee_address"]), member["endpoint"])
@@ -689,12 +729,31 @@ class ZigbeeBackend:
 
     async def _unbind(self, link: Link) -> LinkResult:
         """Take one binding off, whether it is a plain binding or a group membership."""
-        if self._plain_binding(link) is not None:
+        if zp.group_id_of(link.target.handle) is not None or self._plain_binding(link) is not None:
+            # A link that names a group is one binding and comes off as one, membership
+            # untouched: what it asked for was the group, so the group is what goes. A link
+            # that names a device and has a plain binding comes off the same way.
             return await self._request_binding(link, adding=False)
         group = self._group_holding(link)
-        # `_write` reached here only because something on the device answers to this link,
-        # and a plain binding was ruled out one line above, so the group is there.
-        assert group is not None
+        if group is None:
+            # `_write` reached here because something on the device answers to this link,
+            # and neither a plain binding nor a group membership does. Presence and removal
+            # ask that question two different ways (fingerprints over the observed links,
+            # and the bindings themselves), so a disagreement between them lands here.
+            #
+            # Reported rather than asserted, and this was an `assert` until a review pointed
+            # out that whole-dict comparison of a group member made the two disagree the
+            # moment Zigbee2MQTT added a field to one. An adapter that raises breaks the
+            # `Backend` contract and takes the rest of the job's report with it, which is a
+            # worse answer to a disagreement than one failed link.
+            _LOGGER.debug(
+                "%s reads as present and matches neither a plain binding nor a group",
+                link.fingerprint,
+            )
+            return LinkResult(
+                status=LinkResultStatus.FAILED,
+                reason=Diagnostic("zigbee_bind_failed", _binding_placeholders(link)),
+            )
         return await self._unbind_through_group(link, group)
 
     def _group_for(self, link: Link) -> str | None:
@@ -723,14 +782,8 @@ class ZigbeeBackend:
         group_id = await self._ensure_group(name)
         if group_id is None:
             return self._group_failure(link, name)
-        target = self._device(link.target.handle)
-        member = zp.group_member_payload(
-            friendly_name=name,
-            device_name=str(target["friendly_name"]),
-            endpoint=link.target.endpoint if link.target.endpoint is not None else 1,
-            transaction=self._next_transaction(),
-        )
-        if not await self._group_request(zp.GROUP_MEMBER_ADD_REQUEST, member):
+        member = self._member_payload(link, name)
+        if member is None or not await self._group_request(zp.GROUP_MEMBER_ADD_REQUEST, member):
             return self._group_failure(link, name)
         if self._group_binding(link, name) is not None:
             return LinkResult(status=LinkResultStatus.APPLIED)
@@ -742,14 +795,8 @@ class ZigbeeBackend:
         NOTE: modelled, never observed. Assumption A2, issue #6.
         """
         name = str(group["friendly_name"])
-        target = self._device(link.target.handle)
-        member = zp.group_member_payload(
-            friendly_name=name,
-            device_name=str(target["friendly_name"]),
-            endpoint=link.target.endpoint if link.target.endpoint is not None else 1,
-            transaction=self._next_transaction(),
-        )
-        if not await self._group_request(zp.GROUP_MEMBER_REMOVE_REQUEST, member):
+        member = self._member_payload(link, name)
+        if member is None or not await self._group_request(zp.GROUP_MEMBER_REMOVE_REQUEST, member):
             return self._group_failure(link, name)
         remaining = self._state.groups.get(int(group["id"]))
         if remaining is not None and remaining["members"]:
@@ -757,6 +804,26 @@ class ZigbeeBackend:
         if not await self._remove_group(name):
             return self._group_failure(link, name)
         return LinkResult(status=LinkResultStatus.APPLIED)
+
+    def _member_payload(self, link: Link, name: str) -> dict[str, object] | None:
+        """Return the request that puts this link's target in or out of a managed group.
+
+        None when the link names no target endpoint. `_absolute_refusal` has already
+        refused one of those, so this cannot happen from `_write`; what it must not do if
+        it ever can is choose an endpoint, because a guessed endpoint is a binding to
+        something the user did not ask for and the rest of this module refuses to guess.
+
+        NOTE: modelled, never observed. Assumption A2, issue #6.
+        """
+        if link.target.endpoint is None:
+            return None
+        target = self._device(link.target.handle)
+        return zp.group_member_payload(
+            friendly_name=name,
+            device_name=str(target["friendly_name"]),
+            endpoint=link.target.endpoint,
+            transaction=self._next_transaction(),
+        )
 
     async def _ensure_group(self, name: str) -> int | None:
         """Return this managed group's id, creating it if the bridge does not have it.
@@ -782,17 +849,35 @@ class ZigbeeBackend:
                     self._base,
                 )
             return int(existing["id"])
-        created = await self._group_request(
+        created = await self._create_group(name)
+        if created is None:
+            return None
+        self._created.add(name)
+        return created
+
+    async def _create_group(self, name: str) -> int | None:
+        """Create one managed group and return the id the bridge allocated, or None.
+
+        The id comes out of the response rather than from `bridge/groups` afterwards. Which
+        of the two arrives first was never measured, because item G2 was not approved, and
+        reading the id from the retained topic would report a group that was created as a
+        failure whenever the answer beat the republish.
+
+        NOTE: modelled, never observed. Assumption A2, issue #6.
+        """
+        _refuse_foreign(name)
+        response = await self._request(
             zp.GROUP_ADD_REQUEST,
             zp.group_add_payload(friendly_name=name, transaction=self._next_transaction()),
         )
-        if not created:
+        self._state_stale = True
+        if response is None or not response.succeeded:
+            _LOGGER.debug("the group %s was not created: %s", name, response)
             return None
+        if response.group_id is not None:
+            return response.group_id
         made = self._group_named(name)
-        if made is None:
-            return None
-        self._created.add(name)
-        return int(made["id"])
+        return None if made is None else int(made["id"])
 
     async def _remove_group(self, name: str) -> bool:
         """Delete one managed group, and say whether the bridge accepted it.
@@ -915,17 +1000,14 @@ class ZigbeeBackend:
 
     def _group_holding(self, link: Link) -> zp.Group | None:
         """Return the managed group this control is bound to that holds this link's target."""
-        member = {
-            "ieee_address": link.target.handle.protocol_id,
-            "endpoint": link.target.endpoint,
-        }
+        member = (link.target.handle.protocol_id, link.target.endpoint)
         for binding in self._bindings_from(link):
             if binding.group_id is None:
                 continue
             group = self._state.groups.get(binding.group_id)
             if group is None or not zp.is_managed_group_name(str(group["friendly_name"])):
                 continue
-            if any(dict(entry) == member for entry in group["members"]):
+            if any(_member_of(entry) == member for entry in group["members"]):
                 return group
         return None
 
@@ -1032,6 +1114,12 @@ class ZigbeeBackend:
         Registered before publishing, not after: the bridge can answer immediately, and a
         waiter set up afterwards would miss the answer to its own request and time out.
 
+        None means "no answer", and both ways of getting there mean the same thing to the
+        caller: the response never came, or the broker would not take the request. A
+        `CancelledError` is different and is left to propagate, because the only thing that
+        raises one here is `async_stop` during a config entry unload, and reporting a
+        teardown as a link that failed would put a fault in the job log for a shutdown.
+
         NOTE: modelled, never observed. Assumption A2, issue #6.
         """
         transaction = str(payload["transaction"])
@@ -1048,6 +1136,11 @@ class ZigbeeBackend:
                 topic,
                 self._request_timeout,
             )
+            return None
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:  # an MQTT client may raise anything its broker raises
+            _LOGGER.debug("publishing %s on %s failed: %s", transaction, topic, err)
             return None
         finally:
             self._pending.pop(transaction, None)
@@ -1139,8 +1232,11 @@ class ZigbeeBackend:
         if not zp.emits(source, link.source_endpoint, link.emitter_group):
             return Diagnostic("zigbee_source_cannot_send", _binding_placeholders(link))
         if zp.group_id_of(link.target.handle) is not None:
-            # A group has no clusters of its own; what its members can act on is checked
-            # when each member is added to it.
+            # A group has no clusters of its own, so there is nothing here to ask it. What
+            # its members can act on is not checked anywhere: the compiler checked it for
+            # each target when it produced the per-target links, and a group is only ever
+            # reached through those. Nothing produces a link that names a group directly
+            # today, and a future one would need this asking the members.
             return None
         target = self._device(link.target.handle)
         if link.target.endpoint is None or not zp.accepts(
@@ -1164,6 +1260,12 @@ class ZigbeeBackend:
         the per-target links it stands for, and a level binding counts for both the
         features it carries.
         """
+        group_id = zp.group_id_of(link.target.handle)
+        if group_id is not None:
+            # A link that names a group cannot be compared against the observed links,
+            # because those expand a managed group into the members it stands for and so
+            # never carry the group's own address. What answers it is the binding itself.
+            return any(binding.group_id == group_id for binding in self._bindings_from(link))
         source = self._device(link.source)
         return any(
             observed.fingerprint == link.fingerprint
@@ -1306,6 +1408,11 @@ class ZigbeeBackend:
         to any number of devices is already one message and the burst a debounce exists to
         swallow cannot happen. What is filtered instead is devices that did not change,
         because the bridge republishes the whole list whenever any part of it moves.
+
+        A device that has just joined the network is not announced, for the same reason the
+        Z-Wave adapter does not announce a newly included node: the callback carries an
+        identity, and the coordinator drops one it has never read. Noticing a new device is
+        the coordinator's job, because it is the thing that keeps the device list.
         """
         self._listeners.append(callback)
 
@@ -1323,6 +1430,17 @@ class ZigbeeBackend:
             return None
         entry = self._entry_of(device)
         return None if entry is None else entry.wake_instruction
+
+
+def _member_of(entry: zp.GroupMember) -> tuple[str, int]:
+    """Return one group member as the pair that identifies it, and nothing else.
+
+    Whole-dict equality is what this replaced, and it was wrong in a way that only shows up
+    on somebody else's bridge: Zigbee2MQTT is free to add a field to a member entry, and one
+    extra key would make this stop matching the link that put the member there. Two things
+    identify a member of a Zigbee group, and they are the same two `_is_present` compares.
+    """
+    return (str(entry["ieee_address"]), int(entry["endpoint"]))
 
 
 def _to_group(link: Link, group_id: int, friendly_name: str) -> Link:
