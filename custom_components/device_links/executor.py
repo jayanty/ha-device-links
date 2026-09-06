@@ -401,12 +401,17 @@ class JobRunner:
         *,
         scope: PlanScope | None = None,
         remove_unmanaged: frozenset[str] = frozenset(),
+        desired: Sequence[Link] | None = None,
         job_id: str | None = None,
     ) -> JobReport:
         """Apply this plan and return what happened to every item in it.
 
-        `scope` and `remove_unmanaged` must be the ones the plan was built with: they are
-        how the plan is rebuilt to find out whether it is still current (E15).
+        `scope`, `remove_unmanaged` and `desired` must be the ones the plan was built with:
+        they are how the plan is rebuilt to find out whether it is still current (E15).
+        `desired` is only ever supplied by a caller that proposed a state which is not the
+        stored one, which today is the snapshot rollback: rebuilding its plan from the
+        stored profile instead would compare a rollback against the rules it is not about
+        and call every device stale.
 
         `job_id` lets a caller that cannot await this job name it before it starts. The
         WebSocket API applies in a background task, so that closing the panel does not
@@ -442,7 +447,7 @@ class JobRunner:
         # `applying` and stays saying it until something else happens to change.
         self._coordinator.async_update_listeners()
         try:
-            return await self._run(job, plan, scope, remove_unmanaged)
+            return await self._run(job, plan, scope, remove_unmanaged, desired)
         finally:
             self._job = None
             job.finished.set()
@@ -504,6 +509,7 @@ class JobRunner:
         plan: Plan,
         scope: PlanScope | None,
         remove_unmanaged: frozenset[str],
+        desired: Sequence[Link] | None = None,
     ) -> JobReport:
         """Refuse, hold, re-read, snapshot, write, verify, record. In that order, always.
 
@@ -524,7 +530,7 @@ class JobRunner:
         release = self._coordinator.async_hold_refresh(sorted(handles))
         try:
             await self._reread(handles)
-            stale = await self._stale_devices(plan, scope, remove_unmanaged, by_device)
+            stale = await self._stale_devices(plan, scope, remove_unmanaged, desired, by_device)
             _mark(stale, by_device, LinkOutcome.STALE_PLAN, self._stale_reason)
             self._take_snapshot(
                 job, {identity: handles[identity] for identity in handles if identity not in stale}
@@ -741,6 +747,7 @@ class JobRunner:
         plan: Plan,
         scope: PlanScope | None,
         remove_unmanaged: frozenset[str],
+        desired: Sequence[Link] | None,
         by_device: Mapping[str, Sequence[_Write]],
     ) -> set[str]:
         """Return the devices whose work is no longer the work the user approved (E15).
@@ -765,7 +772,9 @@ class JobRunner:
         would also refuse when the fresh plan grew work nobody has approved, which is not a
         reason to withhold the work they did approve.
         """
-        fresh = await self._coordinator.async_plan(scope, remove_unmanaged=remove_unmanaged)
+        fresh = await self._coordinator.async_plan(
+            scope, remove_unmanaged=remove_unmanaged, desired=desired
+        )
         if fresh.token == plan.token:
             return set()
         current = {

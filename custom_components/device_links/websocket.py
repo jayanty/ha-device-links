@@ -50,7 +50,16 @@ import voluptuous as vol
 from .const import DOMAIN, EVENT_JOB_FINISHED
 from .coordinator import PlanScope
 from .executor import JobRunningError
-from .models import DeviceHandle, Plan, PlanOp, Profile, Rule, Template
+from .models import (
+    DeviceHandle,
+    Link,
+    ObservedLink,
+    Plan,
+    PlanOp,
+    Profile,
+    Rule,
+    Template,
+)
 from .rule_entity import async_handle_of_device
 from .serialize import Serializer
 from .services import NOTHING_TO_DO, refuse_unknown_devices
@@ -71,7 +80,7 @@ if TYPE_CHECKING:
 
     from . import DeviceLinksConfigEntry, DeviceLinksRuntimeData
     from .coordinator import DeviceLinksCoordinator
-    from .storage import StoredState
+    from .storage import Snapshot, StoredState
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -95,9 +104,6 @@ DEFERRED_COMMANDS: Final = frozenset(
         # Adopting an unmanaged link means writing a per-link ownership record, which is a
         # storage schema change and therefore a migration (open item T11).
         "unmanaged/adopt",
-        # Rollback re-applies a snapshot as a plan. Landing in this phase, beside the swap
-        # flow above; the snapshots themselves are taken and listed today.
-        "snapshots/rollback",
     }
 )
 
@@ -974,6 +980,150 @@ async def _snapshots_list(
     )
 
 
+@_command(
+    "snapshots/rollback",
+    {
+        vol.Required("snapshot_id"): str,
+        vol.Optional("plan_token"): str,
+        vol.Optional("remove_unmanaged"): [str],
+    },
+)
+async def _snapshots_rollback(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Put back what a snapshot's devices held, as a plan the user confirms (FR-P3).
+
+    **Without `plan_token` this writes nothing**: it answers with the plan, what the
+    snapshot covers, and what the rollback would undo. With one, the token has to match
+    that plan, and only then is anything applied. The safe direction is the default, so a
+    caller that forgot the token gets a preview rather than a write.
+
+    **A rollback really rolls back**, which means it removes as well as adds: a snapshot is
+    taken *before* an apply, so undoing that apply is exactly what somebody asking for one
+    usually wants (PRD scenario S10), and a rollback that only added would do nothing at
+    all in that case. What must never happen is a removal nobody saw, so every one of them
+    is in the plan, on the device it is about, like every other removal in this product.
+
+    **The removals that a rule still wants are named separately**, in
+    `returns_on_next_apply`. A rollback restores the devices and does not touch the rules,
+    so a link some enabled rule still asks for comes back the next time that rule is
+    applied, and the rule reads as drifted in between. That is honest rather than a fault,
+    and it is not something to discover afterwards: a user who wants those links gone for
+    good disables the rule first. Unmanaged links are untouched either way (Decision D9)
+    unless the user ticks one, which is the same per-link opt-in every other plan takes.
+    """
+    entry, runtime = _runtime(hass)
+    remove_unmanaged = frozenset(msg.get("remove_unmanaged", []))
+    rollback = await _build_rollback(hass, entry, msg["snapshot_id"], remove_unmanaged)
+    payload = _rollback_payload(hass, entry, rollback)
+    if "plan_token" not in msg:
+        connection.send_result(msg["id"], {**payload, "job_id": None, "status": "preview"})
+        return
+    _check_token(rollback.plan, msg["plan_token"])
+    if rollback.plan.is_empty:
+        connection.send_result(msg["id"], {**payload, "job_id": None, "status": NOTHING_TO_DO})
+        return
+    report = await runtime.runner.async_apply(
+        rollback.plan,
+        scope=rollback.scope,
+        remove_unmanaged=remove_unmanaged,
+        desired=rollback.desired,
+    )
+    connection.send_result(
+        msg["id"], {**payload, "job_id": report.id, "status": str(report.status)}
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _Rollback:
+    """One snapshot re-proposed as a plan, with what it leaves alone."""
+
+    snapshot: Snapshot
+    plan: Plan
+    scope: PlanScope
+    desired: tuple[Link, ...]
+    returning: tuple[ObservedLink, ...]
+    unreadable: tuple[str, ...]
+
+
+async def _build_rollback(
+    hass: HomeAssistant,
+    entry: DeviceLinksConfigEntry,
+    snapshot_id: str,
+    remove_unmanaged: frozenset[str],
+) -> _Rollback:
+    """Return the plan one snapshot implies, and what applying it would cost.
+
+    The desired state is the snapshot's **managed** links and nothing else, which is what
+    makes this a restore of that moment rather than a merge with this one: what has gone
+    since is added back, and what has arrived since and is ours is removed. Unmanaged links
+    are in neither half and are untouched, as everywhere else (Decision D9), unless the user
+    ticked one by fingerprint. A system link is never in either half and never removable:
+    the snapshot keeps `is_system` for exactly that reason, so a rollback cannot plan
+    against the entry that is how a device reports to Home Assistant at all.
+    """
+    coordinator = entry.runtime_data.coordinator
+    snapshot = _snapshot(coordinator, snapshot_id)
+    scope = PlanScope(device_identities=frozenset(snapshot.devices))
+    desired = tuple(link for link in snapshot.links if link.managed_by is not None)
+    plan = await coordinator.async_plan(
+        scope, remove_unmanaged=remove_unmanaged, desired=list(desired)
+    )
+    return _Rollback(
+        snapshot=snapshot,
+        plan=plan,
+        scope=scope,
+        desired=desired,
+        returning=_returning_links(coordinator, plan),
+        unreadable=tuple(sorted(set(snapshot.devices) - coordinator.identities_in_scope(scope))),
+    )
+
+
+def _returning_links(coordinator: DeviceLinksCoordinator, plan: Plan) -> tuple[ObservedLink, ...]:
+    """Return the links this rollback removes that an enabled rule will put straight back.
+
+    The whole of the "what happens to what was added since" answer, made visible rather
+    than absorbed. A rollback restores devices and leaves the rules alone, so a link an
+    enabled rule still wants is removed now, reads as drift, and returns the next time that
+    rule is applied. A disabled rule's links are not in here: nothing will re-add those, so
+    taking them off is permanent and is what the plan already says it is.
+    """
+    return tuple(
+        item.link
+        for item in plan.items
+        if item.op is PlanOp.REMOVE
+        and isinstance(item.link, ObservedLink)
+        and item.link.rule_id is not None
+        and coordinator.is_rule_enabled(item.link.rule_id, default=False)
+    )
+
+
+def _snapshot(coordinator: DeviceLinksCoordinator, snapshot_id: str) -> Snapshot:
+    """Return the snapshot with this id, or say there is none kept."""
+    for snapshot in coordinator.state.snapshots:
+        if snapshot.id == snapshot_id:
+            return snapshot
+    raise ServiceValidationError(
+        f"no snapshot with the id {snapshot_id} is kept",
+        translation_domain=DOMAIN,
+        translation_key="unknown_snapshot",
+        translation_placeholders={"snapshot": snapshot_id},
+    )
+
+
+def _rollback_payload(
+    hass: HomeAssistant, entry: DeviceLinksConfigEntry, rollback: _Rollback
+) -> dict[str, Any]:
+    """Return one rollback as the dialog shows it, before anything is decided."""
+    serializer = Serializer(hass, entry)
+    return {
+        "snapshot": serializer.snapshot(rollback.snapshot),
+        "plan": serializer.plan(rollback.plan),
+        "returns_on_next_apply": [serializer.link(link) for link in rollback.returning],
+        "unreadable_devices": list(rollback.unreadable),
+    }
+
+
 # --------------------------------------------------------------------------------------
 # Device swap
 # --------------------------------------------------------------------------------------
@@ -1281,6 +1431,7 @@ _HANDLERS: Final[tuple[_Handler, ...]] = (
     _unmanaged_ignore,
     _unmanaged_remove,
     _snapshots_list,
+    _snapshots_rollback,
     _swap_candidates,
     _swap_preview,
     _swap_apply,

@@ -45,6 +45,7 @@ import type {
   RuleEnabled,
   RuleRow,
   Snapshot,
+  SnapshotRollback,
   TemplateRow,
   VerifyResult,
 } from "./types";
@@ -84,6 +85,7 @@ export const COMMANDS = {
   unmanagedIgnore: "device_links/unmanaged/ignore",
   unmanagedRemove: "device_links/unmanaged/remove",
   snapshotsList: "device_links/snapshots/list",
+  snapshotsRollback: "device_links/snapshots/rollback",
 } as const;
 
 /** The part of a plan or an apply that says which rules and devices it is about. */
@@ -487,6 +489,26 @@ export class DeviceLinksApi {
   async listSnapshots(): Promise<Snapshot[]> {
     const result = await this.send<{ snapshots: Snapshot[] }>(COMMANDS.snapshotsList);
     return result.snapshots;
+  }
+
+  /**
+   * Put a snapshot's devices back as they were (FR-P3).
+   *
+   * Without `planToken` this writes nothing and answers with the plan, which is what the
+   * dialog is opened on. With one, the token has to be the token of that plan, so the
+   * work applied is the work somebody looked at. Never send a token from anywhere else.
+   */
+  async rollbackSnapshot(
+    snapshotId: string,
+    options: { planToken?: string; removeUnmanaged?: readonly string[] } = {},
+  ): Promise<SnapshotRollback> {
+    return this.send<SnapshotRollback>(COMMANDS.snapshotsRollback, {
+      snapshot_id: snapshotId,
+      ...(options.planToken === undefined ? {} : { plan_token: options.planToken }),
+      ...(options.removeUnmanaged?.length
+        ? { remove_unmanaged: [...options.removeUnmanaged] }
+        : {}),
+    });
   }
 
   /** Send one command, and turn whatever it rejects with into a `DeviceLinksApiError`. */

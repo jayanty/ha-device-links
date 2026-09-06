@@ -685,6 +685,7 @@ function Xe(e, t, n) {
 		unknown_job: "No job with the id {job} is in the history. Only the most recent applies are kept.",
 		unknown_profile: "There is no profile called {profile}. It may have been renamed or deleted since this was opened.",
 		unknown_rule: "The active profile has no rule with the id {rule}.",
+		unknown_snapshot: "No snapshot with the id {snapshot} is kept. Only the last 20 are, so an older one has been dropped to make room.",
 		unmanaged_not_selected: "The group {group} entry on {device} pointing at {target} was not created by Device Links, so it was left alone. Tick it in the plan if you want it removed.",
 		unsupported_operation: "Device Links cannot carry out {operation} on {device} yet, so it was reported rather than attempted.",
 		verify_missing: "The group {group} link from {device} to {target} was written and is not on the device, so it counts as drifted. Apply again, or look at the group in Z-Wave JS.",
@@ -742,7 +743,8 @@ var j = {
 	jobsSubscribe: "device_links/jobs/subscribe",
 	unmanagedIgnore: "device_links/unmanaged/ignore",
 	unmanagedRemove: "device_links/unmanaged/remove",
-	snapshotsList: "device_links/snapshots/list"
+	snapshotsList: "device_links/snapshots/list",
+	snapshotsRollback: "device_links/snapshots/rollback"
 }, M = class e extends Error {
 	constructor(e, t = {}) {
 		super(e), this.name = "DeviceLinksApiError", this.code = t.code ?? "unknown_error", this.translationKey = t.translationKey ?? null, this.translationDomain = t.translationDomain ?? null, this.placeholders = t.placeholders ?? {};
@@ -901,6 +903,13 @@ var et = class {
 	}
 	async listSnapshots() {
 		return (await this.send(j.snapshotsList)).snapshots;
+	}
+	async rollbackSnapshot(e, t = {}) {
+		return this.send(j.snapshotsRollback, {
+			snapshot_id: e,
+			...t.planToken === void 0 ? {} : { plan_token: t.planToken },
+			...t.removeUnmanaged?.length ? { remove_unmanaged: [...t.removeUnmanaged] } : {}
+		});
 	}
 	async send(e, t = {}) {
 		try {
@@ -1671,7 +1680,7 @@ P([k({ attribute: !1 })], U.prototype, "hass", void 0), P([k({ attribute: !1 })]
 //#region src/views/activity.ts
 var W = class extends U {
 	constructor(...e) {
-		super(...e), this._jobs = [], this._running = null, this._selectedId = null, this._detail = null, this._devices = [], this._loading = !0, this._error = null, this._cancelling = !1, this._snapshots = [], this._subscription = null;
+		super(...e), this._jobs = [], this._running = null, this._selectedId = null, this._detail = null, this._devices = [], this._loading = !0, this._error = null, this._cancelling = !1, this._snapshots = [], this._rollingBack = null, this._returning = [], this._unreadable = [], this._subscription = null;
 	}
 	static {
 		this.styles = H;
@@ -1696,6 +1705,17 @@ var W = class extends U {
         </dl-two-pane>
         ${this._renderSnapshots()}
       </div>
+      <dl-plan-dialog
+        .hass=${this.hass}
+        .api=${this.api}
+        .components=${this.components}
+        .narrow=${this.narrow}
+        .open=${this._rollingBack !== null}
+        .flow=${this._rollbackFlow()}
+        .heading=${"Restore a snapshot"}
+        @dl-plan-closed=${this._closeRollback}
+        @dl-plan-applied=${this._afterRollback}
+      ></dl-plan-dialog>
     `;
 	}
 	_renderRunning() {
@@ -1780,8 +1800,9 @@ var W = class extends U {
       <div class="card">
         <h3>Snapshots</h3>
         <p class="secondary">
-          Taken before an apply, so what a device held can be read back. Restoring one is
-          not in this release.
+          Taken before an apply, so what a device held can be put back. Restoring one shows
+          you the whole plan first, and takes off what has been added since as well as
+          putting back what has gone.
         </p>
         <div class="scroll-x">
           <table>
@@ -1791,6 +1812,7 @@ var W = class extends U {
                 <th>Why</th>
                 <th>Devices</th>
                 <th>Links</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -1800,6 +1822,15 @@ var W = class extends U {
                     <td>${e.reason}</td>
                     <td>${e.devices.length}</td>
                     <td>${e.links}</td>
+                    <td>
+                      <button
+                        type="button"
+                        class="outlined"
+                        @click=${() => this._openRollback(e)}
+                      >
+                        Restore
+                      </button>
+                    </td>
                   </tr>
                 `)}
             </tbody>
@@ -1807,6 +1838,39 @@ var W = class extends U {
         </div>
       </div>
     `;
+	}
+	_openRollback(e) {
+		this._returning = [], this._rollingBack = e;
+	}
+	_closeRollback() {
+		this._rollingBack = null, this._returning = [];
+	}
+	_afterRollback() {
+		this._load();
+	}
+	_rollbackFlow() {
+		let e = this._rollingBack, t = this.api;
+		return e === null || !t ? null : {
+			plan: async (n) => {
+				let r = await t.rollbackSnapshot(e.id, { removeUnmanaged: n });
+				return this._returning = r.returns_on_next_apply.map((e) => e.rule_name ?? "a rule"), this._unreadable = r.unreadable_devices, r.plan;
+			},
+			apply: async (n, r) => {
+				let i = await t.rollbackSnapshot(e.id, {
+					planToken: n,
+					removeUnmanaged: r
+				}), a = i.status === "preview" ? "nothing_to_do" : i.status;
+				return {
+					job_id: i.job_id,
+					status: a
+				};
+			},
+			notices: () => this._rollbackNotices()
+		};
+	}
+	_rollbackNotices() {
+		let e = [], t = [...new Set(this._returning)].sort();
+		return t.length > 0 && e.push(`Some of these removals belong to rules that are still on: ${t.join(", ")}. They will be written again the next time those rules are applied, and until then those rules read as drifted. Turn a rule off first if you want its links gone for good.`), this._unreadable.length > 0 && e.push(`${V(this._unreadable.length, "device")} this snapshot covers cannot be read right now, so nothing is planned for them and whatever they hold stays as it is.`), e;
 	}
 	_outcomeCounts(e) {
 		let t = /* @__PURE__ */ new Map();
@@ -1868,7 +1932,7 @@ var W = class extends U {
 		}
 	}
 };
-P([A()], W.prototype, "_jobs", void 0), P([A()], W.prototype, "_running", void 0), P([A()], W.prototype, "_selectedId", void 0), P([A()], W.prototype, "_detail", void 0), P([A()], W.prototype, "_devices", void 0), P([A()], W.prototype, "_loading", void 0), P([A()], W.prototype, "_error", void 0), P([A()], W.prototype, "_cancelling", void 0), P([A()], W.prototype, "_snapshots", void 0), W = P([O("device-links-activity")], W);
+P([A()], W.prototype, "_jobs", void 0), P([A()], W.prototype, "_running", void 0), P([A()], W.prototype, "_selectedId", void 0), P([A()], W.prototype, "_detail", void 0), P([A()], W.prototype, "_devices", void 0), P([A()], W.prototype, "_loading", void 0), P([A()], W.prototype, "_error", void 0), P([A()], W.prototype, "_cancelling", void 0), P([A()], W.prototype, "_snapshots", void 0), P([A()], W.prototype, "_rollingBack", void 0), P([A()], W.prototype, "_returning", void 0), P([A()], W.prototype, "_unreadable", void 0), W = P([O("device-links-activity")], W);
 //#endregion
 //#region src/components/dialog.ts
 var G = class extends D {
@@ -2033,7 +2097,7 @@ P([k({
 //#region src/dialogs/plan-dialog.ts
 var K = class extends D {
 	constructor(...e) {
-		super(...e), this.components = null, this.narrow = !1, this.open = !1, this.heading = "Plan and apply", this.initialPlan = null, this.initialRemoveUnmanaged = [], this._plan = null, this._phase = "loading", this._error = null, this._stale = !1, this._removeUnmanaged = [], this._progress = null, this._finished = null, this._cancelling = !1, this._jobId = null, this._subscription = null;
+		super(...e), this.components = null, this.narrow = !1, this.open = !1, this.heading = "Plan and apply", this.initialPlan = null, this.initialRemoveUnmanaged = [], this.flow = null, this._plan = null, this._phase = "loading", this._error = null, this._stale = !1, this._removeUnmanaged = [], this._progress = null, this._finished = null, this._cancelling = !1, this._jobId = null, this._subscription = null;
 	}
 	static {
 		this.styles = [H, o`
@@ -2143,13 +2207,22 @@ var K = class extends D {
 	_renderPlan() {
 		let e = this._plan;
 		return e === null ? x`<p class="secondary">No plan yet.</p>` : e.is_empty && e.counts.unmanaged === 0 ? x`
+        ${this._renderNotices(e)}
         <p>Nothing to do. Every link this covers is already on the devices.</p>
         ${e.unchanged_count > 0 ? x`<p class="secondary">
               ${V(e.unchanged_count, "link")} checked and left alone.
             </p>` : C}
       ` : x`
-      ${this._renderSummary(e)}
+      ${this._renderNotices(e)} ${this._renderSummary(e)}
       ${e.devices.map((e) => this._renderDevice(e))}
+    `;
+	}
+	_renderNotices(e) {
+		let t = this.flow?.notices?.(e) ?? [];
+		return t.length === 0 ? C : x`
+      <div class="notice warn" role="note">
+        ${t.map((e) => x`<p>${e}</p>`)}
+      </div>
     `;
 	}
 	_renderSummary(e) {
@@ -2384,7 +2457,7 @@ var K = class extends D {
 		if (this.api) {
 			this._phase = "loading", this._error = null;
 			try {
-				this._plan = await this.api.plan(this.scope, this._removeUnmanaged), this._phase = "plan";
+				this._plan = this.flow === null ? await this.api.plan(this.scope, this._removeUnmanaged) : await this.flow.plan(this._removeUnmanaged), this._phase = "plan";
 			} catch (e) {
 				this._fail(e);
 			}
@@ -2395,11 +2468,11 @@ var K = class extends D {
 		if (this.api && e !== null) {
 			this._phase = "applying", this._error = null, this._progress = null, this._subscribe();
 			try {
-				let t = await this.api.apply({
+				let t = this.flow === null ? await this.api.apply({
 					planToken: e.token,
 					...this.scope === void 0 ? {} : { scope: this.scope },
 					removeUnmanaged: this._removeUnmanaged
-				});
+				}) : await this.flow.apply(e.token, this._removeUnmanaged);
 				this._jobId = t.job_id, t.job_id === null && (this._unsubscribe(), this._phase = "plan", this._load());
 			} catch (e) {
 				this._unsubscribe(), this._fail(e);
@@ -2449,7 +2522,7 @@ var K = class extends D {
 		}));
 	}
 };
-P([k({ attribute: !1 })], K.prototype, "hass", void 0), P([k({ attribute: !1 })], K.prototype, "api", void 0), P([k({ attribute: !1 })], K.prototype, "components", void 0), P([k({ type: Boolean })], K.prototype, "narrow", void 0), P([k({ type: Boolean })], K.prototype, "open", void 0), P([k({ attribute: !1 })], K.prototype, "scope", void 0), P([k({ type: String })], K.prototype, "heading", void 0), P([k({ attribute: !1 })], K.prototype, "initialPlan", void 0), P([k({ attribute: !1 })], K.prototype, "initialRemoveUnmanaged", void 0), P([A()], K.prototype, "_plan", void 0), P([A()], K.prototype, "_phase", void 0), P([A()], K.prototype, "_error", void 0), P([A()], K.prototype, "_stale", void 0), P([A()], K.prototype, "_removeUnmanaged", void 0), P([A()], K.prototype, "_progress", void 0), P([A()], K.prototype, "_finished", void 0), P([A()], K.prototype, "_cancelling", void 0), K = P([O("dl-plan-dialog")], K);
+P([k({ attribute: !1 })], K.prototype, "hass", void 0), P([k({ attribute: !1 })], K.prototype, "api", void 0), P([k({ attribute: !1 })], K.prototype, "components", void 0), P([k({ type: Boolean })], K.prototype, "narrow", void 0), P([k({ type: Boolean })], K.prototype, "open", void 0), P([k({ attribute: !1 })], K.prototype, "scope", void 0), P([k({ type: String })], K.prototype, "heading", void 0), P([k({ attribute: !1 })], K.prototype, "initialPlan", void 0), P([k({ attribute: !1 })], K.prototype, "initialRemoveUnmanaged", void 0), P([k({ attribute: !1 })], K.prototype, "flow", void 0), P([A()], K.prototype, "_plan", void 0), P([A()], K.prototype, "_phase", void 0), P([A()], K.prototype, "_error", void 0), P([A()], K.prototype, "_stale", void 0), P([A()], K.prototype, "_removeUnmanaged", void 0), P([A()], K.prototype, "_progress", void 0), P([A()], K.prototype, "_finished", void 0), P([A()], K.prototype, "_cancelling", void 0), K = P([O("dl-plan-dialog")], K);
 //#endregion
 //#region src/components/icon.ts
 function Lt(e, t) {

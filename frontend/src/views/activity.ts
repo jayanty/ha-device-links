@@ -16,7 +16,9 @@ import { html, nothing, type TemplateResult } from "lit";
 import { customElement, state } from "lit/decorators.js";
 
 import { DeviceLinksApiError, describeError, type Subscription } from "../api";
+import type { PlanFlow } from "../dialogs/plan-dialog";
 import "../components/two-pane";
+
 import {
   describeFingerprint,
   formatTime,
@@ -28,7 +30,7 @@ import {
   timeAgo,
 } from "../format";
 import { sharedStyles } from "../styles";
-import type { DeviceRow, Job, JobProgress, JobResult, Snapshot } from "../types";
+import type { DeviceRow, Job, JobProgress, JobResult, Plan, Snapshot } from "../types";
 import { DeviceLinksView } from "./view-base";
 
 @customElement("device-links-activity")
@@ -52,6 +54,22 @@ export class DeviceLinksActivity extends DeviceLinksView {
   @state() private _cancelling = false;
 
   @state() private _snapshots: Snapshot[] = [];
+
+  /** The snapshot the rollback dialog is open on, or null when it is closed. */
+  @state() private _rollingBack: Snapshot | null = null;
+
+  /**
+   * What the last rollback plan said would come straight back, kept for the notice.
+   *
+   * Held rather than derived, because the dialog asks this view for a plan and then asks
+   * it for the notices about that plan, and only the first of those two calls sees the
+   * backend's answer. Set on every plan, so a re-plan after ticking an unmanaged link
+   * cannot leave the notice describing the plan before it.
+   */
+  @state() private _returning: string[] = [];
+
+  /** Devices the open snapshot covers that nobody can read, so nothing is planned for them. */
+  @state() private _unreadable: string[] = [];
 
   private _subscription: Subscription | null = null;
 
@@ -90,6 +108,17 @@ export class DeviceLinksActivity extends DeviceLinksView {
         </dl-two-pane>
         ${this._renderSnapshots()}
       </div>
+      <dl-plan-dialog
+        .hass=${this.hass}
+        .api=${this.api}
+        .components=${this.components}
+        .narrow=${this.narrow}
+        .open=${this._rollingBack !== null}
+        .flow=${this._rollbackFlow()}
+        .heading=${"Restore a snapshot"}
+        @dl-plan-closed=${this._closeRollback}
+        @dl-plan-applied=${this._afterRollback}
+      ></dl-plan-dialog>
     `;
   }
 
@@ -204,11 +233,12 @@ export class DeviceLinksActivity extends DeviceLinksView {
   }
 
   /**
-   * The safety copies taken before an apply.
+   * The safety copies taken before an apply, and the button that puts one back.
    *
-   * Listed rather than acted on: `snapshots/rollback` is Phase 2 (open item T26), and a
-   * button that could only refuse would be worse than none. What this is for meanwhile is
-   * knowing they exist and what each one covers.
+   * Restoring one opens the same plan dialog every other write in this panel goes through
+   * (Decision D18), on a plan the backend built from the snapshot. Nothing about a
+   * rollback skips that: it removes as well as adds, so it is the last place somebody can
+   * decide not to.
    */
   private _renderSnapshots(): TemplateResult | typeof nothing {
     if (this._snapshots.length === 0) {
@@ -218,8 +248,9 @@ export class DeviceLinksActivity extends DeviceLinksView {
       <div class="card">
         <h3>Snapshots</h3>
         <p class="secondary">
-          Taken before an apply, so what a device held can be read back. Restoring one is
-          not in this release.
+          Taken before an apply, so what a device held can be put back. Restoring one shows
+          you the whole plan first, and takes off what has been added since as well as
+          putting back what has gone.
         </p>
         <div class="scroll-x">
           <table>
@@ -229,6 +260,7 @@ export class DeviceLinksActivity extends DeviceLinksView {
                 <th>Why</th>
                 <th>Devices</th>
                 <th>Links</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -239,6 +271,15 @@ export class DeviceLinksActivity extends DeviceLinksView {
                     <td>${snapshot.reason}</td>
                     <td>${snapshot.devices.length}</td>
                     <td>${snapshot.links}</td>
+                    <td>
+                      <button
+                        type="button"
+                        class="outlined"
+                        @click=${() => this._openRollback(snapshot)}
+                      >
+                        Restore
+                      </button>
+                    </td>
                   </tr>
                 `,
               )}
@@ -247,6 +288,88 @@ export class DeviceLinksActivity extends DeviceLinksView {
         </div>
       </div>
     `;
+  }
+
+  // ------------------------------------------------------------------------------------
+  // Rolling one back.
+  // ------------------------------------------------------------------------------------
+
+  private _openRollback(snapshot: Snapshot): void {
+    this._returning = [];
+    this._rollingBack = snapshot;
+  }
+
+  private _closeRollback(): void {
+    this._rollingBack = null;
+    this._returning = [];
+  }
+
+  private _afterRollback(): void {
+    void this._load();
+  }
+
+  /**
+   * How the plan dialog plans and applies a rollback.
+   *
+   * The same dialog, the same token rule, the same unmanaged ticks: only the two calls
+   * differ, because a rollback is planned from a snapshot rather than from the profile
+   * and is applied through its own command. Rebuilt on each render, which is what makes
+   * the closure hold the snapshot that is currently open rather than the first one that
+   * ever was.
+   */
+  private _rollbackFlow(): PlanFlow | null {
+    const snapshot = this._rollingBack;
+    const api = this.api;
+    if (snapshot === null || !api) {
+      return null;
+    }
+    return {
+      plan: async (removeUnmanaged: readonly string[]): Promise<Plan> => {
+        const result = await api.rollbackSnapshot(snapshot.id, { removeUnmanaged });
+        this._returning = result.returns_on_next_apply.map((link) => link.rule_name ?? "a rule");
+        this._unreadable = result.unreadable_devices;
+        return result.plan;
+      },
+      apply: async (planToken: string, removeUnmanaged: readonly string[]) => {
+        const result = await api.rollbackSnapshot(snapshot.id, { planToken, removeUnmanaged });
+        // `preview` is what the command answers when no token was sent, and one always is
+        // from here, so this is a job outcome like any other apply's. Narrowed rather than
+        // cast: an impossible value is mapped onto the harmless one instead of asserted
+        // away, so a backend that ever did answer `preview` here reports "nothing to do"
+        // rather than putting a status through the dialog that it cannot render.
+        const status = result.status === "preview" ? "nothing_to_do" : result.status;
+        return { job_id: result.job_id, status };
+      },
+      notices: () => this._rollbackNotices(),
+    };
+  }
+
+  /**
+   * What a user has to weigh before confirming a rollback, said in the dialog.
+   *
+   * A rollback puts the devices back and leaves the rules alone, so a link an enabled rule
+   * still asks for is removed now and written again the next time that rule is applied.
+   * Naming the rules is what makes that actionable: somebody who wants those links gone
+   * for good disables the rule first.
+   */
+  private _rollbackNotices(): string[] {
+    const notices: string[] = [];
+    const rules = [...new Set(this._returning)].sort();
+    if (rules.length > 0) {
+      notices.push(
+        `Some of these removals belong to rules that are still on: ${rules.join(", ")}. ` +
+          "They will be written again the next time those rules are applied, and until " +
+          "then those rules read as drifted. Turn a rule off first if you want its links " +
+          "gone for good.",
+      );
+    }
+    if (this._unreadable.length > 0) {
+      notices.push(
+        `${plural(this._unreadable.length, "device")} this snapshot covers cannot be read ` +
+          "right now, so nothing is planned for them and whatever they hold stays as it is.",
+      );
+    }
+    return notices;
   }
 
   private _outcomeCounts(job: Job): Map<JobResult["status"], number> {

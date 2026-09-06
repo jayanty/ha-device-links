@@ -267,6 +267,9 @@
     "unknown_rule": {
       "message": "The active profile has no rule with the id {rule}."
     },
+    "unknown_snapshot": {
+      "message": "No snapshot with the id {snapshot} is kept. Only the last 20 are, so an older one has been dropped to make room."
+    },
     "unmanaged_not_selected": {
       "message": "The group {group} entry on {device} pointing at {target} was not created by Device Links, so it was left alone. Tick it in the plan if you want it removed."
     },

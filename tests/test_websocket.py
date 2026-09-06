@@ -126,6 +126,7 @@ def minimum_message(command: str, device_id: str) -> dict[str, Any]:
         "jobs/get": {"job_id": "whatever"},
         "unmanaged/ignore": {"fingerprints": ["whatever"], "ignored": True},
         "unmanaged/remove": {"fingerprints": ["whatever"]},
+        "snapshots/rollback": {"snapshot_id": "whatever"},
         "swap/preview": {"old_identity": "zwave:x:13", "new_device_id": device_id},
         "swap/apply": {
             "old_identity": "zwave:x:13",

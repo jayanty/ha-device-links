@@ -295,6 +295,28 @@ export interface Job {
   results: JobResult[];
 }
 
+/**
+ * `snapshots/rollback`: what putting a snapshot's devices back would do.
+ *
+ * `status` is `preview` when no plan token was sent, which is how the dialog is opened:
+ * nothing has been written and the plan is what the user is being asked about.
+ *
+ * `returns_on_next_apply` is the part a user has to see before confirming. A rollback puts
+ * the devices back and leaves the rules alone, so a link some enabled rule still asks for
+ * is removed now and written again the next time that rule is applied. Each one is a
+ * removal in the plan as well; this is the same links, said as the consequence rather than
+ * as the operation.
+ */
+export interface SnapshotRollback {
+  snapshot: Snapshot;
+  plan: Plan;
+  returns_on_next_apply: LinkRow[];
+  /** Devices the snapshot covers that nobody can read now, so nothing is planned for them. */
+  unreadable_devices: string[];
+  job_id: string | null;
+  status: JobStatus | "preview" | "nothing_to_do";
+}
+
 /** `Serializer.snapshot`: what a pre-apply snapshot covers, not what is in it. */
 export interface Snapshot {
   id: string;

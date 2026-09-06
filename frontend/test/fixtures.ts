@@ -17,6 +17,7 @@ import type {
   ProfileRow,
   RuleData,
   RuleRow,
+  Snapshot,
   UnmanagedLink,
 } from "../src/types";
 
@@ -263,6 +264,18 @@ export function job(overrides: Partial<Job> = {}): Job {
         reason: "ZWaveError: Timeout while waiting for an ACK",
       },
     ],
+    ...overrides,
+  };
+}
+
+/** One pre-apply snapshot, as `snapshots/list` describes it. Its id is its job's id. */
+export function snapshot(overrides: Partial<Snapshot> = {}): Snapshot {
+  return {
+    id: "job-1",
+    created_at: new Date().toISOString(),
+    reason: "before_apply",
+    devices: [SOURCE],
+    links: 4,
     ...overrides,
   };
 }
