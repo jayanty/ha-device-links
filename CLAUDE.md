@@ -346,7 +346,17 @@ restarts stay manual; SSH is the bootstrap and debugging channel.
 
 ---
 
-## 11. When in doubt, ask
+## 11. Open items
+
+`docs/open-items.md` is the register of everything unresolved: what needs Jayant, what is
+waiting on a restart, what is scheduled, and where reality diverged from the PRD. Keep it
+current as phases land. Items that need Jayant also exist as GitHub issues labelled
+`needs-jayant`, so they are actionable rather than buried in a document.
+
+Four things are blocked on Jayant as of 2026-09-05: Z4 (sleeping-node write, issue #5),
+G2 (Zigbee bind, #6), Z7 (Zooz button semantics, #7), and Z5 (drift event, #8).
+
+## 12. When in doubt, ask
 
 Stop and ask Jayant before:
 

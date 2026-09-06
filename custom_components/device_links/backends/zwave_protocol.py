@@ -79,6 +79,26 @@ GROUPING_PROFILE_DB: Final = "profile_db"
 _LABEL_TRAILING: Final = " \t-/:,.("
 
 
+# Long Range node ids start here, and `Protocols.ZWAVE_LONG_RANGE` is 1 (Stage 0 Z2).
+FIRST_LONG_RANGE_NODE_ID: Final = 256
+LONG_RANGE_PROTOCOL: Final = 1
+
+# Group 1 is the lifeline on every Z-Wave device, which is what the fallback below leans on.
+LIFELINE_GROUP: Final = "1"
+
+# Which feature speaks for a group that issues commands for more than one. On/off first
+# because an association a user made is nearly always about switching, and status report
+# last because it is what a group that controls nothing does.
+_PRIMARY_FEATURE_ORDER: Final = (
+    Feature.ON_OFF,
+    Feature.LEVEL_SET,
+    Feature.LEVEL_HOLD,
+    Feature.SCENE,
+    Feature.COLOR,
+    Feature.STATUS_REPORT,
+)
+
+
 class AssociationGroup(TypedDict):
     """One association group of one endpoint, as the Z-Wave driver reports it."""
 
@@ -97,6 +117,54 @@ class _UsableGroup:
     group_id: str
     group: AssociationGroup
     features: frozenset[Feature]
+
+
+def is_long_range(node_id: int, protocol: int | None) -> bool:
+    """Say whether this node joined over Long Range, which fixes it out of associations.
+
+    Two answers to one question, because either can be missing. The protocol the driver
+    reports is authoritative when there is one; the node id settles it when there is not,
+    because Long Range ids start at 256 and the protocol is fixed at inclusion time and
+    never changes afterwards (CLAUDE.md Section 10). Either saying yes is enough: an LR node
+    reported as classic would be offered as an association source, and the write would fail
+    at the radio with an error the user cannot act on.
+    """
+    return protocol == LONG_RANGE_PROTOCOL or node_id >= FIRST_LONG_RANGE_NODE_ID
+
+
+def is_lifeline_group(groups: Mapping[str, AssociationGroup], group_id: str) -> bool:
+    """Say whether this group is the device's lifeline, which is never ours to write.
+
+    The device's own report decides, because the lifeline is what it says it is. A group
+    the device does not report at all falls back to group 1, which is the lifeline on every
+    Z-Wave device ever certified: an unknown group is the case where being wrong means
+    removing the association that makes a device report to Home Assistant at all, so the
+    fallback answers yes rather than shrugging.
+    """
+    group = groups.get(group_id)
+    if group is None:
+        return group_id == LIFELINE_GROUP
+    return group["is_lifeline"]
+
+
+def feature_of_group(group: AssociationGroup) -> Feature:
+    """Return the one feature an association entry in this group carries.
+
+    An association is one entry on the device, so it has to become one link, and a link
+    names one feature. Every non-lifeline group in the Stage 0 capture issues commands for
+    exactly one feature, so this is usually not a choice at all. When a group does issue
+    more, the most primary one wins (an on/off group that also dims is an on/off group), and
+    when it issues nothing Device Links can use, the entry is reporting rather than
+    controlling: that is what a lifeline is, and `STATUS_REPORT` is what it does.
+
+    Splitting a multi-feature group into one link per feature instead would double count it
+    against the group's capacity, which the planner counts one entry at a time.
+    """
+    features = features_of_group(group["issued_commands"])
+    return next(
+        (feature for feature in _PRIMARY_FEATURE_ORDER if feature in features),
+        Feature.STATUS_REPORT,
+    )
 
 
 def derive_emitters(

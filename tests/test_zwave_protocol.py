@@ -8,7 +8,14 @@ from typing import Any
 
 import pytest
 
-from custom_components.device_links.backends.zwave_protocol import features_of_group
+from custom_components.device_links.backends.zwave_protocol import (
+    FIRST_LONG_RANGE_NODE_ID,
+    LONG_RANGE_PROTOCOL,
+    feature_of_group,
+    features_of_group,
+    is_lifeline_group,
+    is_long_range,
+)
 from custom_components.device_links.models import Feature
 
 FIXTURE = Path(__file__).parent / "fixtures" / "z2_associations.json"
@@ -88,3 +95,51 @@ def test_the_lifeline_classifies_as_report_only() -> None:
     assert Feature.ON_OFF not in features
     assert Feature.LEVEL_SET not in features
     assert Feature.LEVEL_HOLD not in features
+
+
+def test_a_node_the_driver_calls_long_range_is_long_range() -> None:
+    assert is_long_range(41, LONG_RANGE_PROTOCOL) is True
+
+
+def test_a_long_range_node_id_is_long_range_even_with_no_protocol_reported() -> None:
+    """CLAUDE.md Section 10: ids from 256 up are Long Range, fixed at inclusion time."""
+    assert is_long_range(FIRST_LONG_RANGE_NODE_ID, None) is True
+
+
+def test_a_classic_node_is_not_long_range() -> None:
+    assert is_long_range(36, 0) is False
+
+
+def test_the_device_decides_which_of_its_groups_is_the_lifeline() -> None:
+    groups = _groups(36)
+
+    assert is_lifeline_group(groups, "1") is True
+    assert is_lifeline_group(groups, "2") is False
+
+
+def test_a_group_the_device_does_not_report_falls_back_to_group_one() -> None:
+    """Being wrong here costs a device its only way of reporting to Home Assistant."""
+    assert is_lifeline_group({}, "1") is True
+    assert is_lifeline_group({}, "7") is False
+
+
+@pytest.mark.parametrize(
+    ("group_id", "expected"),
+    [("1", Feature.STATUS_REPORT), ("2", Feature.ON_OFF), ("4", Feature.LEVEL_HOLD)],
+)
+def test_a_group_carries_the_feature_its_issued_commands_say(
+    group_id: str, expected: Feature
+) -> None:
+    assert feature_of_group(_groups(36)[group_id]) is expected
+
+
+def test_a_group_that_issues_nothing_usable_reports_rather_than_controls() -> None:
+    """Node 40's lifeline issues battery and notification reports and nothing else."""
+    assert feature_of_group(_groups(40)["1"]) is Feature.STATUS_REPORT
+
+
+def test_the_most_primary_feature_speaks_for_a_group_that_carries_several() -> None:
+    """One entry on the device is one link, so a multi-feature group has to pick one."""
+    both: Any = {"is_lifeline": False, "issued_commands": {32: [1], 38: [1]}}
+
+    assert feature_of_group(both) is Feature.ON_OFF
