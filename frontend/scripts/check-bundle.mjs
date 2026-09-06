@@ -1,5 +1,5 @@
 /**
- * Assert that the committed bundle is what this source builds.
+ * Assert that the bundle in the working tree is what this source builds.
  *
  * The bundle is committed (PRD Section 16 and CLAUDE.md Section 4) because a HACS install
  * has no build step: whatever is in `custom_components/device_links/frontend/` is what
@@ -12,8 +12,11 @@
  * failing for a reason that is not a real change, that is worth finding rather than
  * papering over, because a check people learn to force past is worse than no check.
  *
- * Run through `npm run check:bundle`. CI runs the build and then asserts the working tree
- * is clean, which catches the same drift and also catches a file the build stopped writing.
+ * Run through `npm run check:bundle`. This compares the file as it is on disk before and
+ * after a build, which is the question a developer has ("did I forget to rebuild?"). CI
+ * asks the stricter version of the same question by building and then asserting that git
+ * reports nothing changed, which also catches a bundle edited by hand and a file the build
+ * stopped writing.
  */
 
 import { spawnSync } from "node:child_process";
@@ -34,7 +37,7 @@ const digest = (path) =>
 
 const committed = digest(bundle);
 if (committed === null) {
-  console.error(`No committed bundle at ${bundle}. Run "npm run build" and commit the result.`);
+  console.error(`No bundle at ${bundle}. Run "npm run build" and commit the result.`);
   process.exit(1);
 }
 
@@ -46,12 +49,12 @@ if (build.status !== 0) {
 const fresh = digest(bundle);
 if (fresh !== committed) {
   console.error("");
-  console.error("The committed bundle does not match a fresh build.");
-  console.error(`  committed: sha256 ${committed}`);
-  console.error(`  rebuilt:   sha256 ${fresh}`);
+  console.error("The bundle in the working tree was not built from this source.");
+  console.error(`  was:     sha256 ${committed}`);
+  console.error(`  rebuilt: sha256 ${fresh}`);
   console.error("");
   console.error("The fresh build is now in the working tree. Commit it with the source change.");
   process.exit(1);
 }
 
-console.error(`The committed bundle matches a fresh build (sha256 ${fresh}).`);
+console.error(`The bundle in the working tree matches a fresh build (sha256 ${fresh}).`);
