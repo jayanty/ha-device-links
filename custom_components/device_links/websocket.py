@@ -1297,15 +1297,34 @@ async def _build_swap(
     desired = [
         link for rule in after if rule.enabled for link in coordinator.compile_rule(rule).links
     ]
-    identities = {old.identity, new.identity} | {
-        link.source.identity
-        for rules in (profile.rules, after)
-        for rule in rules
-        for link in coordinator.compile_rule(rule.with_enabled(True)).links
-    }
-    scope = PlanScope(device_identities=frozenset(identities))
+    scope = PlanScope(device_identities=_touched(coordinator, proposal))
     plan = await coordinator.async_plan(scope, remove_unmanaged=stale, desired=desired)
     return _Swap(proposal=proposal, plan=plan, scope=scope, stale=stale)
+
+
+def _touched(coordinator: DeviceLinksCoordinator, proposal: SwapProposal) -> frozenset[str]:
+    """Return the devices this swap writes to, and no others.
+
+    The pair being swapped, plus every device that holds a link belonging to a rule the
+    swap rewrites, before or after: a rule that drove the old device holds its links on
+    some third device, and the swap has to move them there.
+
+    Narrow on purpose. The desired state handed to the planner is the **whole** rewritten
+    profile, so another rule's links on these devices are seen, counted against group
+    capacity and never mistaken for something nobody wants; the scope is what stops the
+    swap doing that rule's outstanding work as well. "Swap this switch for that one" that
+    quietly also applied a pending change elsewhere in the house would be a plan the user
+    did not ask for, however visible it was in the dialog.
+    """
+    return frozenset(
+        {proposal.old.identity, proposal.new.identity}
+        | {
+            link.source.identity
+            for rewrite in proposal.rewrites
+            for rule in (rewrite.before, rewrite.after)
+            for link in coordinator.compile_rule(rule.with_enabled(True)).links
+        }
+    )
 
 
 def _link_fingerprints(

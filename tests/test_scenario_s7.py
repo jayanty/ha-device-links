@@ -51,7 +51,7 @@ from custom_components.device_links.models import (
     RuleTarget,
     Template,
 )
-from custom_components.device_links.yaml_io import dump_profile
+from custom_components.device_links.yaml_io import dump_profile, rule_to_data
 from tests.factories import CEILING_LIGHTS_OLD, handle
 from tests.fakes.zwave import FakeDriver
 
@@ -467,6 +467,54 @@ async def test_s7_a_second_plan_after_the_swap_is_empty(
     plan = await call(client, "plan")
 
     assert plan["is_empty"], plan["devices"]
+
+
+async def test_a_swap_plans_nothing_for_a_rule_it_is_not_about(
+    hass: HomeAssistant,
+    client: Any,
+    imported: str,
+    zwave_js_devices: dict[int, dr.DeviceEntry],
+    zwave_driver: FakeDriver,
+) -> None:
+    """ "Swap this switch" must not also do an unrelated rule's outstanding work.
+
+    A third rule, on devices the swap does not touch, has never been applied and so has
+    work waiting. The swap's plan is scoped to the devices it writes to, so that work is
+    not in it, and pressing Apply on a swap does exactly the swap. The devices themselves
+    are the assertion, because a plan that merely did not list it would still write it.
+    """
+    await call(
+        client,
+        "rules/upsert",
+        profile_id=imported,
+        rule=rule_to_data(
+            Rule(
+                id="elsewhere",
+                name="Hallway scene drives the lobby",
+                template=Template.SCENE_BUTTON,
+                backend=BackendId.ZWAVE,
+                source=RuleSource(device=handle(30), endpoint=0, emitter_id="g5"),
+                targets=(RuleTarget(device=handle(35), endpoint=None),),
+                features=frozenset({Feature.ON_OFF}),
+            )
+        ),
+    )
+    await hass.async_block_till_done()
+
+    result = await preview(client, zwave_js_devices)
+    await call(
+        client,
+        "swap/apply",
+        old_identity=old_identity(),
+        new_device_id=zwave_js_devices[REPLACEMENT].id,
+        plan_token=result["plan"]["token"],
+    )
+    await hass.async_block_till_done()
+
+    assert handle(30).identity not in {device["identity"] for device in result["plan"]["devices"]}
+    assert group_of(zwave_driver, 30, 5) == [], "the swap applied a rule it was not about"
+    # And the swap itself still happened.
+    assert group_of(zwave_driver, REPLACEMENT, 2) == [LIGHT]
 
 
 # --------------------------------------------------------------------------------------
