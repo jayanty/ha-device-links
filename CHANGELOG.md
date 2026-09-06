@@ -56,6 +56,29 @@ All notable changes to this project are documented here. The format follows
   claim about the whole network. Reachable from the Profiles tab for two profiles
   and beside Restore in Activity for a snapshot. It writes nothing and offers no
   button that does.
+- Matter backend (Phase 3, FR-B7, Decision D11): pure protocol interpretation driven
+  by the Stage 0 M1 capture, an adapter that reads a node's descriptor and Binding
+  lists through `read_attribute` and caches what it read, an Access Control grant
+  written before every binding, and a curated profile entry for the Inovelli
+  VTM31-SN. **Every Matter write is behind the `matter_writes` option, which is off
+  by default**: nothing in the write path has ever reached a device, and an Access
+  Control entry is a security boundary. Matter devices are read and shown whatever
+  the option says, so a Matter-only house now sets up and can see its links.
+  Emitters come from an allowlist of control clusters rather than from any client
+  cluster, because 18 of the 19 nodes on the capture advertise the OTA Software
+  Update Provider and a model that read it as a control would offer every sensor and
+  lock on the fabric as a remote. A grant is Operate on one cluster of one endpoint
+  and never Administer, it is merged into an existing entry for the same target when
+  there is one (headroom is 2 entries on a real Eve Energy, so merging is load
+  bearing rather than an optimisation), and the controller's own Administer entry is
+  refused by the one function every path that builds an Access Control list goes
+  through. A binding cannot be written without a receipt for the grant, and a receipt
+  cannot exist without reading the target's list back and finding the grant in it,
+  every Administer entry still there, and the same number of other fabrics' entries
+  still there.
+- A contributor guide (`CONTRIBUTING.md`) covering the curated profile database for
+  all three protocols, and `quality_scale.yaml` accounting for every rule in PRD
+  Section 11 with a status and a reason.
 - Snapshot rollback (Phase 2B, FR-P3): put a snapshot's devices back the way they
   were, as a plan confirmed in the same dialog every other write goes through.
   Removals that an enabled rule will write again are named before the plan is
