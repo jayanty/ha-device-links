@@ -55,6 +55,13 @@ TO_REDACT: Final = {"home_id", "ieee", "dsk", "network_key", "s2_access_control_
 # sort of place one would turn up if it ever did.
 _DSK: Final = re.compile(r"\b\d{5}(?:-\d{5}){3,7}\b")
 
+# A Z-Wave address, by shape rather than by value: `zwave:<home id>:<node id>` as an
+# identity, and the same thing inside a link fingerprint. The values above cover this
+# already whenever a handle carrying that home id is still reachable, and this covers the
+# case where none is: a job history outlives the profile that made it, and its fingerprints
+# carry the home id with nothing left to collect it from.
+_ZWAVE_HOME_ID: Final = re.compile(r"(?<=zwave:)\d+(?=:)")
+
 
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: DeviceLinksConfigEntry
@@ -294,12 +301,11 @@ def _handles(runtime: DeviceLinksRuntimeData) -> Iterator[DeviceHandle]:
     that is most likely to be sent.
     """
     coordinator = runtime.coordinator
-    yield from coordinator.devices.values()
-    for identity, handle in coordinator.devices.items():
+    for handle in coordinator.devices.values():
+        yield handle
         observed = coordinator.observed_for(handle)
         if observed is not None:
             yield from (link.target.handle for link in observed.links)
-        del identity
     for profile in coordinator.state.profiles:
         for rule in profile.rules:
             yield rule.source.device
@@ -329,4 +335,4 @@ def _scrubbed_text(value: str, secrets: Sequence[str]) -> str:
     """Return one string with every secret and anything DSK-shaped taken out of it."""
     for secret in secrets:
         value = value.replace(secret, REDACTED)
-    return _DSK.sub(REDACTED, value)
+    return _DSK.sub(REDACTED, _ZWAVE_HOME_ID.sub(REDACTED, value))

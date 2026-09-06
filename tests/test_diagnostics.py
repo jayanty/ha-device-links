@@ -14,6 +14,7 @@ dump nobody will send.
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 from typing import Any
 
@@ -363,3 +364,24 @@ async def test_the_dump_says_which_commit_is_running_on_a_dev_deployment(
         "previous_commit": "0f0f0f0",
         "changed_files": 4,
     }
+
+
+async def test_the_home_id_is_hidden_in_a_job_history_that_outlived_its_profile(
+    hass: HomeAssistant, hass_client: ClientSessionGenerator, applied: MockConfigEntry
+) -> None:
+    """The last place an address can hide is a fingerprint with nothing left to explain it.
+
+    Job summaries are kept after the profile that made them is deleted, and a fingerprint
+    is built from the device address. With every profile gone and the devices unreadable,
+    there is no handle left to collect the home id from, so it is taken out by its shape
+    instead.
+    """
+    coordinator = applied.runtime_data.coordinator
+    coordinator.async_update_state(replace(coordinator.state, profiles=(), active_profile_id=None))
+    monkeypatched: dict[str, Any] = {}
+    coordinator._handles = monkeypatched
+
+    result = await get_diagnostics_for_config_entry(hass, hass_client, applied)
+
+    assert result["jobs"], "the job history is what this test is about"
+    assert HOME_ID not in json.dumps(result)
