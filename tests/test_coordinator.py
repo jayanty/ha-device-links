@@ -444,6 +444,77 @@ async def test_an_event_refreshes_only_the_device_it_is_about(
     assert len(links_of(coordinator)) == 2
 
 
+async def test_a_device_on_hold_is_read_when_the_hold_ends_and_not_before(
+    hass: HomeAssistant, coordinator: DeviceLinksCoordinator, driver: FakeDriver
+) -> None:
+    """A job writing to a node is a conversation with it, and a refresh is a second one.
+
+    Our own writes are what make the driver emit these events, so without a hold the first
+    write of a job arms a read of the node that job is still writing to. Deferred rather
+    than dropped: a change somebody else made during the job is still worth reading, just
+    not while the radio is busy with that node.
+    """
+    reads = coordinator_reads(coordinator)
+    release = coordinator.async_hold_refresh([handle(36).identity])
+
+    driver.controller.emit_association_changed(36, group=2)
+    await asyncio.sleep(TEST_DEBOUNCE * 3)
+    await hass.async_block_till_done()
+
+    assert coordinator_reads(coordinator) == reads
+
+    release()
+    await asyncio.sleep(TEST_DEBOUNCE * 3)
+    await hass.async_block_till_done()
+
+    assert coordinator_reads(coordinator) == reads + 1
+
+
+async def test_a_hold_on_one_device_does_not_hold_the_rest_of_the_network(
+    hass: HomeAssistant, coordinator: DeviceLinksCoordinator, driver: FakeDriver
+) -> None:
+    """A job works some devices, not the network. Drift elsewhere is still reported."""
+    reads = coordinator_reads(coordinator)
+    release = coordinator.async_hold_refresh([handle(36).identity])
+
+    driver.controller.emit_association_changed(36, group=2)
+    driver.controller.emit_association_changed(39, group=2)
+    await asyncio.sleep(TEST_DEBOUNCE * 3)
+    await hass.async_block_till_done()
+
+    assert coordinator_reads(coordinator) == reads + 1
+
+    release()
+
+
+async def test_a_device_two_holders_asked_for_is_read_when_both_have_let_go(
+    hass: HomeAssistant, coordinator: DeviceLinksCoordinator, driver: FakeDriver
+) -> None:
+    """Holds nest, and a release is idempotent.
+
+    One job at a time is the executor's rule, not this cache's: a periodic verify or a
+    diagnostics dump holding the same device while a job runs must not have its hold
+    ended early by whichever of the two finishes first.
+    """
+    reads = coordinator_reads(coordinator)
+    first = coordinator.async_hold_refresh([handle(36).identity])
+    second = coordinator.async_hold_refresh([handle(36).identity])
+    driver.controller.emit_association_changed(36, group=2)
+
+    first()
+    first()
+    await asyncio.sleep(TEST_DEBOUNCE * 3)
+    await hass.async_block_till_done()
+
+    assert coordinator_reads(coordinator) == reads
+
+    second()
+    await asyncio.sleep(TEST_DEBOUNCE * 3)
+    await hass.async_block_till_done()
+
+    assert coordinator_reads(coordinator) == reads + 1
+
+
 async def test_shutdown_stops_the_subscriptions(
     coordinator: DeviceLinksCoordinator, backend: ControlledBackend, driver: FakeDriver
 ) -> None:

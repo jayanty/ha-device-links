@@ -288,6 +288,7 @@ async def test_a_snapshot_keeps_what_the_device_held_before_the_apply(
         id="s1",
         created_at="2026-09-05T12:00:00+00:00",
         reason="before_apply",
+        devices=(handle(36).identity,),
         links=(system, mine),
     )
     await DeviceLinksStore(hass).async_save(StoredState(snapshots=(snapshot,)))
@@ -295,9 +296,63 @@ async def test_a_snapshot_keeps_what_the_device_held_before_the_apply(
     loaded = (await DeviceLinksStore(hass).async_load()).snapshots[0]
 
     assert loaded == snapshot
+    assert loaded.devices == (handle(36).identity,)
     assert loaded.links[0].is_system
     assert loaded.links[1].managed_by == "rule-1"
     assert loaded.links[0].source == handle(36)
+
+
+async def test_a_snapshot_that_covers_a_device_holding_nothing_says_so(
+    hass: HomeAssistant,
+) -> None:
+    """A device that held nothing is not a device nobody could read.
+
+    Both contribute no links, and a rollback that read the second as the first would
+    propose removing everything that device turns out to hold now. Listed in `devices`
+    means "the links here are the whole of what it held", which an empty list can say.
+    """
+    covered = Snapshot(
+        id="s1",
+        created_at="2026-09-05T12:00:00+00:00",
+        reason="before_apply",
+        devices=(handle(36).identity,),
+    )
+    await DeviceLinksStore(hass).async_save(StoredState(snapshots=(covered,)))
+
+    loaded = (await DeviceLinksStore(hass).async_load()).snapshots[0]
+
+    assert loaded == covered
+    assert loaded.devices == (handle(36).identity,)
+    assert loaded.links == ()
+
+
+async def test_a_snapshot_written_before_devices_existed_claims_no_devices(
+    hass: HomeAssistant, hass_storage: dict[str, Any]
+) -> None:
+    """`devices` is new, and nothing has ever been released that wrote a snapshot.
+
+    `STORAGE_VERSION` is still 1 for that reason, so there is no migration to write. What
+    a default has to cover is a development store written between the two commits, which
+    reads back as a snapshot that names nothing, which is exactly what it knows.
+    """
+    hass_storage[STORAGE_KEY] = {
+        "version": STORAGE_VERSION,
+        "data": {
+            "snapshots": [
+                {
+                    "id": "s1",
+                    "created_at": "2026-09-05T12:00:00+00:00",
+                    "reason": "before_apply",
+                    "links": [],
+                }
+            ]
+        },
+    }
+
+    loaded = (await DeviceLinksStore(hass).async_load()).snapshots[0]
+
+    assert loaded.devices == ()
+    assert loaded.links == ()
 
 
 async def test_a_rule_a_backend_no_longer_knows_still_loads(hass: HomeAssistant) -> None:

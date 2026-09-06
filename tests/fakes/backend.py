@@ -18,15 +18,23 @@ or the mesh really produces, and they are named after that thing.
 awaits cannot be interleaved with another, so a serialization test over writes that do not
 yield passes whatever the executor does, which is the classic way to prove nothing at all.
 `yields` is how long a write stays open in scheduler terms, and `overlapped` is what a test
-asserts against: it records a device that was written to while a write to that same device
-was already open.
+asserts against: it records a device that was talked to while something else was already
+open to that same device.
+
+**A read counts as being in flight, exactly like a write.** "One device is one
+conversation" is about the node and not about the direction: a read of a node in the middle
+of being written to is the same second conversation and the same timeout that looks like
+broken hardware. Registering only writes made read-on-write overlap invisible here, which
+is why a coordinator refresh firing in the middle of a job went unnoticed by a suite that
+tests scheduling for a living.
 """
 
 from __future__ import annotations
 
 import asyncio
 from collections import Counter
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
+from contextlib import contextmanager
 
 from custom_components.device_links.backends.base import (
     Backend,
@@ -46,6 +54,7 @@ from custom_components.device_links.models import (
 )
 
 type Hook = Callable[[Link], Awaitable[None]]
+type ReadHook = Callable[[DeviceHandle, bool], Awaitable[None]]
 
 
 class RecordingBackend:
@@ -76,6 +85,12 @@ class RecordingBackend:
         self.before_write: Hook | None = None
         self.after_write: Hook | None = None
 
+        # Called once a read has taken its answer from the driver and before that answer
+        # is handed back, which is the seam a test needs to hold a read open: a driver
+        # that captured the state at one moment and delivered it at a later one is what
+        # makes a stale read land on top of a fresh one.
+        self.after_read: ReadHook | None = None
+
         self.deep_reads = 0
 
     # Reads.
@@ -85,16 +100,33 @@ class RecordingBackend:
 
     async def async_capabilities(self, handle: DeviceHandle) -> DeviceCapabilities:
         self._check(handle.identity)
-        return await self.inner.async_capabilities(handle)
+        with self._open(handle.identity):
+            return await self.inner.async_capabilities(handle)
 
     async def async_observed(self, handle: DeviceHandle, deep: bool = False) -> ObservedDevice:
         self._check(handle.identity)
         self.deep_reads += int(deep)
-        return await self.inner.async_observed(handle, deep)
+        with self._open(handle.identity):
+            observed = await self.inner.async_observed(handle, deep)
+            if self.after_read is not None:
+                await self.after_read(handle, deep)
+            return observed
 
     def _check(self, identity: str) -> None:
         if identity in self.unavailable:
             raise ConnectionError(f"{identity} did not answer")
+
+    @contextmanager
+    def _open(self, identity: str) -> Iterator[None]:
+        """Hold one conversation with a device open, recording anything that joins it."""
+        if identity in self.in_flight:
+            self.overlapped.append(identity)
+        self.in_flight.append(identity)
+        self.peak = max(self.peak, len(self.in_flight))
+        try:
+            yield
+        finally:
+            self.in_flight.remove(identity)
 
     async def async_check_link(self, link: Link) -> LinkCheck:
         return await self.inner.async_check_link(link)
@@ -109,21 +141,14 @@ class RecordingBackend:
 
     async def _write(self, link: Link, *, adding: bool) -> LinkResult:
         """Perform one write, recording what was in flight while it was open."""
-        identity = link.source.identity
-        if identity in self.in_flight:
-            self.overlapped.append(identity)
-        self.in_flight.append(identity)
-        self.peak = max(self.peak, len(self.in_flight))
         self.writes.append(link.fingerprint)
         self.attempts[link.fingerprint] += 1
-        try:
+        with self._open(link.source.identity):
             if self.before_write is not None:
                 await self.before_write(link)
             for _ in range(self._yields):
                 await asyncio.sleep(0)
             return await self._outcome(link, adding=adding)
-        finally:
-            self.in_flight.remove(identity)
 
     async def _outcome(self, link: Link, *, adding: bool) -> LinkResult:
         """Return what this write does: a condition the test asked for, or the real thing."""

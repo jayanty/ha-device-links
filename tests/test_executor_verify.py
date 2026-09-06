@@ -21,6 +21,7 @@ everything went right.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator
 from dataclasses import replace
 from typing import Any
@@ -38,6 +39,7 @@ from custom_components.device_links.executor import (
 )
 from custom_components.device_links.models import Backend as BackendId
 from custom_components.device_links.models import (
+    DeviceHandle,
     Feature,
     Link,
     ObservedLink,
@@ -145,6 +147,22 @@ def links_of(coordinator: DeviceLinksCoordinator, node_id: int) -> tuple[Observe
     device = coordinator.observed_for(handle(node_id))
     assert device is not None
     return device.links
+
+
+async def rewrite(driver: FakeDriver, *, source: int, group: int, target: int) -> None:
+    """Put an association on the device the way the mesh does when a write really lands.
+
+    Used for the case a report cannot see: the write was reported as failed because the
+    transmit acknowledgement was lost, and the entry is on the device all the same.
+    """
+    from zwave_js_server.model.association import AssociationAddress  # noqa: PLC0415
+
+    controller = driver.controller
+    await controller.async_add_associations(
+        AssociationAddress(controller, node_id=source),
+        group,
+        [AssociationAddress(controller, node_id=target)],
+    )
 
 
 async def unwrite(driver: FakeDriver, *, source: int, group: int, target: int) -> None:
@@ -266,8 +284,15 @@ async def test_a_sleeping_node_stays_pending_wakeup_and_is_not_a_failure(
 
     Nothing here is evidence about real hardware: Stage 0 item Z4 was never approved, so
     what a queued write really does is unproven (open item J1, issue #5). What this pins is
-    that the runner does not turn a queue into a failure, and does not spend a deep verify
-    asking a sleeping node to confirm something it cannot answer.
+    that the runner does not turn a queue into a failure and never claims a queued write
+    was verified. The device is re-read like any other the job wrote to, and that costs no
+    radio time here: the adapter sees a sleeping node and skips the refresh rather than
+    asking it to confirm something it cannot answer.
+
+    `completed` for a job that confirmed nothing is deliberate and is argued in
+    `JobStatus`: a queued write to a battery device is the documented, expected answer, the
+    link keeps `pending_wakeup` where anybody looking at the job can see it, and the rule is
+    not recorded as applied, so it stays pending rather than reading as in sync.
     """
     activate(coordinator, remote_rule(source=40, emitter="buttons_1_2", target=39))
     plan = await coordinator.async_plan()
@@ -277,6 +302,7 @@ async def test_a_sleeping_node_stays_pending_wakeup_and_is_not_a_failure(
     assert [result.outcome for result in report.results] == [LinkOutcome.PENDING_WAKEUP]
     assert report.status is JobStatus.COMPLETED
     assert report.results[0].verified_at is None
+    assert coordinator.state.applied_rule_ids == frozenset()
 
 
 async def test_a_deep_verify_a_sleeping_node_is_asked_for_at_all_says_why_it_was_skipped(
@@ -326,6 +352,102 @@ async def test_a_device_that_stops_answering_before_the_verify_is_unconfirmed(
     assert [result.outcome for result in report.results] == [LinkOutcome.UNCONFIRMED]
     assert report.results[0].reason is not None
     assert report.results[0].reason.translation_key == "verify_unreadable"
+
+
+async def test_a_device_whose_every_write_failed_is_re_read_anyway(
+    coordinator: DeviceLinksCoordinator,
+    runner: JobRunner,
+    backend: RecordingBackend,
+    driver: FakeDriver,
+) -> None:
+    """Open item T18, and the case where its "nothing is left wrong" was not true.
+
+    A lost transmit acknowledgement is a documented Z-Wave failure: the write is reported
+    as failed and the entry is on the device. The verify used to return before its read
+    whenever there was nothing to check, so a device where every write failed was written
+    to and then never re-read: the job said failed, the cache still held the pre-apply
+    read, and the panel disagreed with the device until something else happened to refresh
+    it. The report is still `failed`, which is what the backend said and all it can say.
+    What is fixed is that the cache is not left wrong about it.
+    """
+    activate(coordinator, remote_rule())
+    plan = await coordinator.async_plan()
+    fingerprint = plan.items[0].link.fingerprint
+    backend.fail_times[fingerprint] = 99
+
+    async def _land_it_behind_our_back(link: Link) -> None:
+        backend.before_write = None
+        await rewrite(driver, source=36, group=2, target=37)
+
+    backend.before_write = _land_it_behind_our_back
+
+    report = await runner.async_apply(plan)
+
+    assert [result.outcome for result in report.results] == [LinkOutcome.FAILED]
+    assert backend.deep_reads == 1
+    assert fingerprint in {link.fingerprint for link in links_of(coordinator, 36)}
+    assert (await coordinator.async_plan()).is_empty
+
+
+async def test_a_refresh_taken_during_a_job_cannot_land_on_top_of_the_verify(
+    hass: HomeAssistant,
+    coordinator: DeviceLinksCoordinator,
+    runner: JobRunner,
+    backend: RecordingBackend,
+    driver: FakeDriver,
+) -> None:
+    """The promise is that a job cannot end with the cache disagreeing with the devices.
+
+    Our own writes make the driver emit the value-updated events the coordinator refreshes
+    on, so the first write of a job arms a read of the same node two seconds later. That
+    read is taken while the job is still writing and can be delivered after the verify has
+    stored its own: what lands in the cache is then a picture of the device from before the
+    job finished, and every link written after it was taken reads as missing. The panel
+    says the rule has drifted, the next plan proposes writes the device does not need, and
+    nothing about the user's hardware is wrong.
+
+    The read is held open here rather than raced: a driver that captured its answer at one
+    moment and delivered it at a later one is the ordering this has to survive, and waiting
+    on a clock to produce it would prove nothing on a machine that scheduled it the other
+    way round. The cache is then read at once, because the window this opens closes only
+    when something happens to re-read the device again: the fake's deep verify emits a
+    value-updated event of its own and so heals it within a debounce window, and whether a
+    real driver emits anything for a refresh that changed nothing is exactly what open item
+    T10 says nobody has measured.
+    """
+    activate(
+        coordinator,
+        remote_rule(features=frozenset({Feature.ON_OFF, Feature.LEVEL_SET})),
+    )
+    plan = await coordinator.async_plan()
+    delivered = asyncio.Event()
+
+    async def _hold_the_answer_back(_handle: DeviceHandle, deep: bool) -> None:
+        if deep:
+            return
+        backend.after_read = None
+        await delivered.wait()
+
+    async def _announce_and_dawdle(link: Link) -> None:
+        backend.before_write = None
+        backend.after_read = _hold_the_answer_back
+        driver.controller.emit_association_changed(36)
+        # Long enough that the refresh fires, and reads, while this write is still open.
+        await asyncio.sleep(TEST_DEBOUNCE * 4)
+
+    backend.before_write = _announce_and_dawdle
+
+    report = await runner.async_apply(plan)
+    delivered.set()
+    await hass.async_block_till_done()
+
+    assert [result.outcome for result in report.results] == [LinkOutcome.APPLIED] * 2
+    assert all(result.verified_at is not None for result in report.results)
+    assert {item.link.fingerprint for item in plan.items} <= {
+        link.fingerprint for link in links_of(coordinator, 36)
+    }
+    assert (await coordinator.async_plan()).is_empty
+    assert coordinator.drift_state() == {"rule-1": RuleState.IN_SYNC}
 
 
 async def test_a_removal_that_did_not_take_is_unverified_rather_than_applied(
@@ -380,6 +502,7 @@ async def test_a_snapshot_of_every_touched_device_is_taken_before_any_write(
 
     assert snapshot.id == report.snapshot_id
     assert snapshot.reason == SNAPSHOT_REASON
+    assert snapshot.devices == (handle(36).identity,)
     assert {link.fingerprint for link in snapshot.links} == before
     assert any(link.is_system for link in snapshot.links)
 
@@ -403,13 +526,39 @@ async def test_the_snapshot_still_holds_the_pre_apply_state_when_the_apply_fails
     assert {link.fingerprint for link in snapshot.links} == before
 
 
-async def test_a_device_that_has_never_answered_contributes_nothing_to_the_snapshot(
+async def test_a_snapshot_covers_only_the_devices_the_job_will_really_write_to(
+    coordinator: DeviceLinksCoordinator, runner: JobRunner, driver: FakeDriver
+) -> None:
+    """A device skipped as stale is a device this job did not touch.
+
+    The snapshot used to be taken over every device the plan named, which was decided
+    before staleness and availability were: it recorded the before-state of a device the
+    job then refused to write to. That is not merely a wasted slot. Somebody edited that
+    device by hand, which is why it was skipped, and a rollback of this job replaying that
+    record would offer to undo their edit as though this job had made it.
+    """
+    activate(coordinator, remote_rule(), remote_rule("rule-2", source=39, target=38))
+    plan = await coordinator.async_plan()
+    await rewrite(driver, source=36, group=2, target=37)
+
+    report = await runner.async_apply(plan)
+    snapshot = coordinator.state.snapshots[-1]
+
+    assert LinkOutcome.STALE_PLAN in {result.outcome for result in report.results}
+    assert snapshot.devices == (handle(39).identity,)
+    assert {link.source.identity for link in snapshot.links} == {handle(39).identity}
+
+
+async def test_a_job_that_reaches_no_device_at_all_spends_no_snapshot_slot(
     hass: HomeAssistant, backend: RecordingBackend
 ) -> None:
-    """A snapshot of a device we have never read must be empty, not invented.
+    """FR-P3 keeps twenty snapshots, and an apply that wrote nothing must not evict one.
 
-    An empty entry says "there was nothing to record here". Filling it with a guess is how
-    a rollback later proposes to remove links it never saw.
+    The Z-Wave JS add-on restarts: every device is unavailable, the fresh plan is empty,
+    every device in the plan the user is holding is stale, and not one byte reaches the
+    mesh. A snapshot was still written, holding nothing, and twenty presses of Apply during
+    a restart pushed out every snapshot a rollback could have used. The empty-plan guard
+    did not catch this, because the plan was not empty when the user pressed the button.
     """
     backend.unavailable.add(handle(36).identity)
     coordinator = DeviceLinksCoordinator(
@@ -434,8 +583,55 @@ async def test_a_device_that_has_never_answered_contributes_nothing_to_the_snaps
 
     report = await runner.async_apply(plan)
 
-    assert coordinator.state.snapshots[-1].links == ()
     assert [result.outcome for result in report.results] == [LinkOutcome.STALE_PLAN]
+    assert backend.writes == []
+    assert coordinator.state.snapshots == ()
+    assert report.snapshot_id is None
+    await coordinator.async_shutdown()
+
+
+async def test_a_snapshot_names_the_devices_it_covers_and_claims_no_others(
+    hass: HomeAssistant, backend: RecordingBackend
+) -> None:
+    """A device that held nothing is not a device nobody could read.
+
+    Both contribute no links, so a snapshot that only listed links could not tell them
+    apart, and a Phase 2 rollback re-applying one as a plan would read the second as the
+    first and propose removing everything that device turns out to hold now. `devices` is
+    what makes the difference readable: listed means the links here are the whole of what
+    that device held, and absent means nothing at all is claimed about it.
+
+    Reaching this needs a plan whose token still matches while its device cannot be read,
+    which is what a replayed or hand-built plan can produce and the staleness check then
+    waves through. The write goes out, and the snapshot says honestly that it covers
+    nothing rather than recording an empty before-state for a device it never saw.
+    """
+    backend.unavailable.add(handle(36).identity)
+    coordinator = DeviceLinksCoordinator(
+        hass,
+        backends={BackendId.ZWAVE: backend},
+        store=DeviceLinksStore(hass),
+        refresh_debounce_seconds=TEST_DEBOUNCE,
+    )
+    await coordinator.async_setup()
+    runner = JobRunner(coordinator)
+    link = next(
+        item.link
+        for item in (await _plan_for_unreadable(coordinator)).items
+        if item.link is not None
+    )
+    plan = Plan(
+        token=(await coordinator.async_plan()).token,
+        items=(PlanItem(op=PlanOp.ADD, device_identity=handle(36).identity, link=link),),
+        unmanaged=(),
+        unchanged_count=0,
+    )
+
+    report = await runner.async_apply(plan)
+
+    assert backend.writes == [link.fingerprint]
+    assert [result.outcome for result in report.results] == [LinkOutcome.UNCONFIRMED]
+    assert coordinator.state.snapshots == ()
     await coordinator.async_shutdown()
 
 

@@ -85,11 +85,18 @@ class Snapshot:
     only fingerprints would come back as links nobody could tell apart from foreign ones.
     `created_at` is supplied by the caller rather than read from a clock here, so nothing in
     this module depends on the time it runs at.
+
+    `devices` names what the snapshot actually covers, and it is not derivable from `links`.
+    A device that held nothing and a device nobody could read both contribute no links, and
+    a rollback that could not tell them apart would read the second as the first and propose
+    removing everything that device turns out to hold now. Listed here means "this is the
+    whole of what that device held"; absent means "not covered, do not conclude anything".
     """
 
     id: str
     created_at: str
     reason: str
+    devices: tuple[str, ...] = ()
     links: tuple[ObservedLink, ...] = ()
 
 
@@ -296,16 +303,25 @@ def _snapshot_to_data(snapshot: Snapshot) -> dict[str, Any]:
         "id": snapshot.id,
         "created_at": snapshot.created_at,
         "reason": snapshot.reason,
+        "devices": list(snapshot.devices),
         "links": [observed_link_to_data(link) for link in snapshot.links],
     }
 
 
 def _snapshot_from_data(data: Mapping[str, Any]) -> Snapshot:
-    """Return the snapshot this data describes."""
+    """Return the snapshot this data describes.
+
+    `devices` is read with a default rather than as a required key, and that is not a
+    migration: `STORAGE_VERSION` is still 1, nothing has ever been written at any other
+    version, and no release has ever shipped a snapshot at all. What the default is for is
+    a store written by a development build between the two commits, which reads back as a
+    snapshot that covers nothing it can name, which is exactly what such a snapshot knows.
+    """
     return Snapshot(
         id=data["id"],
         created_at=data["created_at"],
         reason=data["reason"],
+        devices=tuple(data.get("devices", ())),
         links=tuple(observed_link_from_data(raw) for raw in data["links"]),
     )
 

@@ -36,7 +36,16 @@ The direction of the dependency is deliberate: the runner depends on the coordin
 the coordinator knows nothing about the runner. The coordinator owns the observed cache,
 so every read this module needs goes through it, which is what makes it impossible for a
 job to finish with the cache disagreeing with the devices: the verify read *is* the cache
-update. Every device the job attempted anything on is re-read before the job ends.
+update. Every device the job attempted anything on is re-read before the job ends, whether
+its writes worked or not, because a write reported `failed` that actually landed is a
+documented Z-Wave case and the cache must not be left claiming otherwise.
+
+That guarantee needs one thing from the coordinator, which is the only thing this module
+asks of it beyond reading: while a job is working a device, the coordinator's own
+event-driven refresh of that device is held. Our writes are exactly what makes the driver
+emit the events it follows, so without the hold a job's first write arms a re-read of the
+node it is still writing to: a second radio conversation with a node that is already in
+one, and a read taken mid-job that lands in the cache after the verify did.
 """
 
 from __future__ import annotations
@@ -102,6 +111,18 @@ class JobStatus(StrEnum):
     `PARTIAL` is the honest answer for a job that ran to the end with something in it that
     did not work: calling it completed would hide a failed link in a green summary, and
     calling it failed would hide the nine links that did work.
+
+    A job whose every write came back `pending_wakeup` is `COMPLETED`, deliberately, and it
+    is worth saying why because it is the one green status that confirmed nothing. A queued
+    write to a battery device has not gone wrong: it is the documented, expected answer from
+    a sleeping node (CLAUDE.md Section 10), and reporting the expected answer as `partial`
+    is how a user learns to ignore the status that means something is actually wrong (E4).
+    Nothing is hidden by it either: the link keeps the outcome `pending_wakeup`, which is
+    what the Activity view shows per link, and the rule is deliberately not recorded as
+    applied, so it stays pending rather than in sync until a wake-up proves otherwise. What
+    is missing is a status that says "done, and nothing is confirmed yet"; adding a fifth
+    member is a change to what every consumer of a job summary switches on, so it belongs
+    with the panel that would display it (open item T20) rather than here.
     """
 
     COMPLETED = "completed"
@@ -146,6 +167,17 @@ class JobRunningError(HomeAssistantError):
     Refused rather than queued: the second caller's plan was computed against the state
     before the first job wrote anything, so running it afterwards would apply a plan nobody
     has looked at since. Re-planning is cheap and correct.
+    """
+
+
+class RunnerShutdownError(HomeAssistantError):
+    """An apply arrived after this runner was shut down (E17).
+
+    A shutdown is a config entry unload: the backends are being torn down and the store is
+    being discarded. A service call that was already scheduled when the unload started
+    would otherwise write to the radio through adapters that are going away and persist a
+    summary into a store nobody will save. There is no coming back from this: a runner is
+    per config entry, and a reload builds a new one.
     """
 
 
@@ -317,6 +349,7 @@ class JobRunner:
         self._operation_timeout = operation_timeout_seconds
         self._sleep = sleep
         self._job: _Job | None = None
+        self._shut_down = False
 
     @property
     def progress(self) -> JobProgress | None:
@@ -343,6 +376,13 @@ class JobRunner:
         `scope` and `remove_unmanaged` must be the ones the plan was built with: they are
         how the plan is rebuilt to find out whether it is still current (E15).
         """
+        if self._shut_down:
+            raise RunnerShutdownError(
+                "this apply arrived after the integration started unloading, so it was "
+                "refused rather than written through backends that are being torn down",
+                translation_domain=DOMAIN,
+                translation_key="runner_shut_down",
+            )
         if self._job is not None:
             raise JobRunningError(
                 "an apply is already running, so this one was refused rather than queued "
@@ -377,24 +417,41 @@ class JobRunner:
         self._stop(JobStatus.CANCELLED)
 
     async def async_shutdown(self) -> None:
-        """Stop the running job as interrupted and wait for it to unwind (E17).
+        """Stop the running job as interrupted, wait for it to unwind, and stay down (E17).
 
         Awaited, unlike cancel, because the caller is a config entry unload: returning
         while writes are still in flight would tear the backends down underneath them.
         The job is not recorded anywhere as resumable, and nothing resumes it: re-running
         apply recomputes the plan from a fresh read, which is the only safe way back.
+
+        Terminal, and that is the point of the flag rather than of the wait. An unload is
+        not a pause: a service call whose task was already scheduled when the unload began
+        would otherwise start a whole new job a moment later, writing to the radio through
+        backends being torn down and persisting its summary into a store being discarded.
         """
+        self._shut_down = True
         job = self._job
         if job is None:
             return
         self._stop(JobStatus.INTERRUPTED)
         await job.finished.wait()
 
-    def _stop(self, status: JobStatus) -> None:
-        """Record that the running job, if there is one, must stop starting things."""
-        if self._job is not None:
-            self._job.stop = status
-            _LOGGER.info("job %s asked to stop: %s", self._job.id, status)
+    def _stop(self, status: JobStatus) -> JobStatus:
+        """Record why the running job must stop starting things, and return why it stopped.
+
+        First writer wins. A cancel followed by an unload is one job that stopped once, and
+        the reason it stopped is the first one: the operations it did not attempt were
+        already answered `cancelled`, and letting the second stop relabel the job would
+        produce a summary whose status says one thing and whose links say another, which is
+        exactly the kind of disagreement somebody reads a job summary to resolve.
+        """
+        job = self._job
+        if job is None:
+            return status
+        if job.stop is None:
+            job.stop = status
+            _LOGGER.info("job %s asked to stop: %s", job.id, status)
+        return job.stop
 
     # One job, in order.
 
@@ -405,32 +462,82 @@ class JobRunner:
         scope: PlanScope | None,
         remove_unmanaged: frozenset[str],
     ) -> JobReport:
-        """Refuse, re-read, snapshot, write, verify, record. In that order, always.
+        """Refuse, hold, re-read, snapshot, write, verify, record. In that order, always.
 
         The refusals come first because they depend on nothing: a lifeline is never ours
         whatever the state of the network, and asking a state-dependent question first
-        could answer instead of one of them. The snapshot comes after the re-read and
-        before the first write, so that what it holds is really what was there.
+        could answer instead of one of them. The hold comes next and covers everything that
+        touches a device, because our own writes are what make the driver emit the events
+        the coordinator refreshes on: without it, a job arms a re-read of the very node it
+        is writing to, which is a second conversation with that node and a write into the
+        cache this job is reasoning from. The snapshot comes after the re-read and before
+        the first write, so that what it holds is really what was there, and it is taken
+        over the devices that are really going to be written to rather than over everything
+        the plan named.
         """
-        self._refuse_impossible(job)
+        self._refuse_impossible(job, remove_unmanaged)
         handles, backends = self._resolve_devices(job)
         by_device = _grouped(job.writes)
-        await self._reread(handles)
-        stale = await self._stale_devices(plan, scope, remove_unmanaged, by_device)
-        self._take_snapshot(job, handles)
-        _mark(stale, by_device, LinkOutcome.STALE_PLAN, self._stale_reason)
-
-        semaphore = asyncio.Semaphore(self._max_concurrent_devices)
-        await asyncio.gather(
-            *(
-                self._run_device(job, semaphore, handles[identity], backends[identity], writes)
-                for identity, writes in by_device.items()
-                if identity not in stale
+        release = self._coordinator.async_hold_refresh(sorted(handles))
+        try:
+            await self._reread(handles)
+            stale = await self._stale_devices(plan, scope, remove_unmanaged, by_device)
+            _mark(stale, by_device, LinkOutcome.STALE_PLAN, self._stale_reason)
+            self._take_snapshot(
+                job, {identity: handles[identity] for identity in handles if identity not in stale}
             )
-        )
+
+            semaphore = asyncio.Semaphore(self._max_concurrent_devices)
+            # `return_exceptions` so that one device's coroutine raising cannot leave its
+            # siblings writing to a mesh after this call has returned and the job lock has
+            # been dropped, which is how two applies end up driving one node at once.
+            # Nothing in `_run_device` raises today; that is a property of code, not a
+            # guarantee, and the failure it turns into is not one anybody would debug from
+            # a job summary.
+            outcomes: list[BaseException | None] = await asyncio.gather(
+                *(
+                    self._run_device(job, semaphore, handles[identity], backends[identity], writes)
+                    for identity, writes in by_device.items()
+                    if identity not in stale
+                ),
+                return_exceptions=True,
+            )
+        except asyncio.CancelledError:
+            # The task awaiting this apply was cancelled: a Phase 1D WebSocket connection
+            # that dropped, a service call cancelled at unload. Writes have reached
+            # somebody's house and cannot be un-sent, so the job is recorded before the
+            # cancellation is allowed on: a job that wrote and left no trace in the
+            # Activity view is the one outcome nobody can act on afterwards.
+            self._mark_not_attempted(job, self._stop(JobStatus.INTERRUPTED))
+            self._finish(job)
+            raise
+        finally:
+            release()
+        for outcome in outcomes:
+            if outcome is not None:
+                _LOGGER.error(
+                    "job %s: a device coroutine raised, so its links are reported as they "
+                    "stood when it stopped: %s",
+                    job.id,
+                    outcome,
+                    exc_info=outcome,
+                )
         return self._finish(job)
 
-    def _refuse_impossible(self, job: _Job) -> None:
+    def _mark_not_attempted(self, job: _Job, status: JobStatus) -> None:
+        """Answer the operations a stop reached before anything was sent to their device.
+
+        Only the ones with no attempt behind them. `cancelled` and `interrupted` mean
+        "nothing reached this device" and mean only that, so an operation that was in
+        flight when the stop arrived is not relabelled: it keeps whatever it decided, and
+        an operation cancelled mid-write reports as failed, which is the safe direction to
+        be wrong in when nobody can say whether the radio heard it.
+        """
+        for op in job.ops:
+            if op.outcome is None and op.attempts == 0:
+                op.outcome = _NOT_ATTEMPTED[status]
+
+    def _refuse_impossible(self, job: _Job, remove_unmanaged: frozenset[str]) -> None:
         """Answer every item that cannot be written, before anything is read or sent.
 
         The order is the safety rule and is the same order the Z-Wave adapter uses. A
@@ -439,17 +546,22 @@ class JobRunner:
         as ours, which means an item that gets here is already evidence that something
         upstream is wrong, and a guard that only exists where the mistake is not is not a
         guard (CLAUDE.md Section 3 rule 4).
+
+        Rule 5 is guarded here for the same reason, and it had not been: the planner only
+        ever puts an unmanaged link into a plan when the user selected it by fingerprint,
+        so an unselected one arriving here is the same kind of evidence, and it is somebody
+        else's association about to be deleted with no undo.
         """
         for op in job.ops:
-            refusal = self._refusal(op.item)
+            refusal = self._refusal(op.item, remove_unmanaged)
             if refusal is not None:
                 op.outcome = LinkOutcome.BLOCKED
                 op.reason = refusal
 
-    def _refusal(self, item: PlanItem) -> Diagnostic | None:
+    def _refusal(self, item: PlanItem, remove_unmanaged: frozenset[str]) -> Diagnostic | None:
         """Return why this item will not be attempted, or None when it will be."""
         link = item.link
-        if isinstance(link, ObservedLink) and link.is_system:
+        if link is not None and self._is_system(link):
             return Diagnostic("system_link_protected", _about(link))
         if item.op is PlanOp.BLOCKED:
             return item.reason or Diagnostic("blocked_by_plan", {"device": item.device_identity})
@@ -461,7 +573,42 @@ class JobRunner:
                 "unsupported_operation",
                 {"operation": str(item.op), "device": item.device_identity},
             )
+        if (
+            item.op is PlanOp.REMOVE
+            and isinstance(link, ObservedLink)
+            and link.managed_by is None
+            and link.fingerprint not in remove_unmanaged
+        ):
+            # CLAUDE.md Section 3 rule 5. Nobody made this link with Device Links, and
+            # nobody ticked it: it is an association somebody set up by hand in Z-Wave JS
+            # UI, and taking it off is not something they can undo from here.
+            return Diagnostic("unmanaged_not_selected", _about(link))
         return None
+
+    def _is_system(self, link: Link) -> bool:
+        """Say whether this link touches something that is never ours to write.
+
+        Two questions, because a removal and an addition know different things. A `REMOVE`
+        carries the entry as it was observed, so its own `is_system` answers directly. An
+        `ADD` carries a link that does not exist yet and so carries no `is_system` at all,
+        which is how a hand-built plan adding a node to group 1 walked through this layer
+        untouched and was stopped only by the Z-Wave adapter's own guard. Right for Z-Wave,
+        wrong as an invariant: the next backend that forgets its guard would get nothing
+        from the layer that calls itself the last one before a write.
+
+        So an addition is answered from what the device itself reported: a group holding an
+        entry the backend marked `is_system` is a system group, whatever we are trying to
+        put in it. Every Z-Wave lifeline holds the controller, so the group answers even
+        though the new entry does not exist. A device this coordinator has never read
+        answers nothing here and is left to the adapter, which is defence in depth rather
+        than a hole: the two guards are independent and both would have to fail.
+        """
+        if isinstance(link, ObservedLink) and link.is_system:
+            return True
+        device = self._coordinator.observed_for(link.source)
+        return device is not None and any(
+            entry.is_system and entry.emitter_group == link.emitter_group for entry in device.links
+        )
 
     def _resolve_devices(self, job: _Job) -> tuple[dict[str, DeviceHandle], dict[str, Backend]]:
         """Return the handle and the adapter of every device still to be written to.
@@ -571,18 +718,34 @@ class JobRunner:
         about the device has moved in between, and that is precisely when a rollback is
         being asked for.
 
-        Nothing is recorded when the plan turns out to have nothing to write. A snapshot of
-        a job that changed nothing is a slot spent on a state that is still the current one.
+        Nothing is recorded when there is no device left to write to, and that question is
+        asked after staleness and availability rather than off the plan. The plan is what
+        somebody asked for; what reaches a radio is what is left of it. A Z-Wave JS restart
+        makes every device unavailable, every plan empty and every device stale, and twenty
+        presses of Apply during one would otherwise write twenty snapshots of nothing and
+        push out every snapshot a rollback could have used, which is the same eviction the
+        empty-plan guard was added to stop.
+
+        `devices` is what makes an empty snapshot readable afterwards: it names the devices
+        this really covers, so a device that held nothing is not confused with a device
+        nobody could read. A snapshot that ends up covering nothing is not written at all.
         """
-        if not handles:
-            return
+        devices: list[str] = []
         links: list[ObservedLink] = []
         for identity in sorted(handles):
             device = self._coordinator.observed_for(handles[identity])
-            if device is not None:
-                links.extend(device.links)
+            if device is None:
+                continue
+            devices.append(identity)
+            links.extend(device.links)
+        if not devices:
+            return
         snapshot = Snapshot(
-            id=job.id, created_at=job.created_at, reason=SNAPSHOT_REASON, links=tuple(links)
+            id=job.id,
+            created_at=job.created_at,
+            reason=SNAPSHOT_REASON,
+            devices=tuple(devices),
+            links=tuple(links),
         )
         job.snapshot_id = snapshot.id
         self._coordinator.async_update_state(self._coordinator.state.with_snapshot(snapshot))
@@ -695,13 +858,25 @@ class JobRunner:
         integration answers from must be the one that was just proved right: a job that
         left its own private idea of the device behind would put the panel and the radio
         into disagreement at exactly the moment somebody is looking at both.
+
+        The read happens whenever anything was sent, including when every write failed.
+        A `failed` write that actually landed is a documented Z-Wave case (a transmit whose
+        acknowledgement was lost), and it is the one case where the cache would otherwise
+        keep a pre-apply read of a device that has changed: the job says three failures,
+        the panel says the link is absent, and the device holds it. What is skipped when
+        there is nothing verifiable is the checking, not the reading.
+
+        What is checked is the device this refresh returned, not whatever the cache holds
+        by the time the checking gets there. They are the same object today; they are the
+        same object only for as long as nothing runs in between, and a verify that quietly
+        depends on that would start reporting `unconfirmed` for a perfectly good apply the
+        first time something does.
         """
         pending = [write for write in writes if write.op.outcome in _VERIFIABLE]
+        device = await self._coordinator.async_refresh(handle, deep=True)
         if not pending:
             return
-        await self._coordinator.async_refresh(handle, deep=True)
-        device = self._coordinator.observed_for(handle)
-        if not self._coordinator.is_available(handle.identity) or device is None:
+        if device is None:
             for write in pending:
                 write.op.outcome = LinkOutcome.UNCONFIRMED
                 write.op.reason = Diagnostic("verify_unreadable", _about(write.link))

@@ -37,6 +37,7 @@ removed from it while we cannot see it (E1).
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -142,6 +143,10 @@ class DeviceLinksCoordinator:
         self._pending: set[str] = set()
         self._flush_handle: CALLBACK_TYPE | None = None
 
+        # Devices somebody else is in the middle of a conversation with, counted so that
+        # two holders of the same device release it only when both have let go.
+        self._held: Counter[str] = Counter()
+
     # Lifecycle.
 
     async def async_setup(self) -> None:
@@ -234,18 +239,28 @@ class DeviceLinksCoordinator:
 
     async def async_refresh(
         self, handle: DeviceHandle | None = None, *, deep: bool = False
-    ) -> None:
+    ) -> ObservedDevice | None:
         """Re-read one device, or every device, and resolve ownership over the result.
 
         `deep` asks the devices themselves rather than the driver's cache, which costs
         radio time: it is what the executor does after an apply, not what a subscription
         callback does.
+
+        A single-device refresh hands back what it read, so a caller that has to reason
+        about the answer holds it rather than fetching it out of the cache again. The two
+        are the same object today, because nothing can run between the store and this
+        return, but "nothing can run in between" is a property of code somebody will
+        change: a verify that consumes its own read cannot be undone by a later write into
+        the cache, whatever else ends up running there. None means the device did not
+        answer, and what was cached before is still cached.
         """
         if handle is None:
             await self._read_all(deep=deep)
-        else:
-            await self._read_device(handle, deep=deep)
+            self._resolve_ownership()
+            return None
+        read = await self._read_device(handle, deep=deep)
         self._resolve_ownership()
+        return None if read is None else self._observed.get(handle.identity)
 
     async def _read_all(self, *, deep: bool) -> None:
         """Read every device of every backend, one backend's failure at a time."""
@@ -265,11 +280,16 @@ class DeviceLinksCoordinator:
                 self._handles[device.handle.identity] = device.handle
                 await self._read_device(device.handle, deep=deep)
 
-    async def _read_device(self, handle: DeviceHandle, *, deep: bool) -> None:
-        """Read one device, keeping what is cached when it does not answer."""
+    async def _read_device(self, handle: DeviceHandle, *, deep: bool) -> ObservedDevice | None:
+        """Read one device, keeping what is cached when it does not answer.
+
+        Returns what was read, or None when there was no answer and the cache was left as
+        it was, so a caller can tell "this is what the device said" from "the device said
+        nothing" without asking a second question.
+        """
         backend = self._backends.get(handle.backend)
         if backend is None:
-            return
+            return None
         try:
             capabilities = await backend.async_capabilities(handle)
             observed = await backend.async_observed(handle, deep)
@@ -281,11 +301,12 @@ class DeviceLinksCoordinator:
                 exc_info=True,
             )
             self._unavailable.add(handle.identity)
-            return
+            return None
         self._handles[handle.identity] = handle
         self._capabilities[handle.identity] = capabilities
         self._observed[handle.identity] = observed
         self._unavailable.discard(handle.identity)
+        return observed
 
     def _mark_backend_unavailable(self, backend_id: BackendId) -> None:
         """Mark every device of a backend that has stopped answering, keeping the cache.
@@ -496,6 +517,44 @@ class DeviceLinksCoordinator:
     # Following changes.
 
     @callback
+    def async_hold_refresh(self, identities: Iterable[str]) -> CALLBACK_TYPE:
+        """Suspend event-driven re-reads of these devices until the caller lets go.
+
+        A job writing to a node is a conversation with that node, and our own writes are
+        exactly what makes the driver emit the value-updated events this coordinator
+        follows. Without a hold, a job's first write arms a refresh that fires in the
+        middle of the same job: a second radio conversation with a node that is already
+        in one (which is the timeout that looks like broken hardware), and a write into
+        the cache the job is reasoning from, from a read that was taken before the job
+        finished writing. Neither is drift, and neither is anything the user did.
+
+        Only the debounced, event-driven path is held. An explicit `async_refresh` is not,
+        because the holder is the thing doing the reading: holding its own reads would
+        deadlock the verify this exists to protect. Events are not dropped either, they
+        are deferred: what changed stays pending and is read once the hold is released, so
+        a change made by somebody else during a job is still noticed afterwards.
+
+        The returned callable releases the hold and is safe to call once; call it from a
+        `finally`, because a hold that outlives its job stops drift detection for good.
+        """
+        held = tuple(identities)
+        self._held.update(held)
+        released = False
+
+        def _release() -> None:
+            nonlocal released
+            if released:
+                return
+            released = True
+            for identity in held:
+                self._held[identity] -= 1
+                if self._held[identity] <= 0:
+                    del self._held[identity]
+            self._arm_flush()
+
+        return _release
+
+    @callback
     def _device_changed(self, identity: str) -> None:
         """Note that a device is worth re-reading, and read it once the burst is over.
 
@@ -505,15 +564,32 @@ class DeviceLinksCoordinator:
         still watching.
         """
         self._pending.add(identity)
-        if self._flush_handle is None:
+        self._arm_flush()
+
+    def _arm_flush(self) -> None:
+        """Schedule the trailing-edge read, unless there is nothing it could read yet.
+
+        A device under a hold does not arm anything: its event stays pending and the timer
+        is armed by the release instead, so a held burst costs no wake-ups rather than one
+        every debounce window for as long as the hold lasts.
+        """
+        if self._flush_handle is not None:
+            return
+        if any(identity not in self._held for identity in self._pending):
             self._flush_handle = async_call_later(
                 self._hass, self._debounce_seconds, self._flush_pending
             )
 
     async def _flush_pending(self, _now: datetime) -> None:
-        """Re-read every device that changed while the debounce was running."""
+        """Re-read every device that changed while the debounce was running.
+
+        A device that has been put on hold since the timer was armed keeps its place in
+        the pending set rather than being read now: the read would reach a node somebody
+        else is mid-conversation with, which is the one thing this cache must never do.
+        """
         self._flush_handle = None
-        pending, self._pending = self._pending, set()
+        held = {identity for identity in self._pending if identity in self._held}
+        pending, self._pending = self._pending - held, held
         for identity in sorted(pending):
             handle = self._handles.get(identity)
             if handle is not None:

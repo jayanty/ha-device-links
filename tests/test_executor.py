@@ -39,6 +39,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 import pytest
 
+from custom_components.device_links.backends.base import ObservedDevice
 from custom_components.device_links.backends.zwave import ZWaveBackend
 from custom_components.device_links.coordinator import DeviceLinksCoordinator, PlanScope
 from custom_components.device_links.executor import (
@@ -46,9 +47,11 @@ from custom_components.device_links.executor import (
     JobRunningError,
     JobStatus,
     LinkOutcome,
+    RunnerShutdownError,
 )
 from custom_components.device_links.models import Backend as BackendId
 from custom_components.device_links.models import (
+    DeviceHandle,
     Diagnostic,
     Feature,
     Link,
@@ -238,6 +241,44 @@ async def test_two_writes_to_one_device_are_never_in_flight_together(
     assert len(backend.writes) == 3
     assert backend.overlapped == []
     assert backend.peak == 1
+
+
+async def test_a_refresh_our_own_writes_armed_never_reads_a_device_mid_job(
+    coordinator: DeviceLinksCoordinator,
+    runner: JobRunner,
+    backend: RecordingBackend,
+    driver: FakeDriver,
+) -> None:
+    """The coordinator follows value-updated events, and our own writes produce them.
+
+    So the first write of a job arms a re-read of the very node the job is still writing
+    to, on a timer nothing in the job knows about. That read is a second conversation with
+    a node that is already in one, which is the timeout that looks exactly like a faulty
+    device: the same failure per-device serialization exists to prevent, arriving through
+    the one door the per-device coroutine cannot close.
+
+    The event is emitted here by the fake driver, which is what a real driver does on our
+    own association write. `RecordingBackend` registers reads as in flight alongside
+    writes, so this is direct evidence rather than an inference from a count.
+    """
+    activate(
+        coordinator,
+        remote_rule("rule-1", features=frozenset({Feature.ON_OFF, Feature.LEVEL_SET})),
+    )
+    plan = await coordinator.async_plan()
+
+    async def _announce_and_dawdle(link: Link) -> None:
+        backend.before_write = None
+        driver.controller.emit_association_changed(36)
+        # Long enough that the debounce fires while this write is still open.
+        await asyncio.sleep(TEST_DEBOUNCE * 4)
+
+    backend.before_write = _announce_and_dawdle
+
+    report = await runner.async_apply(plan)
+
+    assert outcomes(report) == [LinkOutcome.APPLIED] * 2
+    assert backend.overlapped == []
 
 
 @pytest.mark.parametrize("limit", [1, 2, 3])
@@ -467,6 +508,129 @@ async def test_a_job_interrupted_by_shutdown_is_marked_interrupted_and_not_resum
     assert coordinator.state.jobs[-1].status == "interrupted"
 
 
+async def test_a_cancel_and_then_a_shutdown_give_one_answer_and_not_two(
+    coordinator: DeviceLinksCoordinator,
+    make_runner: Callable[..., JobRunner],
+    backend: RecordingBackend,
+) -> None:
+    """A job stops once, and the reason it stopped is the first one.
+
+    A cancel from the panel and an unload a moment later is one job that was cancelled.
+    Letting the unload relabel it produced a summary whose status said `interrupted` while
+    every link in it said `cancelled`, which is precisely the disagreement somebody opens a
+    job summary to resolve.
+    """
+    three_adds_across_two_devices(coordinator)
+    plan = await coordinator.async_plan()
+    runner = make_runner(max_concurrent_devices=1)
+    started = asyncio.Event()
+
+    async def _cancel_once(link: Link) -> None:
+        backend.before_write = None
+        runner.async_cancel()
+        started.set()
+
+    backend.before_write = _cancel_once
+    task = asyncio.create_task(runner.async_apply(plan))
+    await started.wait()
+    await runner.async_shutdown()
+    report = await task
+
+    assert report.status is JobStatus.CANCELLED
+    assert LinkOutcome.INTERRUPTED not in outcomes(report)
+    assert coordinator.state.jobs[-1].status == "cancelled"
+
+
+async def test_an_apply_whose_caller_is_cancelled_still_records_what_it_wrote(
+    coordinator: DeviceLinksCoordinator,
+    make_runner: Callable[..., JobRunner],
+    backend: RecordingBackend,
+) -> None:
+    """A dropped WebSocket must not erase a job that wrote to somebody's house.
+
+    The task awaiting the apply is cancelled from underneath it: a Phase 1D subscription
+    whose connection went away, a service call cancelled at unload. The writes that were
+    sent cannot be un-sent, so the job owes a record of them. Letting the cancellation
+    straight through left no `JobSummary`, no note that the rules had been applied, and an
+    Activity view that says the apply never happened.
+    """
+    three_adds_across_two_devices(coordinator)
+    plan = await coordinator.async_plan()
+    runner = make_runner(max_concurrent_devices=1)
+    started = asyncio.Event()
+
+    async def _stall(link: Link) -> None:
+        started.set()
+        await asyncio.sleep(TEST_DEBOUNCE * 4)
+
+    backend.before_write = _stall
+    task = asyncio.create_task(runner.async_apply(plan))
+    await started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    summary = coordinator.state.jobs[-1]
+
+    assert summary.status == "interrupted"
+    assert LinkOutcome.INTERRUPTED in {result.status for result in summary.results}
+    assert runner.progress is None
+
+
+async def test_one_device_coroutine_raising_still_returns_a_report_for_the_others(
+    coordinator: DeviceLinksCoordinator, runner: JobRunner, backend: RecordingBackend
+) -> None:
+    """Nothing raises out of `_run_device` today. That is code, not a guarantee.
+
+    A bare `gather` propagates the first exception and leaves its siblings running, so the
+    apply returns while writes to another node are still going out, with the job lock
+    already dropped: a second apply is accepted and two jobs drive one mesh. What the job
+    owes instead is a report for every link and a summary that was really written.
+    """
+    three_adds_across_two_devices(coordinator)
+    plan = await coordinator.async_plan()
+    refresh = coordinator.async_refresh
+
+    async def _explode_on_the_verify(
+        handle_: DeviceHandle | None = None, *, deep: bool = False
+    ) -> ObservedDevice | None:
+        if deep and handle_ is not None and handle_.identity == handle(36).identity:
+            raise RuntimeError("a bug in the verify path")
+        return await refresh(handle_, deep=deep)
+
+    coordinator.async_refresh = _explode_on_the_verify  # type: ignore[method-assign]
+
+    report = await runner.async_apply(plan)
+
+    assert len(report.results) == 3
+    assert backend.in_flight == []
+    assert coordinator.state.jobs[-1].id == report.id
+    assert LinkOutcome.APPLIED in outcomes(report)
+
+
+async def test_an_apply_after_a_shutdown_is_refused_rather_than_run(
+    coordinator: DeviceLinksCoordinator, runner: JobRunner, backend: RecordingBackend
+) -> None:
+    """E17 and the config entry unload it belongs to.
+
+    Shutdown stops the running job, and it used to stop nothing else: a service call whose
+    task was already scheduled started a whole new job a moment later, writing to the radio
+    through backends the unload was tearing down and persisting a summary into a store
+    about to be discarded. An unload is not a pause.
+    """
+    three_adds_across_two_devices(coordinator)
+    plan = await coordinator.async_plan()
+
+    await runner.async_shutdown()
+
+    with pytest.raises(RunnerShutdownError):
+        await runner.async_apply(plan)
+
+    assert backend.writes == []
+    assert coordinator.state.jobs == ()
+
+
 async def test_shutting_down_with_no_job_running_does_nothing(runner: JobRunner) -> None:
     await runner.async_shutdown()
 
@@ -590,6 +754,98 @@ async def test_a_lifeline_is_refused_even_when_a_hand_built_plan_asks_for_its_re
     assert outcomes(report) == [LinkOutcome.BLOCKED]
     assert backend.writes == []
     assert any(link.is_system for link in links_of(coordinator, 36))
+
+
+async def test_adding_to_a_group_the_device_reports_as_its_lifeline_is_refused_too(
+    coordinator: DeviceLinksCoordinator, runner: JobRunner, backend: RecordingBackend
+) -> None:
+    """The same rule 4, in the direction the guard did not cover.
+
+    A `REMOVE` carries the entry as it was observed, so `is_system` answered it. An `ADD`
+    carries a link that does not exist yet and so carries no `is_system` at all, and walked
+    through this layer untouched: the only thing that stopped it was the Z-Wave adapter's
+    own guard. Right for Z-Wave, wrong as an invariant, and no use at all to the next
+    backend that forgets its own. What answers here instead is what the device reported: a
+    group holding a system entry is a system group, whatever we are trying to put in it.
+    """
+    lifeline = next(link for link in links_of(coordinator, 36) if link.is_system)
+    intruder = Link(
+        backend=BackendId.ZWAVE,
+        source=handle(36),
+        source_endpoint=0,
+        emitter_id="lifeline",
+        emitter_group=lifeline.emitter_group,
+        target=LinkTarget(handle=handle(37), endpoint=None),
+        feature=Feature.ON_OFF,
+    )
+    # The current token, so the staleness check waves this through and the refusal under
+    # test is the only thing between a hand-built item and the radio.
+    plan = Plan(
+        token=(await coordinator.async_plan()).token,
+        items=(PlanItem(op=PlanOp.ADD, device_identity=handle(36).identity, link=intruder),),
+        unmanaged=(),
+        unchanged_count=0,
+    )
+
+    report = await runner.async_apply(plan)
+
+    assert outcomes(report) == [LinkOutcome.BLOCKED]
+    assert report.results[0].reason is not None
+    assert report.results[0].reason.translation_key == "system_link_protected"
+    assert backend.writes == []
+
+
+async def test_an_unmanaged_link_nobody_selected_is_never_removed(
+    coordinator: DeviceLinksCoordinator,
+    runner: JobRunner,
+    backend: RecordingBackend,
+    driver: FakeDriver,
+) -> None:
+    """CLAUDE.md Section 3 rule 5, guarded where rule 4 already was.
+
+    This association was made by hand in Z-Wave JS UI, possibly years ago. Removal needs an
+    explicit per-link opt-in, and the runner is handed the set of fingerprints that carries
+    it, so checking that a removal is in it costs one comparison against data already
+    present. The staleness check catches the realistic mistake; this catches the one where
+    a caller builds the item itself, and there is no undo behind it.
+    """
+    await apply_by_hand(driver, source=36, group=2, target=38)
+    await coordinator.async_refresh()
+    foreign = next(
+        link for link in links_of(coordinator, 36) if not link.is_system and link.rule_id is None
+    )
+    plan = Plan(
+        token=(await coordinator.async_plan()).token,
+        items=(PlanItem(op=PlanOp.REMOVE, device_identity=foreign.source.identity, link=foreign),),
+        unmanaged=(),
+        unchanged_count=0,
+    )
+
+    report = await runner.async_apply(plan)
+
+    assert outcomes(report) == [LinkOutcome.BLOCKED]
+    assert report.results[0].reason is not None
+    assert report.results[0].reason.translation_key == "unmanaged_not_selected"
+    assert backend.writes == []
+    assert foreign.fingerprint in {link.fingerprint for link in links_of(coordinator, 36)}
+
+
+async def test_an_unmanaged_link_the_user_did_select_is_removed(
+    coordinator: DeviceLinksCoordinator, runner: JobRunner, driver: FakeDriver
+) -> None:
+    """Decision D9's other half: an opt-in that does nothing is not an opt-in."""
+    await apply_by_hand(driver, source=36, group=2, target=38)
+    await coordinator.async_refresh()
+    foreign = next(
+        link for link in links_of(coordinator, 36) if not link.is_system and link.rule_id is None
+    )
+    selected = frozenset({foreign.fingerprint})
+    plan = await coordinator.async_plan(remove_unmanaged=selected)
+
+    report = await runner.async_apply(plan, remove_unmanaged=selected)
+
+    assert outcomes(report) == [LinkOutcome.APPLIED]
+    assert foreign.fingerprint not in {link.fingerprint for link in links_of(coordinator, 36)}
 
 
 async def test_an_item_no_backend_is_loaded_for_is_blocked_rather_than_attempted(
