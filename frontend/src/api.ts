@@ -36,6 +36,7 @@ import type {
   Plan,
   ProfileActivation,
   ProfileDetail,
+  ProfileDiff,
   ProfileExport,
   ProfileImport,
   ProfileList,
@@ -65,6 +66,7 @@ export const COMMANDS = {
   profilesDelete: "device_links/profiles/delete",
   profilesActivate: "device_links/profiles/activate",
   profilesDuplicate: "device_links/profiles/duplicate",
+  profilesDiff: "device_links/profiles/diff",
   profilesExport: "device_links/profiles/export",
   profilesImport: "device_links/profiles/import",
   rulesValidate: "device_links/rules/validate",
@@ -261,6 +263,25 @@ export class DeviceLinksApi {
       ...(name === undefined ? {} : { name }),
     });
     return result.profile;
+  }
+
+  /**
+   * Compare a profile with another profile, or with a snapshot (FR-P4).
+   *
+   * Exactly one other side, because the two answer different questions: a profile has
+   * rules and a snapshot is a photograph of hardware. The backend refuses a call that
+   * names both or neither rather than choosing for the caller.
+   */
+  async diffProfile(
+    profileId: string,
+    other: { profileId: string } | { snapshotId: string },
+  ): Promise<ProfileDiff> {
+    return this.send<ProfileDiff>(COMMANDS.profilesDiff, {
+      profile_id: profileId,
+      ...("profileId" in other
+        ? { other_profile_id: other.profileId }
+        : { snapshot_id: other.snapshotId }),
+    });
   }
 
   /** Export a profile as YAML. With no id, the active profile. */

@@ -58,6 +58,17 @@ export class DeviceLinksActivity extends DeviceLinksView {
   /** The snapshot the rollback dialog is open on, or null when it is closed. */
   @state() private _rollingBack: Snapshot | null = null;
 
+  /** The snapshot the comparison is open on, which writes nothing (FR-P4). */
+  @state() private _comparing: Snapshot | null = null;
+
+  /**
+   * The profile a snapshot is compared against, which is always the active one.
+   *
+   * A snapshot is a photograph of hardware, so the only profile it can usefully be read
+   * against is the one whose links are supposed to be on those devices now.
+   */
+  @state() private _activeProfileId = "";
+
   /**
    * What the last rollback plan said would come straight back, kept for the notice.
    *
@@ -119,6 +130,18 @@ export class DeviceLinksActivity extends DeviceLinksView {
         @dl-plan-closed=${this._closeRollback}
         @dl-plan-applied=${this._afterRollback}
       ></dl-plan-dialog>
+      <dl-diff-dialog
+        .hass=${this.hass}
+        .api=${this.api}
+        .narrow=${this.narrow}
+        .open=${this._comparing !== null}
+        .heading=${"What this snapshot holds that the active profile does not"}
+        .profileId=${this._activeProfileId}
+        .against=${this._comparing === null ? null : { snapshotId: this._comparing.id }}
+        @dl-diff-closed=${() => {
+          this._comparing = null;
+        }}
+      ></dl-diff-dialog>
     `;
   }
 
@@ -275,6 +298,13 @@ export class DeviceLinksActivity extends DeviceLinksView {
                       <button
                         type="button"
                         class="outlined"
+                        @click=${() => this._openDiff(snapshot)}
+                      >
+                        Compare
+                      </button>
+                      <button
+                        type="button"
+                        class="outlined"
                         @click=${() => this._openRollback(snapshot)}
                       >
                         Restore
@@ -293,6 +323,17 @@ export class DeviceLinksActivity extends DeviceLinksView {
   // ------------------------------------------------------------------------------------
   // Rolling one back.
   // ------------------------------------------------------------------------------------
+
+  /**
+   * Show what differs between the active profile and what this snapshot recorded (FR-P4).
+   *
+   * Beside Restore rather than inside it, because they are different acts: this one reads,
+   * and the other one opens a plan that writes. A restore is a large thing to agree to
+   * without having been able to look first.
+   */
+  private _openDiff(snapshot: Snapshot): void {
+    this._comparing = snapshot;
+  }
 
   private _openRollback(snapshot: Snapshot): void {
     this._forgetLastPlan();
@@ -405,15 +446,17 @@ export class DeviceLinksActivity extends DeviceLinksView {
     }
     this._loading = true;
     try {
-      const [jobs, devices, snapshots] = await Promise.all([
+      const [jobs, devices, snapshots, profiles] = await Promise.all([
         this.api.listJobs(),
         this.api.listDevices(),
         this.api.listSnapshots(),
+        this.api.listProfiles(),
       ]);
       this._jobs = jobs.jobs ?? [];
       this._running = jobs.running ?? null;
       this._devices = devices ?? [];
       this._snapshots = snapshots ?? [];
+      this._activeProfileId = profiles.active_profile_id ?? "";
       this._error = null;
       if (this._selectedId === null && !this.narrow) {
         const first = this._jobs[0];

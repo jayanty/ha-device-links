@@ -43,6 +43,15 @@ All notable changes to this project are documented here. The format follows
   analysis knows what the links say rather than what the devices do. Shown in the
   rule editor's review step with the rule being edited folded in, and on the Rules
   tab for the profile as it stands.
+- Profile diff (Phase 2C, FR-P4): compare two profiles, or a profile against a
+  snapshot, rule by rule and link by link. Both levels, because they answer
+  different questions: a renamed rule is a change to a profile and no change at
+  all to a house, and a device swapped underneath an untouched rule is the
+  reverse. A snapshot has no rules in it and covers only the devices it was taken
+  of, and the comparison says so rather than letting "nothing differs" read as a
+  claim about the whole network. Reachable from the Profiles tab for two profiles
+  and beside Restore in Activity for a snapshot. It writes nothing and offers no
+  button that does.
 - Snapshot rollback (Phase 2B, FR-P3): put a snapshot's devices back the way they
   were, as a plan confirmed in the same dialog every other write goes through.
   Removals that an enabled rule will write again are named before the plan is

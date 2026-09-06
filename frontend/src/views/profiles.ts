@@ -13,6 +13,7 @@ import { customElement, state } from "lit/decorators.js";
 
 import { DeviceLinksApiError, describeError } from "../api";
 import "../components/dialog";
+import "../dialogs/diff-dialog";
 import "../dialogs/plan-dialog";
 import { plural } from "../format";
 import { sharedStyles } from "../styles";
@@ -20,7 +21,7 @@ import type { Plan, ProfileRow } from "../types";
 import { DeviceLinksView } from "./view-base";
 
 /** Which of the three small dialogs this view can open is open. */
-type Sheet = "none" | "create" | "import" | "export" | "delete";
+type Sheet = "none" | "create" | "import" | "export" | "delete" | "compare";
 
 @customElement("device-links-profiles")
 export class DeviceLinksProfiles extends DeviceLinksView {
@@ -47,6 +48,9 @@ export class DeviceLinksProfiles extends DeviceLinksView {
   @state() private _plan: Plan | null = null;
 
   @state() private _planHeading = "Plan and apply";
+
+  /** The profile a comparison is being read from, and the one it is against (FR-P4). */
+  @state() private _diffAgainst: string | null = null;
 
   override connectedCallback(): void {
     super.connectedCallback();
@@ -83,6 +87,18 @@ export class DeviceLinksProfiles extends DeviceLinksView {
         </div>
       </div>
       ${this._renderSheets()}
+      <dl-diff-dialog
+        .hass=${this.hass}
+        .api=${this.api}
+        .narrow=${this.narrow}
+        .open=${this._diffAgainst !== null}
+        .heading=${`Compare ${this._subject?.name ?? ""} with ${this._nameOf(this._diffAgainst)}`}
+        .profileId=${this._subject?.id ?? ""}
+        .against=${this._diffAgainst === null ? null : { profileId: this._diffAgainst }}
+        @dl-diff-closed=${() => {
+          this._diffAgainst = null;
+        }}
+      ></dl-diff-dialog>
       <dl-plan-dialog
         .hass=${this.hass}
         .api=${this.api}
@@ -146,6 +162,19 @@ export class DeviceLinksProfiles extends DeviceLinksView {
               @click=${() => this._duplicate(profile)}
             >
               Duplicate
+            </button>
+            <button
+              type="button"
+              class="outlined"
+              ?disabled=${this._busy || this._profiles.length < 2}
+              title=${
+                this._profiles.length < 2
+                  ? "There is only one profile, so there is nothing to compare it with."
+                  : ""
+              }
+              @click=${() => this._open("compare", profile)}
+            >
+              Compare
             </button>
             <button
               type="button"
@@ -240,6 +269,40 @@ export class DeviceLinksProfiles extends DeviceLinksView {
         <div slot="actions">
           <button type="button" class="outlined" @click=${this._closeSheet}>Close</button>
           <button type="button" class="primary" @click=${this._copyExport}>Copy</button>
+        </div>
+      </dl-dialog>
+
+      <dl-dialog
+        .open=${this._sheet === "compare"}
+        .narrow=${this.narrow}
+        .heading=${`Compare ${this._subject?.name ?? ""} with`}
+        @dl-dialog-closed=${this._closeSheet}
+      >
+        <p class="secondary">
+          Nothing is written and nothing is activated. This only says what would differ.
+        </p>
+        <ul class="list">
+          ${this._profiles
+            .filter((profile) => profile.id !== this._subject?.id)
+            .map(
+              (profile) => html`
+                <li>
+                  <button
+                    type="button"
+                    class="selectable"
+                    @click=${() => this._compareWith(profile)}
+                  >
+                    <span class="row">
+                      <span class="grow">${profile.name}</span>
+                      <span class="chip muted">${plural(profile.rules, "rule")}</span>
+                    </span>
+                  </button>
+                </li>
+              `,
+            )}
+        </ul>
+        <div slot="actions">
+          <button type="button" class="outlined" @click=${this._closeSheet}>Cancel</button>
         </div>
       </dl-dialog>
 
@@ -370,6 +433,21 @@ export class DeviceLinksProfiles extends DeviceLinksView {
       this._closeSheet();
       await this._load();
     });
+  }
+
+  /**
+   * Open the comparison, keeping the profile it is read from.
+   *
+   * `_subject` stays set while the diff is open, because it is the left-hand side: the
+   * sheet that chose the right-hand side closes, and the dialog needs both.
+   */
+  private _compareWith(other: ProfileRow): void {
+    this._sheet = "none";
+    this._diffAgainst = other.id;
+  }
+
+  private _nameOf(profileId: string | null): string {
+    return this._profiles.find((profile) => profile.id === profileId)?.name ?? "";
   }
 
   private _closePlan(): void {

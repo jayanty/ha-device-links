@@ -465,6 +465,48 @@ export interface ProfileDetail {
   loops: LoopWarning[];
 }
 
+/** `diff.ChangeKind`, what happened to one rule or one link between two sides. */
+export type ChangeKind = "added" | "removed" | "changed" | "unchanged";
+
+/** One link on either side of a comparison, and what would happen to it. */
+export interface LinkChange {
+  kind: ChangeKind;
+  link: LinkRow;
+}
+
+/**
+ * One rule as a comparison sees it (FR-P4).
+ *
+ * `writes_nothing_new` is the one a reader needs first: a renamed rule is a change to the
+ * profile and no change at all to the house, and saying so is the difference between a
+ * diff somebody can act on and two lists of fingerprints.
+ */
+export interface RuleDiffRow {
+  rule_id: string;
+  name: string;
+  kind: ChangeKind;
+  fields: string[];
+  writes_nothing_new: boolean;
+  links_added: LinkRow[];
+  links_removed: LinkRow[];
+  links_unchanged: number;
+}
+
+/**
+ * `profiles/diff`: what changes if this profile becomes that one, or that snapshot.
+ *
+ * `rules` is empty when the other side is a snapshot, which has no rules in it, and
+ * `devices` then names the devices the snapshot covers, which is the only part of the
+ * house that comparison can honestly speak for.
+ */
+export interface ProfileDiff {
+  is_empty: boolean;
+  counts: Record<string, number>;
+  devices: string[];
+  rules: RuleDiffRow[];
+  links: LinkChange[];
+}
+
 /** `profiles/export`. */
 export interface ProfileExport {
   profile_id: string;

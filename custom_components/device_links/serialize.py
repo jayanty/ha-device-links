@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 
     from . import DeviceLinksConfigEntry
     from .compiler import CompiledRule
+    from .diff import ProfileDiff
     from .loops import Loop
     from .models import (
         DeviceCapabilities,
@@ -330,6 +331,39 @@ class Serializer:
             "rules": len(profile.rules),
             "enabled_rules": sum(1 for rule in profile.rules if rule.enabled),
             "is_active": profile.id == active_profile_id,
+        }
+
+    # Profile diff (FR-P4).
+
+    @callback
+    def profile_diff(self, diff: ProfileDiff) -> dict[str, Any]:
+        """Return one comparison at both levels, with the counts already worked out.
+
+        The counts are computed here rather than left to the client for the reason every
+        other derived field in this module is: two clients deriving the same summary is two
+        chances to derive it differently, and this one is what a user reads before deciding
+        to rewrite their whole configuration.
+        """
+        return {
+            "is_empty": diff.is_empty,
+            "counts": diff.counts(),
+            "devices": list(diff.devices),
+            "rules": [
+                {
+                    "rule_id": rule.rule_id,
+                    "name": rule.name,
+                    "kind": str(rule.kind),
+                    "fields": list(rule.fields),
+                    "writes_nothing_new": rule.writes_nothing_new,
+                    "links_added": [self.link(link) for link in rule.links_added],
+                    "links_removed": [self.link(link) for link in rule.links_removed],
+                    "links_unchanged": rule.links_unchanged,
+                }
+                for rule in diff.rules
+            ],
+            "links": [
+                {"kind": str(change.kind), "link": self.link(change.link)} for change in diff.links
+            ],
         }
 
     # Loops (FR-R7).

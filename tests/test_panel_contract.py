@@ -38,6 +38,7 @@ from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 from zwave_js_server.model.association import AssociationAddress
 
 from custom_components.device_links.coordinator import RuleState
+from custom_components.device_links.diff import ChangeKind
 from custom_components.device_links.executor import JobStatus, LinkOutcome
 from custom_components.device_links.models import (
     Backend,
@@ -223,6 +224,7 @@ def assert_shape(payload: Any, interface: str, path: str = "") -> None:
         ("Direction", Direction),
         ("MirrorChoice", MirrorChoice),
         ("HybridKind", HybridKind),
+        ("ChangeKind", ChangeKind),
         ("PlanOp", PlanOp),
         ("RuleState", RuleState),
         ("JobStatus", JobStatus),
@@ -537,6 +539,24 @@ async def test_profiles_list_matches_the_profile_list_interface(client: Any) -> 
 
 async def test_profiles_get_matches_the_profile_detail_interface(client: Any) -> None:
     assert_shape(await call(client, "profiles/get", profile_id="bedroom"), "ProfileDetail")
+
+
+@pytest.mark.parametrize(
+    ("against", "interface"),
+    [({"other_profile_id": "bedroom"}, "ProfileDiff")],
+)
+async def test_profiles_diff_matches_the_profile_diff_interface(
+    client: Any, against: dict[str, str], interface: str
+) -> None:
+    """FR-P4's payload, all the way down: rule rows, link changes and the counts."""
+    payload = await call(client, "profiles/diff", profile_id="bedroom", **against)
+
+    assert_shape(payload, interface)
+    assert payload["rules"], "the profile has no rules, so nothing was checked"
+    for rule in payload["rules"]:
+        assert_shape(rule, "RuleDiffRow")
+    for change in payload["links"]:
+        assert_shape(change, "LinkChange")
 
 
 async def test_rules_validate_matches_the_rule_validation_interface(client: Any) -> None:

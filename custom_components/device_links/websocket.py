@@ -49,6 +49,7 @@ import voluptuous as vol
 
 from .const import DOMAIN, EVENT_JOB_FINISHED
 from .coordinator import PlanScope
+from .diff import diff_against_links, diff_profiles
 from .executor import JobRunningError
 from .models import (
     DeviceHandle,
@@ -339,6 +340,52 @@ async def _profiles_get(
             "loops": [serializer.loop(loop) for loop in coordinator.find_loops()] if active else [],
         },
     )
+
+
+@_command(
+    "profiles/diff",
+    {
+        vol.Required("profile_id"): str,
+        vol.Optional("other_profile_id"): str,
+        vol.Optional("snapshot_id"): str,
+    },
+)
+async def _profiles_diff(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Compare one profile with another, or with a snapshot of what the devices held (FR-P4).
+
+    Exactly one of the two right-hand sides, because they answer different questions and a
+    call that named both would have to be told which one it meant. A profile against a
+    profile is rule by rule and link by link; a snapshot has no rules in it, so that
+    comparison is link by link over the devices the snapshot actually covers.
+
+    Both sides are compiled against the devices as they are now, which is the only honest
+    reading: a profile is intent, and what it produces depends on the hardware it meets.
+    """
+    entry, runtime = _runtime(hass)
+    coordinator = runtime.coordinator
+    profile = _profile(coordinator, msg["profile_id"])
+    other_id = msg.get("other_profile_id")
+    snapshot_id = msg.get("snapshot_id")
+    if (other_id is None) == (snapshot_id is None):
+        raise ServiceValidationError(
+            "a diff compares a profile with exactly one other thing: another profile or a "
+            "snapshot, and this asked for neither or both",
+            translation_domain=DOMAIN,
+            translation_key="diff_needs_one_other_side",
+        )
+    if other_id is not None:
+        diff = diff_profiles(profile, _profile(coordinator, other_id), coordinator.capabilities)
+    else:
+        snapshot = _snapshot(coordinator, str(snapshot_id))
+        diff = diff_against_links(
+            profile,
+            list(snapshot.links),
+            coordinator.capabilities,
+            devices=list(snapshot.devices),
+        )
+    connection.send_result(msg["id"], Serializer(hass, entry).profile_diff(diff))
 
 
 @_command("profiles/create", {vol.Required("profile"): dict})
@@ -1510,6 +1557,7 @@ def _swap_payload(
 _HANDLERS: Final[tuple[_Handler, ...]] = (
     _profiles_list,
     _profiles_get,
+    _profiles_diff,
     _profiles_create,
     _profiles_update,
     _profiles_delete,

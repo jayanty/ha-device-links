@@ -83,6 +83,12 @@ PRD_COMMANDS = {
     "swap/apply",
     "snapshots/list",
     "snapshots/rollback",
+    # Not in PRD Section 8.7's list, which names no command for FR-P4 at all: the
+    # requirement asks for a diff view and the command list was written before anybody
+    # worked out what it would take. Added here rather than left off, because a command
+    # that is neither implemented nor deferred is the gap this test exists to find.
+    # Recorded as an amendment owed to the PRD in docs/open-items.md.
+    "profiles/diff",
 }
 
 
@@ -127,6 +133,7 @@ def minimum_message(command: str, device_id: str) -> dict[str, Any]:
         "unmanaged/ignore": {"fingerprints": ["whatever"], "ignored": True},
         "unmanaged/remove": {"fingerprints": ["whatever"]},
         "snapshots/rollback": {"snapshot_id": "whatever"},
+        "profiles/diff": {"profile_id": "home", "other_profile_id": "away"},
         "swap/preview": {"old_identity": "zwave:x:13", "new_device_id": device_id},
         "swap/apply": {
             "old_identity": "zwave:x:13",

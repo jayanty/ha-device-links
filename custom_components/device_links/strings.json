@@ -90,6 +90,9 @@
     "device_unavailable": {
       "message": "{device} stopped answering, so its group {group} link to {target} was left alone. It will be planned again once the device can be read."
     },
+    "diff_needs_one_other_side": {
+      "message": "A comparison needs exactly one other side: another profile, or a snapshot. This asked for neither or for both."
+    },
     "feature_unavailable_color": {
       "message": "{emitter} does not send colour commands, so the colour part of this rule was left out."
     },

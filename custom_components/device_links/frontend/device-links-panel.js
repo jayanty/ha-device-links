@@ -29,7 +29,7 @@ var e = globalThis, t = e.ShadowRoot && (e.ShadyCSS === void 0 || e.ShadyCSS.nat
 	let t = "";
 	for (let n of e.cssRules) t += n.cssText;
 	return a(t);
-})(e) : e, { is: l, defineProperty: u, getOwnPropertyDescriptor: ee, getOwnPropertyNames: te, getOwnPropertySymbols: ne, getPrototypeOf: re } = Object, ie = globalThis, ae = ie.trustedTypes, oe = ae ? ae.emptyScript : "", se = ie.reactiveElementPolyfillSupport, d = (e, t) => e, ce = {
+})(e) : e, { is: l, defineProperty: u, getOwnPropertyDescriptor: ee, getOwnPropertyNames: te, getOwnPropertySymbols: ne, getPrototypeOf: re } = Object, ie = globalThis, ae = ie.trustedTypes, oe = ae ? ae.emptyScript : "", se = ie.reactiveElementPolyfillSupport, d = (e, t) => e, f = {
 	toAttribute(e, t) {
 		switch (t) {
 			case Boolean:
@@ -58,23 +58,23 @@ var e = globalThis, t = e.ShadowRoot && (e.ShadyCSS === void 0 || e.ShadyCSS.nat
 		}
 		return n;
 	}
-}, le = (e, t) => !l(e, t), ue = {
+}, ce = (e, t) => !l(e, t), le = {
 	attribute: !0,
 	type: String,
-	converter: ce,
+	converter: f,
 	reflect: !1,
 	useDefault: !1,
-	hasChanged: le
+	hasChanged: ce
 };
 Symbol.metadata ??= Symbol("metadata"), ie.litPropertyMetadata ??= /* @__PURE__ */ new WeakMap();
-var f = class extends HTMLElement {
+var p = class extends HTMLElement {
 	static addInitializer(e) {
 		this._$Ei(), (this.l ??= []).push(e);
 	}
 	static get observedAttributes() {
 		return this.finalize(), this._$Eh && [...this._$Eh.keys()];
 	}
-	static createProperty(e, t = ue) {
+	static createProperty(e, t = le) {
 		if (t.state && (t.attribute = !1), this._$Ei(), this.prototype.hasOwnProperty(e) && ((t = Object.create(t)).wrapped = !0), this.elementProperties.set(e, t), !t.noAccessor) {
 			let n = Symbol(), r = this.getPropertyDescriptor(e, n, t);
 			r !== void 0 && u(this.prototype, e, r);
@@ -100,7 +100,7 @@ var f = class extends HTMLElement {
 		};
 	}
 	static getPropertyOptions(e) {
-		return this.elementProperties.get(e) ?? ue;
+		return this.elementProperties.get(e) ?? le;
 	}
 	static _$Ei() {
 		if (this.hasOwnProperty(d("elementProperties"))) return;
@@ -171,14 +171,14 @@ var f = class extends HTMLElement {
 	_$ET(e, t) {
 		let n = this.constructor.elementProperties.get(e), r = this.constructor._$Eu(e, n);
 		if (r !== void 0 && !0 === n.reflect) {
-			let i = (n.converter?.toAttribute === void 0 ? ce : n.converter).toAttribute(t, n.type);
+			let i = (n.converter?.toAttribute === void 0 ? f : n.converter).toAttribute(t, n.type);
 			this._$Em = e, i == null ? this.removeAttribute(r) : this.setAttribute(r, i), this._$Em = null;
 		}
 	}
 	_$AK(e, t) {
 		let n = this.constructor, r = n._$Eh.get(e);
 		if (r !== void 0 && this._$Em !== r) {
-			let e = n.getPropertyOptions(r), i = typeof e.converter == "function" ? { fromAttribute: e.converter } : e.converter?.fromAttribute === void 0 ? ce : e.converter;
+			let e = n.getPropertyOptions(r), i = typeof e.converter == "function" ? { fromAttribute: e.converter } : e.converter?.fromAttribute === void 0 ? f : e.converter;
 			this._$Em = r;
 			let a = i.fromAttribute(t, e.type);
 			this[r] = a ?? this._$Ej?.get(r) ?? a, this._$Em = null;
@@ -187,7 +187,7 @@ var f = class extends HTMLElement {
 	requestUpdate(e, t, n, r = !1, i) {
 		if (e !== void 0) {
 			let a = this.constructor;
-			if (!1 === r && (i = this[e]), n ??= a.getPropertyOptions(e), !((n.hasChanged ?? le)(i, t) || n.useDefault && n.reflect && i === this._$Ej?.get(e) && !this.hasAttribute(a._$Eu(e, n)))) return;
+			if (!1 === r && (i = this[e]), n ??= a.getPropertyOptions(e), !((n.hasChanged ?? ce)(i, t) || n.useDefault && n.reflect && i === this._$Ej?.get(e) && !this.hasAttribute(a._$Eu(e, n)))) return;
 			this.C(e, t, n);
 		}
 		!1 === this.isUpdatePending && (this._$ES = this._$EP());
@@ -251,10 +251,10 @@ var f = class extends HTMLElement {
 	updated(e) {}
 	firstUpdated(e) {}
 };
-f.elementStyles = [], f.shadowRootOptions = { mode: "open" }, f[d("elementProperties")] = /* @__PURE__ */ new Map(), f[d("finalized")] = /* @__PURE__ */ new Map(), se?.({ ReactiveElement: f }), (ie.reactiveElementVersions ??= []).push("2.1.2");
+p.elementStyles = [], p.shadowRootOptions = { mode: "open" }, p[d("elementProperties")] = /* @__PURE__ */ new Map(), p[d("finalized")] = /* @__PURE__ */ new Map(), se?.({ ReactiveElement: p }), (ie.reactiveElementVersions ??= []).push("2.1.2");
 //#endregion
 //#region node_modules/lit-html/lit-html.js
-var de = globalThis, fe = (e) => e, p = de.trustedTypes, pe = p ? p.createPolicy("lit-html", { createHTML: (e) => e }) : void 0, me = "$lit$", m = `lit$${Math.random().toFixed(9).slice(2)}$`, he = "?" + m, ge = `<${he}>`, h = document, g = () => h.createComment(""), _ = (e) => e === null || typeof e != "object" && typeof e != "function", _e = Array.isArray, ve = (e) => _e(e) || typeof e?.[Symbol.iterator] == "function", ye = "[ 	\n\f\r]", v = /<(?:(!--|\/[^a-zA-Z])|(\/?[a-zA-Z][^>\s]*)|(\/?$))/g, be = /-->/g, xe = />/g, y = RegExp(`>|${ye}(?:([^\\s"'>=/]+)(${ye}*=${ye}*(?:[^ \t\n\f\r"'\`<>=]|("|')|))|$)`, "g"), Se = /'/g, Ce = /"/g, we = /^(?:script|style|textarea|title)$/i, b = ((e) => (t, ...n) => ({
+var ue = globalThis, de = (e) => e, fe = ue.trustedTypes, pe = fe ? fe.createPolicy("lit-html", { createHTML: (e) => e }) : void 0, me = "$lit$", m = `lit$${Math.random().toFixed(9).slice(2)}$`, he = "?" + m, ge = `<${he}>`, h = document, g = () => h.createComment(""), _ = (e) => e === null || typeof e != "object" && typeof e != "function", _e = Array.isArray, ve = (e) => _e(e) || typeof e?.[Symbol.iterator] == "function", ye = "[ 	\n\f\r]", v = /<(?:(!--|\/[^a-zA-Z])|(\/?[a-zA-Z][^>\s]*)|(\/?$))/g, be = /-->/g, xe = />/g, y = RegExp(`>|${ye}(?:([^\\s"'>=/]+)(${ye}*=${ye}*(?:[^ \t\n\f\r"'\`<>=]|("|')|))|$)`, "g"), Se = /'/g, Ce = /"/g, we = /^(?:script|style|textarea|title)$/i, b = ((e) => (t, ...n) => ({
 	_$litType$: e,
 	strings: t,
 	values: n
@@ -290,7 +290,7 @@ var De = (e, t) => {
 						index: a,
 						name: r[2],
 						strings: n,
-						ctor: r[1] === "." ? je : r[1] === "?" ? Me : r[1] === "@" ? Ne : T
+						ctor: r[1] === "." ? Me : r[1] === "?" ? Ne : r[1] === "@" ? Pe : je
 					}), i.removeAttribute(e);
 				} else e.startsWith(m) && (c.push({
 					type: 6,
@@ -299,7 +299,7 @@ var De = (e, t) => {
 				if (we.test(i.tagName)) {
 					let e = i.textContent.split(m), t = e.length - 1;
 					if (t > 0) {
-						i.textContent = p ? p.emptyScript : "";
+						i.textContent = fe ? fe.emptyScript : "";
 						for (let n = 0; n < t; n++) i.append(e[n], g()), C.nextNode(), c.push({
 							type: 2,
 							index: ++a
@@ -350,7 +350,7 @@ var ke = class {
 		for (; s !== void 0;) {
 			if (a === s.index) {
 				let t;
-				s.type === 2 ? t = new Ae(i, i.nextSibling, this, e) : s.type === 1 ? t = new s.ctor(i, s.name, s.strings, this, e) : s.type === 6 && (t = new Pe(i, this, e)), this._$AV.push(t), s = n[++o];
+				s.type === 2 ? t = new Ae(i, i.nextSibling, this, e) : s.type === 1 ? t = new s.ctor(i, s.name, s.strings, this, e) : s.type === 6 && (t = new Fe(i, this, e)), this._$AV.push(t), s = n[++o];
 			}
 			a !== s?.index && (i = C.nextNode(), a++);
 		}
@@ -409,14 +409,14 @@ var ke = class {
 	}
 	_$AR(e = this._$AA.nextSibling, t) {
 		for (this._$AP?.(!1, !0, t); e !== this._$AB;) {
-			let t = fe(e).nextSibling;
-			fe(e).remove(), e = t;
+			let t = de(e).nextSibling;
+			de(e).remove(), e = t;
 		}
 	}
 	setConnected(e) {
 		this._$AM === void 0 && (this._$Cv = e, this._$AP?.(e));
 	}
-}, T = class {
+}, je = class {
 	get tagName() {
 		return this.element.tagName;
 	}
@@ -438,21 +438,21 @@ var ke = class {
 	j(e) {
 		e === S ? this.element.removeAttribute(this.name) : this.element.setAttribute(this.name, e ?? "");
 	}
-}, je = class extends T {
+}, Me = class extends je {
 	constructor() {
 		super(...arguments), this.type = 3;
 	}
 	j(e) {
 		this.element[this.name] = e === S ? void 0 : e;
 	}
-}, Me = class extends T {
+}, Ne = class extends je {
 	constructor() {
 		super(...arguments), this.type = 4;
 	}
 	j(e) {
 		this.element.toggleAttribute(this.name, !!e && e !== S);
 	}
-}, Ne = class extends T {
+}, Pe = class extends je {
 	constructor(e, t, n, r, i) {
 		super(e, t, n, r, i), this.type = 5;
 	}
@@ -464,7 +464,7 @@ var ke = class {
 	handleEvent(e) {
 		typeof this._$AH == "function" ? this._$AH.call(this.options?.host ?? this.element, e) : this._$AH.handleEvent(e);
 	}
-}, Pe = class {
+}, Fe = class {
 	constructor(e, t, n) {
 		this.element = e, this.type = 6, this._$AN = void 0, this._$AM = t, this.options = n;
 	}
@@ -474,16 +474,16 @@ var ke = class {
 	_$AI(e) {
 		w(this, e);
 	}
-}, Fe = de.litHtmlPolyfillSupport;
-Fe?.(Oe, Ae), (de.litHtmlVersions ??= []).push("3.3.3");
-var Ie = (e, t, n) => {
+}, Ie = ue.litHtmlPolyfillSupport;
+Ie?.(Oe, Ae), (ue.litHtmlVersions ??= []).push("3.3.3");
+var Le = (e, t, n) => {
 	let r = n?.renderBefore ?? t, i = r._$litPart$;
 	if (i === void 0) {
 		let e = n?.renderBefore ?? null;
 		r._$litPart$ = i = new Ae(t.insertBefore(g(), e), e, void 0, n ?? {});
 	}
 	return i._$AI(e), i;
-}, Le = globalThis, E = class extends f {
+}, Re = globalThis, T = class extends p {
 	constructor() {
 		super(...arguments), this.renderOptions = { host: this }, this._$Do = void 0;
 	}
@@ -493,7 +493,7 @@ var Ie = (e, t, n) => {
 	}
 	update(e) {
 		let t = this.render();
-		this.hasUpdated || (this.renderOptions.isConnected = this.isConnected), super.update(e), this._$Do = Ie(t, this.renderRoot, this.renderOptions);
+		this.hasUpdated || (this.renderOptions.isConnected = this.isConnected), super.update(e), this._$Do = Le(t, this.renderRoot, this.renderOptions);
 	}
 	connectedCallback() {
 		super.connectedCallback(), this._$Do?.setConnected(!0);
@@ -505,22 +505,22 @@ var Ie = (e, t, n) => {
 		return x;
 	}
 };
-E._$litElement$ = !0, E.finalized = !0, Le.litElementHydrateSupport?.({ LitElement: E });
-var Re = Le.litElementPolyfillSupport;
-Re?.({ LitElement: E }), (Le.litElementVersions ??= []).push("4.2.2");
+T._$litElement$ = !0, T.finalized = !0, Re.litElementHydrateSupport?.({ LitElement: T });
+var ze = Re.litElementPolyfillSupport;
+ze?.({ LitElement: T }), (Re.litElementVersions ??= []).push("4.2.2");
 //#endregion
 //#region node_modules/@lit/reactive-element/decorators/custom-element.js
-var D = (e) => (t, n) => {
+var E = (e) => (t, n) => {
 	n === void 0 ? customElements.define(e, t) : n.addInitializer(() => {
 		customElements.define(e, t);
 	});
-}, ze = {
+}, Be = {
 	attribute: !0,
 	type: String,
-	converter: ce,
+	converter: f,
 	reflect: !1,
-	hasChanged: le
-}, Be = (e = ze, t, n) => {
+	hasChanged: ce
+}, Ve = (e = Be, t, n) => {
 	let { kind: r, metadata: i } = n, a = globalThis.litPropertyMetadata.get(i);
 	if (a === void 0 && globalThis.litPropertyMetadata.set(i, a = /* @__PURE__ */ new Map()), r === "setter" && ((e = Object.create(e)).wrapped = !0), a.set(n.name, e), r === "accessor") {
 		let { name: r } = n;
@@ -543,16 +543,16 @@ var D = (e) => (t, n) => {
 	}
 	throw Error("Unsupported decorator location: " + r);
 };
-function O(e) {
-	return (t, n) => typeof n == "object" ? Be(e, t, n) : ((e, t, n) => {
+function D(e) {
+	return (t, n) => typeof n == "object" ? Ve(e, t, n) : ((e, t, n) => {
 		let r = t.hasOwnProperty(n);
 		return t.constructor.createProperty(n, e), r ? Object.getOwnPropertyDescriptor(t, n) : void 0;
 	})(e, t, n);
 }
 //#endregion
 //#region node_modules/@lit/reactive-element/decorators/state.js
-function k(e) {
-	return O({
+function O(e) {
+	return D({
 		...e,
 		state: !0,
 		attribute: !1
@@ -560,10 +560,10 @@ function k(e) {
 }
 //#endregion
 //#region node_modules/@lit/reactive-element/decorators/base.js
-var Ve = (e, t, n) => (n.configurable = !0, n.enumerable = !0, Reflect.decorate && typeof t != "object" && Object.defineProperty(e, t, n), n);
+var He = (e, t, n) => (n.configurable = !0, n.enumerable = !0, Reflect.decorate && typeof t != "object" && Object.defineProperty(e, t, n), n);
 //#endregion
 //#region node_modules/@lit/reactive-element/decorators/query.js
-function He(e, t) {
+function Ue(e, t) {
 	return (n, r, i) => {
 		let a = (t) => t.renderRoot?.querySelector(e) ?? null;
 		if (t) {
@@ -578,44 +578,44 @@ function He(e, t) {
 					}
 				};
 			})();
-			return Ve(n, r, { get() {
+			return He(n, r, { get() {
 				let n = e.call(this);
 				return n === void 0 && (n = a(this), (n !== null || this.hasUpdated) && t.call(this, n)), n;
 			} });
 		}
-		return Ve(n, r, { get() {
+		return He(n, r, { get() {
 			return a(this);
 		} });
 	};
 }
 //#endregion
 //#region node_modules/lit-html/static.js
-var Ue = Symbol.for(""), We = (e) => {
-	if (e?.r === Ue) return e?._$litStatic$;
-}, Ge = (e) => ({
+var We = Symbol.for(""), Ge = (e) => {
+	if (e?.r === We) return e?._$litStatic$;
+}, Ke = (e) => ({
 	_$litStatic$: e,
-	r: Ue
-}), Ke = /* @__PURE__ */ new Map(), qe = ((e) => (t, ...n) => {
+	r: We
+}), qe = /* @__PURE__ */ new Map(), Je = ((e) => (t, ...n) => {
 	let r = n.length, i, a, o = [], s = [], c, l = 0, u = !1;
 	for (; l < r;) {
-		for (c = t[l]; l < r && (a = n[l], (i = We(a)) !== void 0);) c += i + t[++l], u = !0;
+		for (c = t[l]; l < r && (a = n[l], (i = Ge(a)) !== void 0);) c += i + t[++l], u = !0;
 		l !== r && s.push(a), o.push(c), l++;
 	}
 	if (l === r && o.push(t[r]), u) {
 		let e = o.join("$$lit$$");
-		(t = Ke.get(e)) === void 0 && (o.raw = o, Ke.set(e, t = o)), n = s;
+		(t = qe.get(e)) === void 0 && (o.raw = o, qe.set(e, t = o)), n = s;
 	}
 	return e(t, ...n);
-})(b), Je = "component.device_links", Ye = ["exceptions", "issues"];
-function Xe(e, t) {
+})(b), Ye = "component.device_links", Xe = ["exceptions", "issues"];
+function Ze(e, t) {
 	return t ? e.replace(/\{(\w+)\}/g, (e, n) => {
 		let r = t[n];
 		return r == null ? e : String(r);
 	}) : e;
 }
-function Ze(e, t, n) {
-	for (let r of Ye) {
-		let i = e?.localize(`${Je}.${r}.${t}.message`, { ...n ?? {} });
+function Qe(e, t, n) {
+	for (let r of Xe) {
+		let i = e?.localize(`${Ye}.${r}.${t}.message`, { ...n ?? {} });
 		if (i) return i;
 	}
 	let r = {
@@ -624,6 +624,7 @@ function Ze(e, t, n) {
 		button_semantics_unknown: "{emitter} on {device} may toggle rather than always sending off, so an off-all button here can turn the lights back on every second press. Test it before you rely on it.",
 		check_failed: "The Z-Wave driver could not be asked whether group {group} on {device} may reach {target}, so nothing was written. Check that Z-Wave JS is running, then try again.",
 		device_unavailable: "{device} stopped answering, so its group {group} link to {target} was left alone. It will be planned again once the device can be read.",
+		diff_needs_one_other_side: "A comparison needs exactly one other side: another profile, or a snapshot. This asked for neither or for both.",
 		feature_unavailable_color: "{emitter} does not send colour commands, so the colour part of this rule was left out.",
 		feature_unavailable_level_hold: "{emitter} does not send hold-to-dim, so holding the control will do nothing. The rest of the rule still works.",
 		feature_unavailable_level_set: "{emitter} does not send a brightness level, so dimming was left out of this rule. The rest of it still works.",
@@ -713,16 +714,16 @@ function Ze(e, t, n) {
 		zigbee_unknown_device: "Zigbee2MQTT does not report {target}, so the {cluster} binding from {device} was not written. It may have been removed from the network.",
 		zigbee_wake_the_device: "{device} was not listening, so the {cluster} binding to {target} is queued rather than written. Wake the device and apply again."
 	}[t];
-	return r === void 0 ? null : Xe(r, n);
+	return r === void 0 ? null : Ze(r, n);
 }
-function Qe(e, t) {
+function $e(e, t) {
 	if (!t) return "";
-	let n = Ze(e, t.translation_key, t.placeholders);
+	let n = Qe(e, t.translation_key, t.placeholders);
 	return n === null ? `Device Links reported "${t.translation_key.replace(/_/g, " ")}", and this panel has no wording for it yet.` : n;
 }
 //#endregion
 //#region src/api.ts
-var A = {
+var k = {
 	profilesList: "device_links/profiles/list",
 	profilesGet: "device_links/profiles/get",
 	profilesCreate: "device_links/profiles/create",
@@ -730,6 +731,7 @@ var A = {
 	profilesDelete: "device_links/profiles/delete",
 	profilesActivate: "device_links/profiles/activate",
 	profilesDuplicate: "device_links/profiles/duplicate",
+	profilesDiff: "device_links/profiles/diff",
 	profilesExport: "device_links/profiles/export",
 	profilesImport: "device_links/profiles/import",
 	rulesValidate: "device_links/rules/validate",
@@ -751,12 +753,12 @@ var A = {
 	unmanagedRemove: "device_links/unmanaged/remove",
 	snapshotsList: "device_links/snapshots/list",
 	snapshotsRollback: "device_links/snapshots/rollback"
-}, j = class e extends Error {
+}, A = class e extends Error {
 	constructor(e, t = {}) {
 		super(e), this.name = "DeviceLinksApiError", this.code = t.code ?? "unknown_error", this.translationKey = t.translationKey ?? null, this.translationDomain = t.translationDomain ?? null, this.placeholders = t.placeholders ?? {};
 	}
 	static from(t) {
-		return t instanceof e ? t : $e(t) ? new e(t.message || "Device Links could not answer.", {
+		return t instanceof e ? t : et(t) ? new e(t.message || "Device Links could not answer.", {
 			code: t.code,
 			translationKey: t.translation_key ?? null,
 			translationDomain: t.translation_domain ?? null,
@@ -764,116 +766,122 @@ var A = {
 		}) : t instanceof Error ? new e(t.message || "Device Links could not answer.", { code: "connection_error" }) : new e("Device Links could not answer, and gave no reason. The connection to Home Assistant may have dropped.", { code: "connection_error" });
 	}
 };
-function $e(e) {
+function et(e) {
 	if (typeof e != "object" || !e) return !1;
 	let t = e;
 	return typeof t.code == "string" && typeof t.message == "string";
 }
-function M(e, t) {
+function j(e, t) {
 	if (t.translationKey) {
-		let n = Ze(e, t.translationKey, t.placeholders);
+		let n = Qe(e, t.translationKey, t.placeholders);
 		if (n !== null) return n;
 	}
-	return Xe(t.message, t.placeholders);
+	return Ze(t.message, t.placeholders);
 }
-function et(e) {
+function tt(e) {
 	let t = {};
 	return e?.rule_ids?.length && (t.rule_ids = [...e.rule_ids]), e?.device_ids?.length && (t.device_ids = [...e.device_ids]), t;
 }
-var tt = class {
+var nt = class {
 	constructor(e) {
 		this.open = /* @__PURE__ */ new Set(), this.hass = e;
 	}
 	async listProfiles() {
-		return this.send(A.profilesList);
+		return this.send(k.profilesList);
 	}
 	async getProfile(e) {
-		return this.send(A.profilesGet, { profile_id: e });
+		return this.send(k.profilesGet, { profile_id: e });
 	}
 	async createProfile(e) {
-		return (await this.send(A.profilesCreate, { profile: e })).profile;
+		return (await this.send(k.profilesCreate, { profile: e })).profile;
 	}
 	async updateProfile(e) {
-		return (await this.send(A.profilesUpdate, { profile: e })).profile;
+		return (await this.send(k.profilesUpdate, { profile: e })).profile;
 	}
 	async deleteProfile(e) {
-		await this.send(A.profilesDelete, { profile_id: e });
+		await this.send(k.profilesDelete, { profile_id: e });
 	}
 	async activateProfile(e) {
-		return this.send(A.profilesActivate, { profile_id: e });
+		return this.send(k.profilesActivate, { profile_id: e });
 	}
 	async duplicateProfile(e, t) {
-		return (await this.send(A.profilesDuplicate, {
+		return (await this.send(k.profilesDuplicate, {
 			profile_id: e,
 			...t === void 0 ? {} : { name: t }
 		})).profile;
 	}
+	async diffProfile(e, t) {
+		return this.send(k.profilesDiff, {
+			profile_id: e,
+			..."profileId" in t ? { other_profile_id: t.profileId } : { snapshot_id: t.snapshotId }
+		});
+	}
 	async exportProfile(e) {
-		return this.send(A.profilesExport, { ...e === void 0 ? {} : { profile_id: e } });
+		return this.send(k.profilesExport, { ...e === void 0 ? {} : { profile_id: e } });
 	}
 	async importProfile(e) {
-		return this.send(A.profilesImport, { yaml: e });
+		return this.send(k.profilesImport, { yaml: e });
 	}
 	async validateRule(e) {
-		return this.send(A.rulesValidate, { rule: e });
+		return this.send(k.rulesValidate, { rule: e });
 	}
 	async upsertRule(e, t) {
-		return this.send(A.rulesUpsert, {
+		return this.send(k.rulesUpsert, {
 			rule: e,
 			...t === void 0 ? {} : { profile_id: t }
 		});
 	}
 	async deleteRule(e, t) {
-		await this.send(A.rulesDelete, {
+		await this.send(k.rulesDelete, {
 			rule_id: e,
 			...t === void 0 ? {} : { profile_id: t }
 		});
 	}
 	async setRuleEnabled(e, t) {
-		return this.send(A.rulesSetEnabled, {
+		return this.send(k.rulesSetEnabled, {
 			rule_id: e,
 			enabled: t
 		});
 	}
 	async listDevices() {
-		return (await this.send(A.devicesList)).devices;
+		return (await this.send(k.devicesList)).devices;
 	}
 	async getDevice(e) {
-		return this.send(A.devicesGet, { device_id: e });
+		return this.send(k.devicesGet, { device_id: e });
 	}
 	async refreshDevice(e, t = !1) {
-		return this.send(A.devicesRefresh, {
+		return this.send(k.devicesRefresh, {
 			device_id: e,
 			deep: t
 		});
 	}
 	async listTemplates() {
-		return (await this.send(A.templatesList)).templates;
+		return (await this.send(k.templatesList)).templates;
 	}
 	async plan(e, t) {
-		return this.send(A.plan, {
-			...et(e),
+		return this.send(k.plan, {
+			...tt(e),
 			...t?.length ? { remove_unmanaged: [...t] } : {}
 		});
 	}
 	async apply(e) {
-		return this.send(A.apply, {
+		return this.send(k.apply, {
 			plan_token: e.planToken,
-			...et(e.scope),
+			...tt(e.scope),
 			...e.removeUnmanaged?.length ? { remove_unmanaged: [...e.removeUnmanaged] } : {}
 		});
 	}
 	async verify(e) {
-		return this.send(A.verify, et(e));
+		return this.send(k.verify, tt(e));
 	}
 	async listJobs() {
-		return this.send(A.jobsList);
+		return this.send(k.jobsList);
 	}
 	async getJob(e) {
-		return this.send(A.jobsGet, { job_id: e });
+		return this.send(k.jobsGet, { job_id: e });
 	}
 	async cancelJob() {
-		return (await this.send(A.jobsCancel)).cancelled;
+		return (await this.send(k.jobsCancel)).cancelled;
 	}
 	subscribeJobs(e, t) {
 		let n = {
@@ -889,29 +897,29 @@ var tt = class {
 		};
 		return this.open.add(n), this.hass.connection.subscribeMessage((t) => {
 			n.closed || e(t);
-		}, { type: A.jobsSubscribe }).then((e) => {
+		}, { type: k.jobsSubscribe }).then((e) => {
 			r = e, n.closed && i();
 		}).catch((e) => {
-			n.closed = !0, this.open.delete(n), t?.(j.from(e));
+			n.closed = !0, this.open.delete(n), t?.(A.from(e));
 		}), n;
 	}
 	close() {
 		for (let e of [...this.open]) e.unsubscribe();
 	}
 	async setUnmanagedIgnored(e, t) {
-		return (await this.send(A.unmanagedIgnore, {
+		return (await this.send(k.unmanagedIgnore, {
 			fingerprints: [...e],
 			ignored: t
 		})).ignored;
 	}
 	async removeUnmanaged(e) {
-		return this.send(A.unmanagedRemove, { fingerprints: [...e] });
+		return this.send(k.unmanagedRemove, { fingerprints: [...e] });
 	}
 	async listSnapshots() {
-		return (await this.send(A.snapshotsList)).snapshots;
+		return (await this.send(k.snapshotsList)).snapshots;
 	}
 	async rollbackSnapshot(e, t = {}) {
-		return this.send(A.snapshotsRollback, {
+		return this.send(k.snapshotsRollback, {
 			snapshot_id: e,
 			...t.planToken === void 0 ? {} : { plan_token: t.planToken },
 			...t.removeUnmanaged?.length ? { remove_unmanaged: [...t.removeUnmanaged] } : {}
@@ -924,13 +932,13 @@ var tt = class {
 				...t
 			});
 		} catch (e) {
-			throw j.from(e);
+			throw A.from(e);
 		}
 	}
 };
 //#endregion
 //#region \0@oxc-project+runtime@0.148.0/helpers/esm/decorate.js
-function N(e, t, n, r) {
+function M(e, t, n, r) {
 	var i = arguments.length, a = i < 3 ? t : r === null ? r = Object.getOwnPropertyDescriptor(t, n) : r, o;
 	if (typeof Reflect == "object" && typeof Reflect.decorate == "function") a = Reflect.decorate(e, t, n, r);
 	else for (var s = e.length - 1; s >= 0; s--) (o = e[s]) && (a = (i < 3 ? o(a) : i > 3 ? o(t, n, a) : o(t, n)) || a);
@@ -938,7 +946,7 @@ function N(e, t, n, r) {
 }
 //#endregion
 //#region src/components/two-pane.ts
-var P = class extends E {
+var N = class extends T {
 	constructor(...e) {
 		super(...e), this.narrow = !1, this.showDetail = !1;
 	}
@@ -972,16 +980,16 @@ var P = class extends E {
     `;
 	}
 };
-N([O({
+M([D({
 	type: Boolean,
 	reflect: !0
-})], P.prototype, "narrow", void 0), N([O({
+})], N.prototype, "narrow", void 0), M([D({
 	type: Boolean,
 	attribute: "show-detail"
-})], P.prototype, "showDetail", void 0), P = N([D("dl-two-pane")], P);
+})], N.prototype, "showDetail", void 0), N = M([E("dl-two-pane")], N);
 //#endregion
 //#region src/ha-components.ts
-var nt = [
+var rt = [
 	"ha-alert",
 	"ha-assist-chip",
 	"ha-button",
@@ -1005,7 +1013,7 @@ var nt = [
 	"ha-tab-group-tab",
 	"ha-tooltip",
 	"ha-top-app-bar-fixed"
-], rt = {
+], it = {
 	"ha-alert": "div",
 	"ha-assist-chip": "span",
 	"ha-button": "button",
@@ -1029,7 +1037,7 @@ var nt = [
 	"ha-tab-group-tab": "button",
 	"ha-tooltip": "span",
 	"ha-top-app-bar-fixed": "div"
-}, it = 5e3, at = class {
+}, at = 5e3, ot = class {
 	constructor(e, t) {
 		this.defined = e, this.missing = t;
 	}
@@ -1037,18 +1045,18 @@ var nt = [
 		return this.defined.has(e);
 	}
 	tag(e) {
-		return this.defined.has(e) ? e : rt[e] ?? "div";
+		return this.defined.has(e) ? e : it[e] ?? "div";
 	}
 };
-async function ot(e = nt, t = {}) {
+async function st(e = rt, t = {}) {
 	let n = t.registry ?? globalThis.customElements;
-	await st(t.loadHelpers ?? (() => window.loadCardHelpers?.()));
-	let r = t.timeoutMs ?? it, i = /* @__PURE__ */ new Set(), a = [];
+	await ct(t.loadHelpers ?? (() => window.loadCardHelpers?.()));
+	let r = t.timeoutMs ?? at, i = /* @__PURE__ */ new Set(), a = [];
 	return await Promise.all(e.map(async (e) => {
-		await ct(n, e, r) ? i.add(e) : a.push(e);
-	})), a.sort(), a.length && console.warn(`Device Links: these Home Assistant components did not load, so plain elements are used instead: ${a.join(", ")}`), new at(i, a);
+		await lt(n, e, r) ? i.add(e) : a.push(e);
+	})), a.sort(), a.length && console.warn(`Device Links: these Home Assistant components did not load, so plain elements are used instead: ${a.join(", ")}`), new ot(i, a);
 }
-async function st(e) {
+async function ct(e) {
 	try {
 		let t = await e();
 		if (!t) return;
@@ -1058,7 +1066,7 @@ async function st(e) {
 		})).constructor.getConfigElement?.();
 	} catch {}
 }
-async function ct(e, t, n) {
+async function lt(e, t, n) {
 	if (!e) return !1;
 	if (e.get(t)) return !0;
 	let r;
@@ -1074,7 +1082,7 @@ async function ct(e, t, n) {
 }
 //#endregion
 //#region src/tabs.ts
-var F = [
+var P = [
 	{
 		id: "overview",
 		label: "Overview",
@@ -1105,77 +1113,77 @@ var F = [
 		icon: "mdi:history",
 		tagName: "device-links-activity"
 	}
-], lt = F[0]?.id ?? "overview";
-function ut(e) {
+], ut = P[0]?.id ?? "overview";
+function dt(e) {
 	let t = (e ?? "").split("/").filter(Boolean)[0];
-	return F.some((e) => e.id === t) ? t : lt;
+	return P.some((e) => e.id === t) ? t : ut;
 }
 //#endregion
 //#region src/format.ts
-var dt = {
+var ft = {
 	on_off: "On and off",
 	level_set: "Brightness",
 	level_hold: "Hold to dim",
 	scene: "Scenes",
 	color: "Colour",
 	status_report: "Status feedback"
-}, ft = {
+}, pt = {
 	on_off: "mdi:power",
 	level_set: "mdi:brightness-6",
 	level_hold: "mdi:gesture-tap-hold",
 	scene: "mdi:palette-outline",
 	color: "mdi:invert-colors",
 	status_report: "mdi:arrow-left-right"
-}, pt = {
+}, mt = {
 	zwave: "Z-Wave",
 	zigbee2mqtt: "Zigbee",
 	matter: "Matter"
-}, mt = {
+}, ht = {
 	remote: "Remote control",
 	virtual_3way: "Virtual 3-way",
 	scene_button: "Scene button",
 	off_all: "Off all",
 	status_feedback: "Status feedback",
 	custom: "Custom"
-}, ht = {
+}, gt = {
 	remote: "One control drives one or more lights, on, off and dimming.",
 	virtual_3way: "Two switches control each other, so either one works like the other.",
 	scene_button: "A scene button sends one command to the devices you pick.",
 	off_all: "One press turns a set of devices off.",
 	status_feedback: "A device reports its state back to the control that drives it.",
 	custom: "Choose the control, the targets and the features yourself."
-}, gt = {
+}, _t = {
 	in_sync: "In sync",
 	drift: "Drift",
 	pending: "Pending",
 	blocked: "Blocked",
 	disabled: "Disabled",
 	unknown: "Unknown"
-}, _t = {
+}, vt = {
 	in_sync: "ok",
 	drift: "error",
 	pending: "warn",
 	blocked: "error",
 	disabled: "muted",
 	unknown: "muted"
-}, vt = {
+}, yt = {
 	in_sync: "Every link this rule asks for is on the devices.",
 	drift: "The devices do not hold what this rule asks for. Something changed them.",
 	pending: "This rule has links waiting to be written. Plan and apply to write them.",
 	blocked: "This rule compiles to nothing. Open it to see why.",
 	disabled: "This rule is off, so its links are not on the devices.",
 	unknown: "A device this rule uses could not be read, so its state cannot be judged."
-}, yt = {
+}, bt = {
 	completed: "Completed",
 	partial: "Partly done",
 	cancelled: "Cancelled",
 	interrupted: "Interrupted"
-}, bt = {
+}, xt = {
 	completed: "ok",
 	partial: "warn",
 	cancelled: "muted",
 	interrupted: "error"
-}, xt = {
+}, St = {
 	applied: "Written",
 	already_present: "Already there",
 	unverified: "Written, not verified",
@@ -1186,7 +1194,7 @@ var dt = {
 	stale_plan: "Plan was out of date",
 	cancelled: "Cancelled",
 	interrupted: "Interrupted"
-}, St = {
+}, Ct = {
 	applied: "ok",
 	already_present: "ok",
 	unverified: "warn",
@@ -1198,43 +1206,43 @@ var dt = {
 	cancelled: "muted",
 	interrupted: "error"
 };
-function I(e) {
-	return dt[e] ?? e;
-}
-function Ct(e) {
-	return ft[e] ?? "mdi:link-variant";
-}
-function L(e) {
-	return e === null ? "Unknown protocol" : pt[e] ?? e;
-}
-function R(e) {
-	return mt[e] ?? e;
+function F(e) {
+	return ft[e] ?? e;
 }
 function wt(e) {
-	return ht[e] ?? "";
+	return pt[e] ?? "mdi:link-variant";
 }
-function z(e) {
-	return gt[e] ?? e;
+function I(e) {
+	return e === null ? "Unknown protocol" : mt[e] ?? e;
+}
+function L(e) {
+	return ht[e] ?? e;
 }
 function Tt(e) {
-	return _t[e] ?? "muted";
+	return gt[e] ?? "";
+}
+function R(e) {
+	return _t[e] ?? e;
 }
 function Et(e) {
-	return vt[e] ?? "";
+	return vt[e] ?? "muted";
 }
 function Dt(e) {
-	return yt[e] ?? e;
+	return yt[e] ?? "";
 }
 function Ot(e) {
-	return bt[e] ?? "muted";
+	return bt[e] ?? e;
 }
 function kt(e) {
-	return xt[e] ?? e;
+	return xt[e] ?? "muted";
 }
 function At(e) {
-	return St[e] ?? "muted";
+	return St[e] ?? e;
 }
-function jt(e, t) {
+function jt(e) {
+	return Ct[e] ?? "muted";
+}
+function Mt(e, t) {
 	let n = e.group_ids.length ? e.group_ids : Object.values(e.actions).filter((e) => e !== void 0), r = null;
 	for (let i of n) {
 		let n = t.filter((e) => e.emitter_group === i).length;
@@ -1247,12 +1255,12 @@ function jt(e, t) {
 	}
 	return r;
 }
-function Mt(e) {
+function Nt(e) {
 	let t = e.name || e.identity;
 	return e.endpoint === null || e.endpoint === 0 ? t : `${t} (endpoint ${e.endpoint})`;
 }
-function Nt(e) {
-	return `${I(e.feature)} from ${Mt(e.source)} group ${e.emitter_group} to ${Mt(e.target)}`;
+function z(e) {
+	return `${F(e.feature)} from ${Nt(e.source)} group ${e.emitter_group} to ${Nt(e.target)}`;
 }
 var Pt = {
 	on_only: "turns on, and never off",
@@ -1282,7 +1290,7 @@ function It(e) {
 function Lt(e, t) {
 	let n = It(e);
 	if (n === null) return e;
-	let r = dt[n.feature] ?? n.feature, i = n.targetEndpoint ? `${t(n.target)} (endpoint ${n.targetEndpoint})` : t(n.target);
+	let r = ft[n.feature] ?? n.feature, i = n.targetEndpoint ? `${t(n.target)} (endpoint ${n.targetEndpoint})` : t(n.target);
 	return `${r} from ${t(n.source)} group ${n.group} to ${i}`;
 }
 function B(e, t, n) {
@@ -1676,7 +1684,7 @@ var V = o`
   .notice.error {
     border-left-color: var(--error-color, #db4437);
   }
-`, H = class extends E {
+`, H = class extends T {
 	constructor(...e) {
 		super(...e), this.narrow = !1, this.selected = null, this.hybridAllowed = !1;
 	}
@@ -1691,12 +1699,12 @@ var V = o`
 		}));
 	}
 };
-N([O({ attribute: !1 })], H.prototype, "hass", void 0), N([O({ attribute: !1 })], H.prototype, "api", void 0), N([O({ attribute: !1 })], H.prototype, "components", void 0), N([O({ type: Boolean })], H.prototype, "narrow", void 0), N([O({ attribute: !1 })], H.prototype, "selected", void 0), N([O({ type: Boolean })], H.prototype, "hybridAllowed", void 0);
+M([D({ attribute: !1 })], H.prototype, "hass", void 0), M([D({ attribute: !1 })], H.prototype, "api", void 0), M([D({ attribute: !1 })], H.prototype, "components", void 0), M([D({ type: Boolean })], H.prototype, "narrow", void 0), M([D({ attribute: !1 })], H.prototype, "selected", void 0), M([D({ type: Boolean })], H.prototype, "hybridAllowed", void 0);
 //#endregion
 //#region src/views/activity.ts
 var U = class extends H {
 	constructor(...e) {
-		super(...e), this._jobs = [], this._running = null, this._selectedId = null, this._detail = null, this._devices = [], this._loading = !0, this._error = null, this._cancelling = !1, this._snapshots = [], this._rollingBack = null, this._returning = [], this._unreadable = [], this._subscription = null;
+		super(...e), this._jobs = [], this._running = null, this._selectedId = null, this._detail = null, this._devices = [], this._loading = !0, this._error = null, this._cancelling = !1, this._snapshots = [], this._rollingBack = null, this._comparing = null, this._activeProfileId = "", this._returning = [], this._unreadable = [], this._subscription = null;
 	}
 	static {
 		this.styles = V;
@@ -1732,6 +1740,18 @@ var U = class extends H {
         @dl-plan-closed=${this._closeRollback}
         @dl-plan-applied=${this._afterRollback}
       ></dl-plan-dialog>
+      <dl-diff-dialog
+        .hass=${this.hass}
+        .api=${this.api}
+        .narrow=${this.narrow}
+        .open=${this._comparing !== null}
+        .heading=${"What this snapshot holds that the active profile does not"}
+        .profileId=${this._activeProfileId}
+        .against=${this._comparing === null ? null : { snapshotId: this._comparing.id }}
+        @dl-diff-closed=${() => {
+			this._comparing = null;
+		}}
+      ></dl-diff-dialog>
     `;
 	}
 	_renderRunning() {
@@ -1765,7 +1785,7 @@ var U = class extends H {
                 @click=${() => this._select(e.id)}
               >
                 <span class="row">
-                  <span class="chip ${Ot(e.status)}">${Dt(e.status)}</span>
+                  <span class="chip ${kt(e.status)}">${Ot(e.status)}</span>
                   <span class="grow truncate">${e.scope}</span>
                 </span>
                 <span class="secondary">
@@ -1783,7 +1803,7 @@ var U = class extends H {
 		return e === null ? b`<p class="empty">Choose a job to see what it did.</p>` : b`
       ${this.narrow ? b`<button type="button" class="link" @click=${this._clear}>Back to the list</button>` : S}
       <div class="row" style="margin: 8px 0">
-        <span class="chip ${Ot(e.status)}">${Dt(e.status)}</span>
+        <span class="chip ${kt(e.status)}">${Ot(e.status)}</span>
         <strong class="grow">${e.scope}</strong>
       </div>
       <p class="secondary">
@@ -1791,7 +1811,7 @@ var U = class extends H {
         ${B(e.total, "link")}
       </p>
       <div class="chips" style="margin-bottom: 12px">
-        ${[...this._outcomeCounts(e)].map(([e, t]) => b`<span class="chip ${At(e)}">${kt(e)} ${t}</span>`)}
+        ${[...this._outcomeCounts(e)].map(([e, t]) => b`<span class="chip ${jt(e)}">${At(e)} ${t}</span>`)}
       </div>
       ${e.results.length === 0 ? b`<p class="secondary">This job touched no links.</p>` : b`<ul class="list">${e.results.map((e) => this._renderResult(e))}</ul>`}
     `;
@@ -1800,7 +1820,7 @@ var U = class extends H {
 		return b`
       <li>
         <div class="row">
-          <span class="chip ${At(e.status)}">${kt(e.status)}</span>
+          <span class="chip ${jt(e.status)}">${At(e.status)}</span>
           <span class="grow">${Lt(e.fingerprint, (e) => this._nameOf(e))}</span>
         </div>
         <details>
@@ -1842,6 +1862,13 @@ var U = class extends H {
                       <button
                         type="button"
                         class="outlined"
+                        @click=${() => this._openDiff(e)}
+                      >
+                        Compare
+                      </button>
+                      <button
+                        type="button"
+                        class="outlined"
                         @click=${() => this._openRollback(e)}
                       >
                         Restore
@@ -1854,6 +1881,9 @@ var U = class extends H {
         </div>
       </div>
     `;
+	}
+	_openDiff(e) {
+		this._comparing = e;
 	}
 	_openRollback(e) {
 		this._forgetLastPlan(), this._rollingBack = e;
@@ -1903,17 +1933,18 @@ var U = class extends H {
 		if (this.api) {
 			this._loading = !0;
 			try {
-				let [e, t, n] = await Promise.all([
+				let [e, t, n, r] = await Promise.all([
 					this.api.listJobs(),
 					this.api.listDevices(),
-					this.api.listSnapshots()
+					this.api.listSnapshots(),
+					this.api.listProfiles()
 				]);
-				if (this._jobs = e.jobs ?? [], this._running = e.running ?? null, this._devices = t ?? [], this._snapshots = n ?? [], this._error = null, this._selectedId === null && !this.narrow) {
+				if (this._jobs = e.jobs ?? [], this._running = e.running ?? null, this._devices = t ?? [], this._snapshots = n ?? [], this._activeProfileId = r.active_profile_id ?? "", this._error = null, this._selectedId === null && !this.narrow) {
 					let e = this._jobs[0];
 					e !== void 0 && this._select(e.id);
 				}
 			} catch (e) {
-				this._error = M(this.hass, j.from(e));
+				this._error = j(this.hass, A.from(e));
 			} finally {
 				this._loading = !1;
 			}
@@ -1923,7 +1954,7 @@ var U = class extends H {
 		this._selectedId = e, this._detail = this._jobs.find((t) => t.id === e) ?? null, this.api && this.api.getJob(e).then((t) => {
 			this._selectedId === e && (this._detail = t);
 		}).catch((e) => {
-			this._error = M(this.hass, j.from(e));
+			this._error = j(this.hass, A.from(e));
 		});
 	}
 	_clear() {
@@ -1937,7 +1968,7 @@ var U = class extends H {
 			}
 			this._running = null, this._load();
 		}, (e) => {
-			this._error = M(this.hass, e);
+			this._error = j(this.hass, e);
 		}));
 	}
 	async _cancel() {
@@ -1946,15 +1977,15 @@ var U = class extends H {
 			try {
 				await this.api.cancelJob();
 			} catch (e) {
-				this._error = M(this.hass, j.from(e)), this._cancelling = !1;
+				this._error = j(this.hass, A.from(e)), this._cancelling = !1;
 			}
 		}
 	}
 };
-N([k()], U.prototype, "_jobs", void 0), N([k()], U.prototype, "_running", void 0), N([k()], U.prototype, "_selectedId", void 0), N([k()], U.prototype, "_detail", void 0), N([k()], U.prototype, "_devices", void 0), N([k()], U.prototype, "_loading", void 0), N([k()], U.prototype, "_error", void 0), N([k()], U.prototype, "_cancelling", void 0), N([k()], U.prototype, "_snapshots", void 0), N([k()], U.prototype, "_rollingBack", void 0), N([k()], U.prototype, "_returning", void 0), N([k()], U.prototype, "_unreadable", void 0), U = N([D("device-links-activity")], U);
+M([O()], U.prototype, "_jobs", void 0), M([O()], U.prototype, "_running", void 0), M([O()], U.prototype, "_selectedId", void 0), M([O()], U.prototype, "_detail", void 0), M([O()], U.prototype, "_devices", void 0), M([O()], U.prototype, "_loading", void 0), M([O()], U.prototype, "_error", void 0), M([O()], U.prototype, "_cancelling", void 0), M([O()], U.prototype, "_snapshots", void 0), M([O()], U.prototype, "_rollingBack", void 0), M([O()], U.prototype, "_comparing", void 0), M([O()], U.prototype, "_activeProfileId", void 0), M([O()], U.prototype, "_returning", void 0), M([O()], U.prototype, "_unreadable", void 0), U = M([E("device-links-activity")], U);
 //#endregion
 //#region src/components/dialog.ts
-var W = class extends E {
+var W = class extends T {
 	constructor(...e) {
 		super(...e), this.open = !1, this.heading = "", this.narrow = !1, this.dismissible = !0, this._returnFocusTo = null, this._onKeyDown = (e) => {
 			this.open && this.dismissible && e.key === "Escape" && (e.stopPropagation(), this._close());
@@ -2105,16 +2136,16 @@ var W = class extends E {
 		}));
 	}
 };
-N([O({
+M([D({
 	type: Boolean,
 	reflect: !0
-})], W.prototype, "open", void 0), N([O({ type: String })], W.prototype, "heading", void 0), N([O({
+})], W.prototype, "open", void 0), M([D({ type: String })], W.prototype, "heading", void 0), M([D({
 	type: Boolean,
 	reflect: !0
-})], W.prototype, "narrow", void 0), N([O({ type: Boolean })], W.prototype, "dismissible", void 0), N([He(".dialog")], W.prototype, "_surface", void 0), W = N([D("dl-dialog")], W);
+})], W.prototype, "narrow", void 0), M([D({ type: Boolean })], W.prototype, "dismissible", void 0), M([Ue(".dialog")], W.prototype, "_surface", void 0), W = M([E("dl-dialog")], W);
 //#endregion
 //#region src/dialogs/plan-dialog.ts
-var G = class extends E {
+var G = class extends T {
 	constructor(...e) {
 		super(...e), this.components = null, this.narrow = !1, this.open = !1, this.heading = "Plan and apply", this.initialPlan = null, this.initialRemoveUnmanaged = [], this.flow = null, this._plan = null, this._phase = "loading", this._error = null, this._stale = !1, this._removeUnmanaged = [], this._progress = null, this._finished = null, this._cancelling = !1, this._jobId = null, this._subscription = null;
 	}
@@ -2307,7 +2338,7 @@ var G = class extends E {
       <section class="device">
         <header>
           <h3>${e.name}</h3>
-          <span class="chip muted">${L(e.backend)}</span>
+          <span class="chip muted">${I(e.backend)}</span>
           ${e.available ? S : b`<span class="chip warn" title="This device is not answering right now">
                 Not answering
               </span>`}
@@ -2334,7 +2365,7 @@ var G = class extends E {
     `;
 	}
 	_renderItem(e) {
-		let t = e.reason === null ? null : Qe(this.hass, e.reason);
+		let t = e.reason === null ? null : $e(this.hass, e.reason);
 		return b`
       <div class="item">
         <div>${this._describeItem(e)}</div>
@@ -2347,7 +2378,7 @@ var G = class extends E {
     `;
 	}
 	_describeItem(e) {
-		if (e.link !== null) return Nt(e.link);
+		if (e.link !== null) return z(e.link);
 		if (e.setting !== null) {
 			let t = e.setting, n = t.bitmask === null ? "" : ` (bitmask ${t.bitmask})`;
 			return `Set ${t.capability}, parameter ${t.parameter}${n}, to ${t.value}`;
@@ -2366,7 +2397,7 @@ var G = class extends E {
 		return e.is_system ? b`
         <div class="unmanaged-item">
           <span class="chip muted">System link</span>
-          <span>${Nt(e)}</span>
+          <span>${z(e)}</span>
         </div>
       ` : b`
       <label class="unmanaged-item">
@@ -2377,7 +2408,7 @@ var G = class extends E {
           @change=${(t) => this._toggleUnmanaged(e, t)}
         />
         <span>
-          Also remove: ${Nt(e)}
+          Also remove: ${z(e)}
           ${e.ignored ? b`<span class="chip muted">Ignored</span>` : S}
         </span>
       </label>
@@ -2403,12 +2434,12 @@ var G = class extends E {
 		let t = Object.entries(e.results);
 		return b`
       <div class="row">
-        <span class="chip ${Ot(e.status)}">${Dt(e.status)}</span>
+        <span class="chip ${kt(e.status)}">${Ot(e.status)}</span>
         <span class="secondary">${B(e.total, "link")} attempted</span>
       </div>
       <div class="chips" style="margin-top: 12px">
-        ${t.map(([e, t]) => b`<span class="chip ${At(e)}">
-              ${kt(e)} ${t}
+        ${t.map(([e, t]) => b`<span class="chip ${jt(e)}">
+              ${At(e)} ${t}
             </span>`)}
       </div>
       ${e.status === "completed" ? S : b`<p class="secondary" style="margin-top: 12px">
@@ -2520,15 +2551,15 @@ var G = class extends E {
 				composed: !0
 			})));
 		}, (e) => {
-			this._error = M(this.hass, e);
+			this._error = j(this.hass, e);
 		});
 	}
 	_unsubscribe() {
 		this._subscription?.unsubscribe(), this._subscription = null;
 	}
 	_fail(e) {
-		let t = j.from(e);
-		this._error = M(this.hass, t), this._stale = t.translationKey === "plan_out_of_date", this._phase = "plan";
+		let t = A.from(e);
+		this._error = j(this.hass, t), this._stale = t.translationKey === "plan_out_of_date", this._phase = "plan";
 	}
 	_requestClose() {
 		this._phase !== "applying" && this.dispatchEvent(new CustomEvent("dl-plan-closed", {
@@ -2541,15 +2572,15 @@ var G = class extends E {
 		}));
 	}
 };
-N([O({ attribute: !1 })], G.prototype, "hass", void 0), N([O({ attribute: !1 })], G.prototype, "api", void 0), N([O({ attribute: !1 })], G.prototype, "components", void 0), N([O({ type: Boolean })], G.prototype, "narrow", void 0), N([O({ type: Boolean })], G.prototype, "open", void 0), N([O({ attribute: !1 })], G.prototype, "scope", void 0), N([O({ type: String })], G.prototype, "heading", void 0), N([O({ attribute: !1 })], G.prototype, "initialPlan", void 0), N([O({ attribute: !1 })], G.prototype, "initialRemoveUnmanaged", void 0), N([O({ attribute: !1 })], G.prototype, "flow", void 0), N([k()], G.prototype, "_plan", void 0), N([k()], G.prototype, "_phase", void 0), N([k()], G.prototype, "_error", void 0), N([k()], G.prototype, "_stale", void 0), N([k()], G.prototype, "_removeUnmanaged", void 0), N([k()], G.prototype, "_progress", void 0), N([k()], G.prototype, "_finished", void 0), N([k()], G.prototype, "_cancelling", void 0), G = N([D("dl-plan-dialog")], G);
+M([D({ attribute: !1 })], G.prototype, "hass", void 0), M([D({ attribute: !1 })], G.prototype, "api", void 0), M([D({ attribute: !1 })], G.prototype, "components", void 0), M([D({ type: Boolean })], G.prototype, "narrow", void 0), M([D({ type: Boolean })], G.prototype, "open", void 0), M([D({ attribute: !1 })], G.prototype, "scope", void 0), M([D({ type: String })], G.prototype, "heading", void 0), M([D({ attribute: !1 })], G.prototype, "initialPlan", void 0), M([D({ attribute: !1 })], G.prototype, "initialRemoveUnmanaged", void 0), M([D({ attribute: !1 })], G.prototype, "flow", void 0), M([O()], G.prototype, "_plan", void 0), M([O()], G.prototype, "_phase", void 0), M([O()], G.prototype, "_error", void 0), M([O()], G.prototype, "_stale", void 0), M([O()], G.prototype, "_removeUnmanaged", void 0), M([O()], G.prototype, "_progress", void 0), M([O()], G.prototype, "_finished", void 0), M([O()], G.prototype, "_cancelling", void 0), G = M([E("dl-plan-dialog")], G);
 //#endregion
 //#region src/components/icon.ts
-function K(e, t) {
+function Bt(e, t) {
 	return e?.has("ha-icon") ? b`<ha-icon .icon=${t} aria-hidden="true"></ha-icon>` : S;
 }
 //#endregion
 //#region src/views/devices.ts
-var q = class extends H {
+var K = class extends H {
 	constructor(...e) {
 		super(...e), this._devices = [], this._detail = null, this._selectedId = null, this._search = "", this._loading = !0, this._busy = !1, this._error = null, this._confidence = "cached", this._incoming = null, this._incomingState = "idle", this._planOpen = !1, this._planRemove = [], this._planHeading = "Plan and apply", this._linkIndex = [], this._ignored = /* @__PURE__ */ new Set();
 	}
@@ -2618,7 +2649,7 @@ var q = class extends H {
         >
           <span class="row">
             <span class="grow">${e.name}</span>
-            <span class="chip muted">${L(e.backend)}</span>
+            <span class="chip muted">${I(e.backend)}</span>
           </span>
           <span class="chips" style="margin-top: 4px">
             <span class="chip muted">${B(e.links, "link")}</span>
@@ -2641,7 +2672,7 @@ var q = class extends H {
         <div class="grow">
           <h2>${t.name}</h2>
           <div class="chips">
-            <span class="chip muted">${L(t.backend)}</span>
+            <span class="chip muted">${I(t.backend)}</span>
             <span class="chip muted">${t.protocol_id}</span>
             ${t.available ? S : b`<span class="chip warn">Not answering</span>`}
             ${t.is_long_range ? b`<span class="chip error">Long Range</span>` : S}
@@ -2701,7 +2732,7 @@ var q = class extends H {
 	_renderEmitter(e, t, n) {
 		let r = new Set(t.group_ids.length ? t.group_ids : Object.values(t.actions).filter((e) => e !== void 0)), i = e.links.filter((e) => r.has(e.emitter_group));
 		for (let e of i) n.add(e.fingerprint);
-		let a = jt(t, e.links), o = Object.keys(t.actions);
+		let a = Mt(t, e.links), o = Object.keys(t.actions);
 		return b`
       <div class="card" style="margin-top: 8px">
         <div class="row">
@@ -2715,7 +2746,7 @@ var q = class extends H {
         </div>
         <div class="chips" style="margin: 6px 0">
           ${o.map((e) => b`<span class="chip">
-                ${K(this.components, Ct(e))}${I(e)}
+                ${Bt(this.components, wt(e))}${F(e)}
               </span>`)}
           ${t.semantics === "unknown" ? b`<span class="chip warn" title="What this control sends has not been observed">
                 Unverified
@@ -2748,8 +2779,8 @@ var q = class extends H {
         <div class="spread">
           <div class="grow">
             <div class="row">
-              <span>${Mt(e.target)}</span>
-              <span class="chip muted">${I(e.feature)}</span>
+              <span>${Nt(e.target)}</span>
+              <span class="chip muted">${F(e.feature)}</span>
               <span class="chip muted">group ${e.emitter_group}</span>
             </div>
             <p class="secondary" style="margin: 4px 0 0">
@@ -2796,9 +2827,9 @@ var q = class extends H {
         ${t.map((e) => b`
             <li>
               <div class="row">
-                <span class="grow">${Mt(e.source)}</span>
+                <span class="grow">${Nt(e.source)}</span>
                 <span class="chip muted">group ${e.emitter_group}</span>
-                <span class="chip muted">${I(e.feature)}</span>
+                <span class="chip muted">${F(e.feature)}</span>
                 ${e.is_system ? b`<span class="chip muted">System link</span>` : S}
               </div>
               <p class="secondary" style="margin: 4px 0 0">
@@ -2846,7 +2877,7 @@ var q = class extends H {
 			try {
 				this._devices = await this.api.listDevices() ?? [], this._error = null;
 			} catch (e) {
-				this._error = M(this.hass, j.from(e));
+				this._error = j(this.hass, A.from(e));
 			} finally {
 				this._loading = !1;
 			}
@@ -2861,7 +2892,7 @@ var q = class extends H {
 			try {
 				this._detail = await this.api.getDevice(e), this._error = null;
 			} catch (e) {
-				this._error = M(this.hass, j.from(e));
+				this._error = j(this.hass, A.from(e));
 			} finally {
 				this._busy = !1;
 			}
@@ -2879,7 +2910,7 @@ var q = class extends H {
 				let n = await this.api.refreshDevice(t, e);
 				this._detail = n, this._confidence = e ? n.deep_verified ? "confirmed" : "unconfirmed" : "cached", this._error = null, this._linkIndex = [], this._incomingState = "idle", this._loadIncoming();
 			} catch (e) {
-				this._error = M(this.hass, j.from(e));
+				this._error = j(this.hass, A.from(e));
 			} finally {
 				this._busy = !1;
 			}
@@ -2905,7 +2936,7 @@ var q = class extends H {
 			try {
 				await this.api.setUnmanagedIgnored([e.fingerprint], t), t ? this._ignored.add(e.fingerprint) : this._ignored.delete(e.fingerprint), this.requestUpdate(), this._error = null;
 			} catch (e) {
-				this._error = M(this.hass, j.from(e));
+				this._error = j(this.hass, A.from(e));
 			} finally {
 				this._busy = !1;
 			}
@@ -2922,22 +2953,22 @@ var q = class extends H {
 		this._load(), this._selectedId !== null && this._select(this._selectedId);
 	}
 };
-N([k()], q.prototype, "_devices", void 0), N([k()], q.prototype, "_detail", void 0), N([k()], q.prototype, "_selectedId", void 0), N([k()], q.prototype, "_search", void 0), N([k()], q.prototype, "_loading", void 0), N([k()], q.prototype, "_busy", void 0), N([k()], q.prototype, "_error", void 0), N([k()], q.prototype, "_confidence", void 0), N([k()], q.prototype, "_incoming", void 0), N([k()], q.prototype, "_incomingState", void 0), N([k()], q.prototype, "_planOpen", void 0), N([k()], q.prototype, "_planScope", void 0), N([k()], q.prototype, "_planRemove", void 0), N([k()], q.prototype, "_planHeading", void 0), q = N([D("device-links-devices")], q);
+M([O()], K.prototype, "_devices", void 0), M([O()], K.prototype, "_detail", void 0), M([O()], K.prototype, "_selectedId", void 0), M([O()], K.prototype, "_search", void 0), M([O()], K.prototype, "_loading", void 0), M([O()], K.prototype, "_busy", void 0), M([O()], K.prototype, "_error", void 0), M([O()], K.prototype, "_confidence", void 0), M([O()], K.prototype, "_incoming", void 0), M([O()], K.prototype, "_incomingState", void 0), M([O()], K.prototype, "_planOpen", void 0), M([O()], K.prototype, "_planScope", void 0), M([O()], K.prototype, "_planRemove", void 0), M([O()], K.prototype, "_planHeading", void 0), K = M([E("device-links-devices")], K);
 //#endregion
 //#region src/views/overview.ts
-var Bt = [
+var Vt = [
 	"blocked",
 	"drift",
 	"pending",
 	"unknown"
-], Vt = [
+], Ht = [
 	"in_sync",
 	"drift",
 	"pending",
 	"blocked",
 	"disabled",
 	"unknown"
-], J = class extends H {
+], q = class extends H {
 	constructor(...e) {
 		super(...e), this._profile = null, this._rules = [], this._devices = [], this._jobs = [], this._loading = !0, this._error = null, this._verifying = !1, this._verifiedAt = null, this._verifiedDevices = 0, this._planOpen = !1, this._planHeading = "Plan and apply";
 	}
@@ -2979,8 +3010,8 @@ var Bt = [
               ${this._profile === null ? "Activate a profile in the Profiles tab, or make one there." : `${B(this._profile.rules, "rule")}, ${this._profile.enabled_rules} enabled.`}
             </p>
             <div class="chips">
-              ${Vt.map((t) => (e.get(t) ?? 0) === 0 ? S : b`<span class="chip ${Tt(t)}" title=${Et(t)}>
-                      ${z(t)} ${e.get(t)}
+              ${Ht.map((t) => (e.get(t) ?? 0) === 0 ? S : b`<span class="chip ${Et(t)}" title=${Dt(t)}>
+                      ${R(t)} ${e.get(t)}
                     </span>`)}
               ${this._loading ? b`<span class="chip muted">Loading</span>` : this._rules.length === 0 ? b`<span class="chip muted">No rules yet</span>` : S}
             </div>
@@ -3001,7 +3032,7 @@ var Bt = [
     `;
 	}
 	_renderAttention() {
-		let e = this._rules.filter((e) => Bt.includes(e.state)), t = this._devices.filter((e) => !e.available);
+		let e = this._rules.filter((e) => Vt.includes(e.state)), t = this._devices.filter((e) => !e.available);
 		return e.length === 0 && t.length === 0 ? b`
         <div class="card">
           <h3>Needs attention</h3>
@@ -3013,7 +3044,7 @@ var Bt = [
       <div class="card">
         <h3>Needs attention</h3>
         <ul class="list">
-          ${e.slice().sort((e, t) => Bt.indexOf(e.state) - Bt.indexOf(t.state)).map((e) => this._renderAttentionRule(e))}
+          ${e.slice().sort((e, t) => Vt.indexOf(e.state) - Vt.indexOf(t.state)).map((e) => this._renderAttentionRule(e))}
           ${t.length === 0 ? S : b`
                 <li>
                   <div class="spread">
@@ -3043,11 +3074,11 @@ var Bt = [
         <div class="spread">
           <div class="grow">
             <div class="row">
-              <span class="chip ${Tt(e.state)}">${z(e.state)}</span>
+              <span class="chip ${Et(e.state)}">${R(e.state)}</span>
               <strong>${e.rule.name}</strong>
             </div>
             <p class="secondary" style="margin: 4px 0 0">
-              ${Et(e.state)}
+              ${Dt(e.state)}
               ${e.links_total > 0 ? ` ${e.links_in_sync} of ${e.links_total} links are in place.` : ""}
             </p>
           </div>
@@ -3086,8 +3117,8 @@ var Bt = [
                         @click=${() => this.goTo("activity", e.id)}
                       >
                         <span class="row">
-                          <span class="chip ${Ot(e.status)}">
-                            ${Dt(e.status)}
+                          <span class="chip ${kt(e.status)}">
+                            ${Ot(e.status)}
                           </span>
                           <span class="grow truncate">${e.scope}</span>
                           <span class="secondary">${B(e.total, "link")}</span>
@@ -3114,7 +3145,7 @@ var Bt = [
 				let r = (e.profiles ?? []).find((e) => e.is_active) ?? null;
 				this._profile = r, this._rules = r === null ? [] : (await this.api.getProfile(r.id)).rules ?? [], this._error = null;
 			} catch (e) {
-				this._error = M(this.hass, j.from(e));
+				this._error = j(this.hass, A.from(e));
 			} finally {
 				this._loading = !1;
 			}
@@ -3132,7 +3163,7 @@ var Bt = [
 				let e = await this.api.verify();
 				this._verifiedDevices = e.devices, this._verifiedAt = (/* @__PURE__ */ new Date()).toISOString(), await this._load();
 			} catch (e) {
-				this._error = M(this.hass, j.from(e));
+				this._error = j(this.hass, A.from(e));
 			} finally {
 				this._verifying = !1;
 			}
@@ -3148,12 +3179,196 @@ var Bt = [
 		this._load();
 	}
 };
-N([k()], J.prototype, "_profile", void 0), N([k()], J.prototype, "_rules", void 0), N([k()], J.prototype, "_devices", void 0), N([k()], J.prototype, "_jobs", void 0), N([k()], J.prototype, "_loading", void 0), N([k()], J.prototype, "_error", void 0), N([k()], J.prototype, "_verifying", void 0), N([k()], J.prototype, "_verifiedAt", void 0), N([k()], J.prototype, "_verifiedDevices", void 0), N([k()], J.prototype, "_planOpen", void 0), N([k()], J.prototype, "_planScope", void 0), N([k()], J.prototype, "_planHeading", void 0), J = N([D("device-links-overview")], J);
+M([O()], q.prototype, "_profile", void 0), M([O()], q.prototype, "_rules", void 0), M([O()], q.prototype, "_devices", void 0), M([O()], q.prototype, "_jobs", void 0), M([O()], q.prototype, "_loading", void 0), M([O()], q.prototype, "_error", void 0), M([O()], q.prototype, "_verifying", void 0), M([O()], q.prototype, "_verifiedAt", void 0), M([O()], q.prototype, "_verifiedDevices", void 0), M([O()], q.prototype, "_planOpen", void 0), M([O()], q.prototype, "_planScope", void 0), M([O()], q.prototype, "_planHeading", void 0), q = M([E("device-links-overview")], q);
+//#endregion
+//#region src/dialogs/diff-dialog.ts
+var Ut = {
+	added: {
+		label: "Added",
+		tone: "ok"
+	},
+	removed: {
+		label: "Removed",
+		tone: "warn"
+	},
+	changed: {
+		label: "Changed",
+		tone: "info"
+	},
+	unchanged: {
+		label: "Unchanged",
+		tone: "muted"
+	}
+}, J = class extends T {
+	constructor(...e) {
+		super(...e), this.narrow = !1, this.open = !1, this.heading = "Compare", this.profileId = "", this.against = null, this._diff = null, this._error = null, this._loading = !1, this._showUnchanged = !1;
+	}
+	static {
+		this.styles = [V, o`
+      .rule {
+        border: 1px solid var(--divider-color, rgba(0, 0, 0, 0.12));
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin-bottom: 8px;
+      }
+
+      .rule header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .rule h4 {
+        margin: 0;
+        flex: 1;
+        overflow-wrap: anywhere;
+      }
+
+      .change {
+        padding: 2px 0;
+        overflow-wrap: anywhere;
+      }
+    `];
+	}
+	willUpdate(e) {
+		e.has("open") && (this.open ? this._load() : (this._diff = null, this._error = null, this._showUnchanged = !1));
+	}
+	render() {
+		return b`
+      <dl-dialog
+        .open=${this.open}
+        .narrow=${this.narrow}
+        .heading=${this.heading}
+        @dl-dialog-closed=${this._close}
+      >
+        ${this._renderBody()}
+        <div slot="actions">
+          <button type="button" class="primary" @click=${this._close}>Close</button>
+        </div>
+      </dl-dialog>
+    `;
+	}
+	_renderBody() {
+		if (this._error !== null) return b`<div class="notice error" role="alert">${this._error}</div>`;
+		if (this._loading) return b`<p class="secondary">Working out what differs.</p>`;
+		let e = this._diff;
+		return e === null ? b`<p class="secondary">Nothing compared yet.</p>` : e.is_empty ? b`
+        <p>These two describe the same thing. Nothing would change.</p>
+        ${this._renderScope(e)}
+      ` : b`
+      ${this._renderSummary(e)} ${this._renderScope(e)} ${this._renderRules(e)}
+      ${this._renderLinks(e)}
+    `;
+	}
+	_renderSummary(e) {
+		let t = e.counts;
+		return b`
+      <div class="chips" style="margin-bottom: 12px">
+        ${this._chip("Rules added", t.rules_added)}
+        ${this._chip("Rules removed", t.rules_removed)}
+        ${this._chip("Rules changed", t.rules_changed)}
+        ${this._chip("Links added", t.links_added)}
+        ${this._chip("Links removed", t.links_removed)}
+      </div>
+    `;
+	}
+	_chip(e, t) {
+		return t ? b`<span class="chip info">${e} ${t}</span>` : S;
+	}
+	_renderScope(e) {
+		return e.devices.length === 0 ? S : b`
+      <p class="secondary">
+        This snapshot covers ${B(e.devices.length, "device")}, so it is the whole
+        of what this comparison can speak for. Nothing here says anything about the rest of
+        your network.
+      </p>
+    `;
+	}
+	_renderRules(e) {
+		let t = e.rules.filter((e) => e.kind !== "unchanged");
+		return t.length === 0 ? S : b`
+      <h3>Rules</h3>
+      ${t.map((e) => this._renderRule(e))}
+    `;
+	}
+	_renderRule(e) {
+		let t = Ut[e.kind];
+		return b`
+      <section class="rule">
+        <header>
+          <h4>${e.name}</h4>
+          <span class="chip ${t.tone}">${t.label}</span>
+          ${e.writes_nothing_new && e.kind === "changed" ? b`<span class="chip muted" title="Nothing would be written to a device">
+                No device change
+              </span>` : S}
+        </header>
+        ${e.fields.length === 0 ? S : b`<p class="secondary">Different: ${e.fields.join(", ")}.</p>`}
+        ${e.links_added.map((e) => b`<div class="change">
+            <span class="chip ok">Add</span> ${z(e)}
+          </div>`)}
+        ${e.links_removed.map((e) => b`<div class="change">
+            <span class="chip warn">Remove</span> ${z(e)}
+          </div>`)}
+        ${e.links_unchanged > 0 ? b`<p class="secondary">
+              ${B(e.links_unchanged, "link")} the same on both sides.
+            </p>` : S}
+      </section>
+    `;
+	}
+	_renderLinks(e) {
+		let t = e.links.filter((e) => this._showUnchanged || e.kind !== "unchanged");
+		if (e.links.length === 0) return S;
+		let n = e.links.length - e.links.filter((e) => e.kind !== "unchanged").length;
+		return b`
+      <h3 style="margin-top: 12px">Links</h3>
+      <p class="secondary">What would actually be written to the devices.</p>
+      ${t.map((e) => this._renderLink(e))}
+      ${n === 0 ? S : b`<button
+            type="button"
+            class="link"
+            @click=${() => {
+			this._showUnchanged = !this._showUnchanged;
+		}}
+          >
+            ${this._showUnchanged ? "Hide the links that are the same" : `Show ${B(n, "link")} that are the same`}
+          </button>`}
+    `;
+	}
+	_renderLink(e) {
+		let t = Ut[e.kind];
+		return b`
+      <div class="change">
+        <span class="chip ${t.tone}">${t.label}</span> ${z(e.link)}
+      </div>
+    `;
+	}
+	async _load() {
+		let e = this.against;
+		if (this.api && this.profileId !== "" && e !== null) {
+			this._loading = !0, this._error = null;
+			try {
+				this._diff = await this.api.diffProfile(this.profileId, e);
+			} catch (e) {
+				this._error = j(this.hass, A.from(e));
+			} finally {
+				this._loading = !1;
+			}
+		}
+	}
+	_close() {
+		this.dispatchEvent(new CustomEvent("dl-diff-closed", {
+			bubbles: !0,
+			composed: !0
+		}));
+	}
+};
+M([D({ attribute: !1 })], J.prototype, "hass", void 0), M([D({ attribute: !1 })], J.prototype, "api", void 0), M([D({ type: Boolean })], J.prototype, "narrow", void 0), M([D({ type: Boolean })], J.prototype, "open", void 0), M([D({ type: String })], J.prototype, "heading", void 0), M([D({ type: String })], J.prototype, "profileId", void 0), M([D({ attribute: !1 })], J.prototype, "against", void 0), M([O()], J.prototype, "_diff", void 0), M([O()], J.prototype, "_error", void 0), M([O()], J.prototype, "_loading", void 0), M([O()], J.prototype, "_showUnchanged", void 0), J = M([E("dl-diff-dialog")], J);
 //#endregion
 //#region src/views/profiles.ts
 var Y = class extends H {
 	constructor(...e) {
-		super(...e), this._profiles = [], this._loading = !0, this._busy = !1, this._error = null, this._sheet = "none", this._subject = null, this._text = "", this._exported = "", this._planOpen = !1, this._plan = null, this._planHeading = "Plan and apply";
+		super(...e), this._profiles = [], this._loading = !0, this._busy = !1, this._error = null, this._sheet = "none", this._subject = null, this._text = "", this._exported = "", this._planOpen = !1, this._plan = null, this._planHeading = "Plan and apply", this._diffAgainst = null;
 	}
 	static {
 		this.styles = V;
@@ -3187,6 +3402,18 @@ var Y = class extends H {
         </div>
       </div>
       ${this._renderSheets()}
+      <dl-diff-dialog
+        .hass=${this.hass}
+        .api=${this.api}
+        .narrow=${this.narrow}
+        .open=${this._diffAgainst !== null}
+        .heading=${`Compare ${this._subject?.name ?? ""} with ${this._nameOf(this._diffAgainst)}`}
+        .profileId=${this._subject?.id ?? ""}
+        .against=${this._diffAgainst === null ? null : { profileId: this._diffAgainst }}
+        @dl-diff-closed=${() => {
+			this._diffAgainst = null;
+		}}
+      ></dl-diff-dialog>
       <dl-plan-dialog
         .hass=${this.hass}
         .api=${this.api}
@@ -3238,6 +3465,15 @@ var Y = class extends H {
               @click=${() => this._duplicate(e)}
             >
               Duplicate
+            </button>
+            <button
+              type="button"
+              class="outlined"
+              ?disabled=${this._busy || this._profiles.length < 2}
+              title=${this._profiles.length < 2 ? "There is only one profile, so there is nothing to compare it with." : ""}
+              @click=${() => this._open("compare", e)}
+            >
+              Compare
             </button>
             <button
               type="button"
@@ -3335,6 +3571,36 @@ var Y = class extends H {
       </dl-dialog>
 
       <dl-dialog
+        .open=${this._sheet === "compare"}
+        .narrow=${this.narrow}
+        .heading=${`Compare ${this._subject?.name ?? ""} with`}
+        @dl-dialog-closed=${this._closeSheet}
+      >
+        <p class="secondary">
+          Nothing is written and nothing is activated. This only says what would differ.
+        </p>
+        <ul class="list">
+          ${this._profiles.filter((e) => e.id !== this._subject?.id).map((e) => b`
+                <li>
+                  <button
+                    type="button"
+                    class="selectable"
+                    @click=${() => this._compareWith(e)}
+                  >
+                    <span class="row">
+                      <span class="grow">${e.name}</span>
+                      <span class="chip muted">${B(e.rules, "rule")}</span>
+                    </span>
+                  </button>
+                </li>
+              `)}
+        </ul>
+        <div slot="actions">
+          <button type="button" class="outlined" @click=${this._closeSheet}>Cancel</button>
+        </div>
+      </dl-dialog>
+
+      <dl-dialog
         .open=${this._sheet === "delete"}
         .narrow=${this.narrow}
         .heading=${`Delete ${this._subject?.name ?? ""}?`}
@@ -3358,7 +3624,7 @@ var Y = class extends H {
 			try {
 				this._profiles = (await this.api.listProfiles()).profiles ?? [], this._error = null;
 			} catch (e) {
-				this._error = M(this.hass, j.from(e));
+				this._error = j(this.hass, A.from(e));
 			} finally {
 				this._loading = !1;
 			}
@@ -3375,7 +3641,7 @@ var Y = class extends H {
 		try {
 			await e();
 		} catch (e) {
-			this._error = M(this.hass, j.from(e));
+			this._error = j(this.hass, A.from(e));
 		} finally {
 			this._busy = !1;
 		}
@@ -3384,7 +3650,7 @@ var Y = class extends H {
 		let e = this._text.trim();
 		await this._run(async () => {
 			await this.api.createProfile({
-				id: Ht(),
+				id: Wt(),
 				name: e,
 				rules: []
 			}), this._closeSheet(), await this._load();
@@ -3423,6 +3689,12 @@ var Y = class extends H {
 			await this.api.deleteProfile(e.id), this._closeSheet(), await this._load();
 		});
 	}
+	_compareWith(e) {
+		this._sheet = "none", this._diffAgainst = e.id;
+	}
+	_nameOf(e) {
+		return this._profiles.find((t) => t.id === e)?.name ?? "";
+	}
 	_closePlan() {
 		this._planOpen = !1, this._plan = null, this._load();
 	}
@@ -3430,14 +3702,14 @@ var Y = class extends H {
 		this._load();
 	}
 };
-N([k()], Y.prototype, "_profiles", void 0), N([k()], Y.prototype, "_loading", void 0), N([k()], Y.prototype, "_busy", void 0), N([k()], Y.prototype, "_error", void 0), N([k()], Y.prototype, "_sheet", void 0), N([k()], Y.prototype, "_subject", void 0), N([k()], Y.prototype, "_text", void 0), N([k()], Y.prototype, "_exported", void 0), N([k()], Y.prototype, "_planOpen", void 0), N([k()], Y.prototype, "_plan", void 0), N([k()], Y.prototype, "_planHeading", void 0), Y = N([D("device-links-profiles")], Y);
-function Ht() {
+M([O()], Y.prototype, "_profiles", void 0), M([O()], Y.prototype, "_loading", void 0), M([O()], Y.prototype, "_busy", void 0), M([O()], Y.prototype, "_error", void 0), M([O()], Y.prototype, "_sheet", void 0), M([O()], Y.prototype, "_subject", void 0), M([O()], Y.prototype, "_text", void 0), M([O()], Y.prototype, "_exported", void 0), M([O()], Y.prototype, "_planOpen", void 0), M([O()], Y.prototype, "_plan", void 0), M([O()], Y.prototype, "_planHeading", void 0), M([O()], Y.prototype, "_diffAgainst", void 0), Y = M([E("device-links-profiles")], Y);
+function Wt() {
 	let e = globalThis.crypto?.randomUUID?.();
 	return e ? e.replace(/-/g, "") : `profile${Date.now().toString(36)}`;
 }
 //#endregion
 //#region src/components/loops.ts
-function Ut(e) {
+function Gt(e) {
 	return e.length === 0 ? S : b`
     ${e.map((e) => b`
         <div class="notice warn" role="status">
@@ -3465,20 +3737,20 @@ var X = [
 	"targets",
 	"behaviour",
 	"review"
-], Wt = {
+], Kt = {
 	template: "What should this do?",
 	source: "Which control drives it?",
 	targets: "What should it control?",
 	behaviour: "How should it behave?",
 	review: "What this will do"
-}, Gt = [
+}, qt = [
 	"on_off",
 	"level_set",
 	"level_hold",
 	"scene",
 	"color",
 	"status_report"
-], Kt = {
+], Jt = {
 	remote: {
 		features: [
 			"on_off",
@@ -3517,7 +3789,7 @@ var X = [
 		direction: "one_way",
 		mirror: "leave"
 	}
-}, qt = [
+}, Yt = [
 	{
 		value: "on_only",
 		needs: "scene_id",
@@ -3542,7 +3814,7 @@ var X = [
 		label: "Keep this button's LED in sync with the target",
 		help: "Nothing on the radio can address one button's LED, so Home Assistant watches the target and lights the button to match."
 	}
-], Jt = [
+], Xt = [
 	{
 		value: "leave",
 		label: "Leave the device's own setting alone",
@@ -3559,7 +3831,7 @@ var X = [
 		help: "Writes the device's mirror setting so only the targets respond."
 	}
 ];
-function Yt(e) {
+function Zt(e) {
 	let { device: t, endpoint: n, emitter_id: r } = e.source;
 	return t === "" || r === "" || n === null || e.targets.length === 0 ? null : {
 		...e,
@@ -3570,7 +3842,7 @@ function Yt(e) {
 		}
 	};
 }
-var Z = class extends E {
+var Z = class extends T {
 	constructor(...e) {
 		super(...e), this.components = null, this.narrow = !1, this.open = !1, this.devices = [], this.rule = null, this.initialTemplate = null, this.hybridAllowed = !1, this._draft = null, this._step = "template", this._sourceDetail = null, this._loadingSource = !1, this._compiled = null, this._validating = !1, this._saving = !1, this._error = null, this._search = "";
 	}
@@ -3673,11 +3945,11 @@ var Z = class extends E {
 		let t = X.indexOf(this._step);
 		return b`
       ${this.narrow ? b`<p class="secondary">
-            Step ${t + 1} of ${X.length}: ${Wt[this._step]}
+            Step ${t + 1} of ${X.length}: ${Kt[this._step]}
           </p>` : b`<ol class="steps">
             ${X.map((e, t) => b`
                 <li aria-current=${e === this._step ? "step" : "false"}>
-                  ${t + 1}. ${Wt[e]}
+                  ${t + 1}. ${Kt[e]}
                 </li>
               `)}
           </ol>`}
@@ -3697,28 +3969,28 @@ var Z = class extends E {
 	_renderTemplateStep(e) {
 		return b`
       <div class="template-grid">
-        ${Object.keys(Kt).map((t) => b`
+        ${Object.keys(Jt).map((t) => b`
             <button
               type="button"
               class="template-card"
               aria-pressed=${e.template === t ? "true" : "false"}
               @click=${() => this._chooseTemplate(t)}
             >
-              <strong>${R(t)}</strong>
-              <span class="secondary">${wt(t)}</span>
+              <strong>${L(t)}</strong>
+              <span class="secondary">${Tt(t)}</span>
             </button>
           `)}
       </div>
     `;
 	}
 	_chooseTemplate(e) {
-		let t = Kt[e];
+		let t = Jt[e];
 		this._update({
 			template: e,
 			features: [...t.features],
 			direction: t.direction,
 			mirror_source: t.mirror,
-			name: this._draft?.name || R(e)
+			name: this._draft?.name || L(e)
 		}), this._step = "source";
 	}
 	_renderSourceStep(e) {
@@ -3729,7 +4001,7 @@ var Z = class extends E {
       ` : b`
       <div class="row" style="margin-bottom: 12px">
         <strong>${t.name}</strong>
-        <span class="chip muted">${L(t.backend)}</span>
+        <span class="chip muted">${I(t.backend)}</span>
         <button type="button" class="link" @click=${() => this._clearSource()}>
           Choose a different device
         </button>
@@ -3777,7 +4049,7 @@ var Z = class extends E {
         </div>
         <div class="chips" style="margin-top: 6px">
           ${i.map((e) => b`<span class="chip">
-              ${K(this.components, Ct(e))}${I(e)}
+              ${Bt(this.components, wt(e))}${F(e)}
             </span>`)}
         </div>
         ${n !== null && n.free === 0 ? b`<p class="secondary" style="margin: 6px 0 0">
@@ -3787,7 +4059,7 @@ var Z = class extends E {
     `;
 	}
 	_usage(e) {
-		return jt(e, this._sourceDetail?.links ?? []);
+		return Mt(e, this._sourceDetail?.links ?? []);
 	}
 	_sourceCandidates() {
 		return this._filtered(this.devices.filter((e) => e.emitters > 0 && e.device_id !== null));
@@ -3815,7 +4087,7 @@ var Z = class extends E {
 			try {
 				this._sourceDetail = await this.api.getDevice(e.device_id);
 			} catch (e) {
-				this._error = M(this.hass, j.from(e));
+				this._error = j(this.hass, A.from(e));
 			} finally {
 				this._loadingSource = !1;
 			}
@@ -3857,7 +4129,7 @@ var Z = class extends E {
                   />
                   <span class="grow">
                     <span>${e.name}</span>
-                    <span class="chip muted">${L(e.backend)}</span>
+                    <span class="chip muted">${I(e.backend)}</span>
                     ${e.receiving_endpoint === null ? S : b`<span class="chip muted">
                           Endpoint ${e.receiving_endpoint}
                         </span>`}
@@ -3894,7 +4166,7 @@ var Z = class extends E {
       </label>
 
       <h3>What it sends</h3>
-      ${Gt.map((r) => {
+      ${qt.map((r) => {
 			let i = n[r], a = i !== void 0;
 			return b`
           <label class="choice ${a ? "" : "disabled"}">
@@ -3905,7 +4177,7 @@ var Z = class extends E {
               @change=${(e) => this._toggleFeature(r, e)}
             />
             <span>
-              <span>${I(r)}</span>
+              <span>${F(r)}</span>
               ${a ? b`<span class="secondary"> (group ${i})</span>` : b`<span class="secondary">
                     ${t === null ? " (choose a control first)" : ` (${t.label} does not send this)`}
                   </span>`}
@@ -3938,7 +4210,7 @@ var Z = class extends E {
       </label>
 
       <h3 style="margin-top: 16px">The control's own load</h3>
-      ${Jt.map((t) => b`
+      ${Xt.map((t) => b`
           <label class="choice">
             <input
               type="radio"
@@ -3958,7 +4230,7 @@ var Z = class extends E {
 	}
 	_renderHybridSection(e) {
 		if (!this.hybridAllowed) return S;
-		let t = this._selectedEmitter(e), n = qt.filter((e) => t !== null && t[e.needs] !== null);
+		let t = this._selectedEmitter(e), n = Yt.filter((e) => t !== null && t[e.needs] !== null);
 		return b`
       <h3 style="margin-top: 16px">
         Run in Home Assistant <span class="chip warn">HA-executed</span>
@@ -4022,7 +4294,7 @@ var Z = class extends E {
 		return b`
       <div class="notice">
         <p>
-          <strong>${e.name}</strong>, ${R(e.template)}, from
+          <strong>${e.name}</strong>, ${L(e.template)}, from
           ${this._nameOf(e.source.device)} to
           ${e.targets.map((e) => this._nameOf(e.device)).join(", ") || "nothing yet"}.
         </p>
@@ -4035,16 +4307,16 @@ var Z = class extends E {
 	_renderDiagnostics(e) {
 		return b`
       ${e.errors.map((e) => b`<div class="notice error" role="alert">
-          <p><strong>Problem.</strong> ${Qe(this.hass, e)}</p>
+          <p><strong>Problem.</strong> ${$e(this.hass, e)}</p>
         </div>`)}
       ${e.warnings.map((e) => b`<div class="notice warn" role="status">
-          <p><strong>Warning.</strong> ${Qe(this.hass, e)}</p>
+          <p><strong>Warning.</strong> ${$e(this.hass, e)}</p>
         </div>`)}
       ${e.errors.length > 0 ? b`<p class="secondary">
             This rule compiles to no links, so there is nothing to apply. You can still save
             it: it will show as blocked in the rules table until whatever is wrong is fixed.
           </p>` : S}
-      ${Ut(e.loops)}
+      ${Gt(e.loops)}
     `;
 	}
 	_renderCompiled(e) {
@@ -4054,7 +4326,7 @@ var Z = class extends E {
       ` : b`
       <h3>${B(e.links.length, "link")}</h3>
       <ul class="list">
-        ${e.links.map((e) => b`<li>${Nt(e)}</li>`)}
+        ${e.links.map((e) => b`<li>${z(e)}</li>`)}
       </ul>
       ${e.settings.length === 0 ? S : b`
             <h3 style="margin-top: 12px">Device settings</h3>
@@ -4107,7 +4379,7 @@ var Z = class extends E {
               <button type="button" class="selectable" @click=${() => t(e)}>
                 <span class="row">
                   <span class="grow">${e.name}</span>
-                  <span class="chip muted">${L(e.backend)}</span>
+                  <span class="chip muted">${I(e.backend)}</span>
                   <span class="chip muted">${B(e.emitters, "control")}</span>
                   ${e.available ? S : b`<span class="chip warn">Not answering</span>`}
                 </span>
@@ -4181,10 +4453,10 @@ var Z = class extends E {
 	}
 	_begin() {
 		if (this._error = null, this._compiled = null, this._search = "", this._sourceDetail = null, this.rule === null) {
-			let e = this.initialTemplate ?? "remote", t = Kt[e];
+			let e = this.initialTemplate ?? "remote", t = Jt[e];
 			this._draft = {
-				id: Xt(),
-				name: this.initialTemplate === null ? "" : R(e),
+				id: Qt(),
+				name: this.initialTemplate === null ? "" : L(e),
 				template: e,
 				backend: "zwave",
 				enabled: !0,
@@ -4222,7 +4494,7 @@ var Z = class extends E {
 	_validate() {
 		let e = this._draft;
 		if (!this.api || e === null) return;
-		let t = Yt(e);
+		let t = Zt(e);
 		if (t === null) {
 			this._compiled = null;
 			return;
@@ -4230,7 +4502,7 @@ var Z = class extends E {
 		this._validating = !0, this.api.validateRule(t).then((e) => {
 			this._compiled = e, this._error = null;
 		}).catch((e) => {
-			this._error = M(this.hass, j.from(e));
+			this._error = j(this.hass, A.from(e));
 		}).finally(() => {
 			this._validating = !1;
 		});
@@ -4238,7 +4510,7 @@ var Z = class extends E {
 	async _save(e) {
 		let t = this._draft;
 		if (!this.api || t === null) return;
-		let n = Yt(t);
+		let n = Zt(t);
 		if (n === null) {
 			this._error = "This rule still needs a control and at least one target.";
 			return;
@@ -4254,7 +4526,7 @@ var Z = class extends E {
 				composed: !0
 			}));
 		} catch (e) {
-			this._error = M(this.hass, j.from(e));
+			this._error = j(this.hass, A.from(e));
 		} finally {
 			this._saving = !1;
 		}
@@ -4266,21 +4538,21 @@ var Z = class extends E {
 		}));
 	}
 };
-N([O({ attribute: !1 })], Z.prototype, "hass", void 0), N([O({ attribute: !1 })], Z.prototype, "api", void 0), N([O({ attribute: !1 })], Z.prototype, "components", void 0), N([O({ type: Boolean })], Z.prototype, "narrow", void 0), N([O({ type: Boolean })], Z.prototype, "open", void 0), N([O({ attribute: !1 })], Z.prototype, "devices", void 0), N([O({ attribute: !1 })], Z.prototype, "rule", void 0), N([O({ type: String })], Z.prototype, "profileId", void 0), N([O({ attribute: !1 })], Z.prototype, "initialTemplate", void 0), N([O({ type: Boolean })], Z.prototype, "hybridAllowed", void 0), N([k()], Z.prototype, "_draft", void 0), N([k()], Z.prototype, "_step", void 0), N([k()], Z.prototype, "_sourceDetail", void 0), N([k()], Z.prototype, "_loadingSource", void 0), N([k()], Z.prototype, "_compiled", void 0), N([k()], Z.prototype, "_validating", void 0), N([k()], Z.prototype, "_saving", void 0), N([k()], Z.prototype, "_error", void 0), N([k()], Z.prototype, "_search", void 0), Z = N([D("dl-rule-editor")], Z);
-function Xt() {
+M([D({ attribute: !1 })], Z.prototype, "hass", void 0), M([D({ attribute: !1 })], Z.prototype, "api", void 0), M([D({ attribute: !1 })], Z.prototype, "components", void 0), M([D({ type: Boolean })], Z.prototype, "narrow", void 0), M([D({ type: Boolean })], Z.prototype, "open", void 0), M([D({ attribute: !1 })], Z.prototype, "devices", void 0), M([D({ attribute: !1 })], Z.prototype, "rule", void 0), M([D({ type: String })], Z.prototype, "profileId", void 0), M([D({ attribute: !1 })], Z.prototype, "initialTemplate", void 0), M([D({ type: Boolean })], Z.prototype, "hybridAllowed", void 0), M([O()], Z.prototype, "_draft", void 0), M([O()], Z.prototype, "_step", void 0), M([O()], Z.prototype, "_sourceDetail", void 0), M([O()], Z.prototype, "_loadingSource", void 0), M([O()], Z.prototype, "_compiled", void 0), M([O()], Z.prototype, "_validating", void 0), M([O()], Z.prototype, "_saving", void 0), M([O()], Z.prototype, "_error", void 0), M([O()], Z.prototype, "_search", void 0), Z = M([E("dl-rule-editor")], Z);
+function Qt() {
 	let e = globalThis.crypto?.randomUUID?.();
 	return e ? e.replace(/-/g, "") : `rule${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 }
 //#endregion
 //#region src/views/rules.ts
-var Zt = [
+var $t = [
 	"remote",
 	"virtual_3way",
 	"scene_button",
 	"off_all",
 	"status_feedback",
 	"custom"
-], Qt = [
+], en = [
 	"in_sync",
 	"drift",
 	"pending",
@@ -4289,7 +4561,7 @@ var Zt = [
 	"unknown"
 ], Q = class extends H {
 	constructor(...e) {
-		super(...e), this._profile = null, this._rules = [], this._loops = [], this._devices = [], this._templates = [...Zt], this._emitterLabels = {}, this._loading = !0, this._error = null, this._search = "", this._backendFilter = "", this._stateFilter = "", this._editorOpen = !1, this._editing = null, this._editorTemplate = null, this._planOpen = !1, this._planHeading = "Plan and apply", this._confirmDelete = null, this._staged = null, this._appliedDuringPlan = !1;
+		super(...e), this._profile = null, this._rules = [], this._loops = [], this._devices = [], this._templates = [...$t], this._emitterLabels = {}, this._loading = !0, this._error = null, this._search = "", this._backendFilter = "", this._stateFilter = "", this._editorOpen = !1, this._editing = null, this._editorTemplate = null, this._planOpen = !1, this._planHeading = "Plan and apply", this._confirmDelete = null, this._staged = null, this._appliedDuringPlan = !1;
 	}
 	static {
 		this.styles = V;
@@ -4308,7 +4580,7 @@ var Zt = [
 		return b`
       <div class="content">
         ${this._error === null ? S : b`<div class="notice error" role="alert">${this._error}</div>`}
-        ${Ut(this._loops)}
+        ${Gt(this._loops)}
         <div class="card">
           ${this._renderToolbar()}
           ${this._renderBody()}
@@ -4389,7 +4661,7 @@ var Zt = [
 		}}
           >
             <option value="">Any</option>
-            ${Qt.map((e) => b`<option value=${e}>${z(e)}</option>`)}
+            ${en.map((e) => b`<option value=${e}>${R(e)}</option>`)}
           </select>
         </label>
       </div>
@@ -4426,8 +4698,8 @@ var Zt = [
       <li>
         <div class="row">
           <strong class="grow">${t.name}</strong>
-          <span class="chip ${Tt(e.state)}" title=${Et(e.state)}>
-            ${z(e.state)}
+          <span class="chip ${Et(e.state)}" title=${Dt(e.state)}>
+            ${R(e.state)}
           </span>
         </div>
         <p class="secondary" style="margin: 4px 0">
@@ -4436,9 +4708,9 @@ var Zt = [
           ${t.targets.map((e) => this._nameOf(e.device)).join(", ")}
         </p>
         <div class="chips" style="margin-bottom: 8px">
-          <span class="chip muted">${R(t.template)}</span>
+          <span class="chip muted">${L(t.template)}</span>
           ${t.features.map((e) => b`<span class="chip">
-              ${K(this.components, Ct(e))}${I(e)}
+              ${Bt(this.components, wt(e))}${F(e)}
             </span>`)}
         </div>
         <label class="choice">
@@ -4471,8 +4743,8 @@ var Zt = [
         <td>
           <strong>${t.name}</strong>
           <div class="chips" style="margin-top: 4px">
-            <span class="chip muted">${R(t.template)}</span>
-            <span class="chip muted">${L(t.backend)}</span>
+            <span class="chip muted">${L(t.template)}</span>
+            <span class="chip muted">${I(t.backend)}</span>
           </div>
         </td>
         <td>
@@ -4486,15 +4758,15 @@ var Zt = [
         </td>
         <td>
           <div class="chips">
-            ${t.features.map((e) => b`<span class="chip" title=${I(e)}>
-                ${K(this.components, Ct(e))}${I(e)}
+            ${t.features.map((e) => b`<span class="chip" title=${F(e)}>
+                ${Bt(this.components, wt(e))}${F(e)}
               </span>`)}
           </div>
           ${t.direction === "two_way" ? b`<span class="secondary">Two way</span>` : S}
         </td>
         <td>
-          <span class="chip ${Tt(e.state)}" title=${Et(e.state)}>
-            ${z(e.state)}
+          <span class="chip ${Et(e.state)}" title=${Dt(e.state)}>
+            ${R(e.state)}
           </span>
           ${e.links_total > 0 ? b`<div class="secondary">${e.links_in_sync} of ${e.links_total} links</div>` : S}
         </td>
@@ -4543,8 +4815,8 @@ var Zt = [
               style="border-color: var(--divider-color, rgba(0, 0, 0, 0.12))"
               @click=${() => this._openEditor(null, e)}
             >
-              <strong>${R(e)}</strong>
-              <div class="secondary">${wt(e)}</div>
+              <strong>${L(e)}</strong>
+              <div class="secondary">${Tt(e)}</div>
             </button>
           `)}
       </div>
@@ -4612,7 +4884,7 @@ var Zt = [
 				let i = r === null ? null : await this.api.getProfile(r.id);
 				this._rules = i?.rules ?? [], this._loops = i?.loops ?? [], this._error = null, this._loadEmitterLabels();
 			} catch (e) {
-				this._error = M(this.hass, j.from(e));
+				this._error = j(this.hass, A.from(e));
 			} finally {
 				this._loading = !1;
 			}
@@ -4655,7 +4927,7 @@ var Zt = [
 				wasEnabled: r
 			}, this._appliedDuringPlan = !1, await this._load(), this._openPlan({ rule_ids: [e.rule.id] }, `${n ? "Enable" : "Disable"} ${e.rule.name}`);
 		} catch (e) {
-			this._error = M(this.hass, j.from(e)), await this._load();
+			this._error = j(this.hass, A.from(e)), await this._load();
 		}
 	}
 	_openPlan(e, t) {
@@ -4672,7 +4944,7 @@ var Zt = [
 				enabled: n.wasEnabled
 			}, this._profile?.id);
 		} catch (e) {
-			this._error = M(this.hass, j.from(e));
+			this._error = j(this.hass, A.from(e));
 		}
 		this._appliedDuringPlan = !1, this._load();
 	}
@@ -4689,17 +4961,17 @@ var Zt = [
 			try {
 				await this.api.deleteRule(e.rule.id, this._profile?.id), await this._load();
 			} catch (e) {
-				this._error = M(this.hass, j.from(e));
+				this._error = j(this.hass, A.from(e));
 			}
 		}
 	}
 };
-N([k()], Q.prototype, "_profile", void 0), N([k()], Q.prototype, "_rules", void 0), N([k()], Q.prototype, "_loops", void 0), N([k()], Q.prototype, "_devices", void 0), N([k()], Q.prototype, "_templates", void 0), N([k()], Q.prototype, "_emitterLabels", void 0), N([k()], Q.prototype, "_loading", void 0), N([k()], Q.prototype, "_error", void 0), N([k()], Q.prototype, "_search", void 0), N([k()], Q.prototype, "_backendFilter", void 0), N([k()], Q.prototype, "_stateFilter", void 0), N([k()], Q.prototype, "_editorOpen", void 0), N([k()], Q.prototype, "_editing", void 0), N([k()], Q.prototype, "_editorTemplate", void 0), N([k()], Q.prototype, "_planOpen", void 0), N([k()], Q.prototype, "_planScope", void 0), N([k()], Q.prototype, "_planHeading", void 0), N([k()], Q.prototype, "_confirmDelete", void 0), Q = N([D("device-links-rules")], Q);
+M([O()], Q.prototype, "_profile", void 0), M([O()], Q.prototype, "_rules", void 0), M([O()], Q.prototype, "_loops", void 0), M([O()], Q.prototype, "_devices", void 0), M([O()], Q.prototype, "_templates", void 0), M([O()], Q.prototype, "_emitterLabels", void 0), M([O()], Q.prototype, "_loading", void 0), M([O()], Q.prototype, "_error", void 0), M([O()], Q.prototype, "_search", void 0), M([O()], Q.prototype, "_backendFilter", void 0), M([O()], Q.prototype, "_stateFilter", void 0), M([O()], Q.prototype, "_editorOpen", void 0), M([O()], Q.prototype, "_editing", void 0), M([O()], Q.prototype, "_editorTemplate", void 0), M([O()], Q.prototype, "_planOpen", void 0), M([O()], Q.prototype, "_planScope", void 0), M([O()], Q.prototype, "_planHeading", void 0), M([O()], Q.prototype, "_confirmDelete", void 0), Q = M([E("device-links-rules")], Q);
 //#endregion
 //#region src/panel.ts
-var $t = "0.0.1", $ = class extends E {
+var tn = "0.0.1", $ = class extends T {
 	constructor(...e) {
-		super(...e), this.narrow = !1, this.componentLoader = () => ot(), this._components = null, this._selected = null, this._api = null;
+		super(...e), this.narrow = !1, this.componentLoader = () => st(), this._components = null, this._selected = null, this._api = null;
 	}
 	static {
 		this.styles = o`
@@ -4777,7 +5049,7 @@ var $t = "0.0.1", $ = class extends E {
   `;
 	}
 	get tab() {
-		return ut(this.route?.path);
+		return dt(this.route?.path);
 	}
 	get api() {
 		return this._api;
@@ -4792,7 +5064,7 @@ var $t = "0.0.1", $ = class extends E {
 		e.has("hass") && this._openClient();
 	}
 	_openClient() {
-		this.hass && (this._api === null ? this._api = new tt(this.hass) : this._api.hass = this.hass);
+		this.hass && (this._api === null ? this._api = new nt(this.hass) : this._api.hass = this.hass);
 	}
 	async _loadComponents() {
 		this._components === null && (this._components = await this.componentLoader());
@@ -4827,7 +5099,7 @@ var $t = "0.0.1", $ = class extends E {
 		let e = this._components;
 		return !e?.has("ha-tab-group") || !e.has("ha-tab-group-tab") ? b`
         <nav class="plain-tabs" aria-label="Device Links sections">
-          ${F.map((e) => b`
+          ${P.map((e) => b`
               <button
                 type="button"
                 aria-current=${e.id === this.tab ? "page" : "false"}
@@ -4839,7 +5111,7 @@ var $t = "0.0.1", $ = class extends E {
         </nav>
       ` : b`
       <ha-tab-group slot="tabs" aria-label="Device Links sections">
-        ${F.map((t) => b`
+        ${P.map((t) => b`
             <ha-tab-group-tab
               slot="nav"
               panel=${t.id}
@@ -4876,7 +5148,7 @@ var $t = "0.0.1", $ = class extends E {
 	}
 	_renderVersionBanner() {
 		if (!this.versionMismatch) return S;
-		let e = `Device Links was updated to ${this.backendVersion} while this page was open. This panel is still running version ${$t}. Reload the page to pick up the new one.`;
+		let e = `Device Links was updated to ${this.backendVersion} while this page was open. This panel is still running version ${tn}. Reload the page to pick up the new one.`;
 		return this._components?.has("ha-alert") ? b`
         <ha-alert class="banner" alert-type="info" title="A newer version is installed">
           ${e}
@@ -4893,9 +5165,9 @@ var $t = "0.0.1", $ = class extends E {
 		location.reload();
 	}
 	_renderView() {
-		let e = F.find((e) => e.id === this.tab) ?? F[0];
-		return e ? qe`
-      <${Ge(e.tagName)}
+		let e = P.find((e) => e.id === this.tab) ?? P[0];
+		return e ? Je`
+      <${Ke(e.tagName)}
         class="view"
         .hass=${this.hass}
         .api=${this._api}
@@ -4904,7 +5176,7 @@ var $t = "0.0.1", $ = class extends E {
         .selected=${this._selected}
         .hybridAllowed=${this.hybridAllowed}
         @dl-navigate=${this._onNavigate}
-      ></${Ge(e.tagName)}>
+      ></${Ke(e.tagName)}>
     ` : b`<div class="loading">No view is registered.</div>`;
 	}
 	_onNavigate(e) {
@@ -4912,9 +5184,9 @@ var $t = "0.0.1", $ = class extends E {
 		t?.tab && this._selectTab(t.tab, t.select ?? null);
 	}
 };
-N([O({ attribute: !1 })], $.prototype, "hass", void 0), N([O({
+M([D({ attribute: !1 })], $.prototype, "hass", void 0), M([D({
 	type: Boolean,
 	reflect: !0
-})], $.prototype, "narrow", void 0), N([O({ attribute: !1 })], $.prototype, "route", void 0), N([O({ attribute: !1 })], $.prototype, "panel", void 0), N([O({ attribute: !1 })], $.prototype, "componentLoader", void 0), N([k()], $.prototype, "_components", void 0), N([k()], $.prototype, "_selected", void 0), $ = N([D("device-links-panel")], $);
+})], $.prototype, "narrow", void 0), M([D({ attribute: !1 })], $.prototype, "route", void 0), M([D({ attribute: !1 })], $.prototype, "panel", void 0), M([D({ attribute: !1 })], $.prototype, "componentLoader", void 0), M([O()], $.prototype, "_components", void 0), M([O()], $.prototype, "_selected", void 0), $ = M([E("device-links-panel")], $);
 //#endregion
-export { $t as BUNDLE_VERSION, $ as DeviceLinksPanel };
+export { tn as BUNDLE_VERSION, $ as DeviceLinksPanel };
