@@ -1,52 +1,325 @@
-"""The Device Links integration.
+"""The Device Links config entry: what is built at setup and what is taken down at unload.
 
-Phase 1 adds the sidebar panel, the backends, the rule entities, and the services. Until
-then this sets up and unloads cleanly and does nothing else, which is deliberate: the
-manifest declares config_flow, so Home Assistant offers the integration in the Add
-Integration list, and an entry that cannot set up would surface as "Error setting up
-entry" rather than as "not built yet".
+Everything the integration owns is built here and hung on `entry.runtime_data`: the
+backends, the observed-state coordinator, the job runner, and the rate limiter that
+stands between every caller and a rule toggle. Nothing is in `hass.data`.
+
+**A backend whose upstream integration has not loaded yet is not a failure.** The
+manifest lists `zwave_js`, `mqtt` and `matter` in `after_dependencies`, which asks Home
+Assistant to load them first *if they are going to load at all* and does not order them
+otherwise. On a slow start our entry can therefore be set up while the `zwave_js` entry is
+still connecting, and its `runtime_data` does not exist yet. That is `ConfigEntryNotReady`
+and nothing else: the situation is temporary, Home Assistant retries with a backoff, and
+the alternative (setting up with no backends and coming up empty) produces an integration
+that looks loaded, reports every device unavailable, and never recovers without a manual
+reload.
+
+The same answer covers the case where the user removed Z-Wave JS entirely, which is not
+temporary. It surfaces as "Retrying setup" rather than as silence, which is the honest
+description of an integration that adapts protocol integrations and has none to adapt.
+The config flow already refuses to create an entry in that state, so reaching it means
+something was removed after setup, and Task 6's Repairs issue (E1) is what turns the retry
+into an explanation.
+
+**Unload is the mirror of setup, in reverse order.** The platforms come down first, so no
+entity can call into a runner that is being shut down; then the rate limiter's timers, so
+no deferred toggle starts a job during teardown; then the runner, which waits for writes
+already on the radio; then the event bridge, so the job the runner just interrupted is
+still announced (the Activity view is the only record of a job that wrote and stopped);
+and last the coordinator, which drops the backend subscriptions. Every one of those has a
+listener or a timer behind it, and a single one left behind fires after a reload against
+an object that no longer exists.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+import logging
+from pathlib import Path
+from typing import TYPE_CHECKING, Final, cast
 
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.typing import ConfigType
+from homeassistant.loader import async_get_integration
 
+from .backends.base import Backend
+from .backends.zwave import ZWaveBackend
+from .backends.zwave_accessor import (
+    ZWaveAccessorError,
+    async_get_driver,
+    async_get_server_version,
+)
 from .const import DOMAIN
+from .coordinator import DeviceLinksCoordinator
+from .deployment import Deployment, read_deployment
+from .events import DeviceLinksEventBridge
+from .executor import JobRunner
+from .models import Backend as BackendId
+from .models import Plan
+from .profile_db import ProfileDatabase, load_profiles
+from .repairs import async_clear_issues, async_raise_storage_issue, async_setup_repairs
+from .rule_toggle import RuleToggleLimiter
+from .services import (
+    async_setup_raw_services,
+    async_setup_services,
+    async_unload_raw_services,
+)
+from .storage import DeviceLinksStore, StorageSchemaError
+from .websocket import async_register_commands
 
 if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.components.zwave_js.models import ZwaveJSConfigEntry
 
-__all__ = ["DOMAIN", "DeviceLinksRuntimeData", "async_setup_entry", "async_unload_entry"]
+_LOGGER = logging.getLogger(__name__)
+
+__all__ = [
+    "CONFIG_SCHEMA",
+    "DOMAIN",
+    "PLATFORMS",
+    "DeviceLinksConfigEntry",
+    "DeviceLinksRuntimeData",
+    "async_setup",
+    "async_setup_entry",
+    "async_unload_entry",
+]
+
+# Set up through the UI only, so YAML under our domain is a mistake rather than a config.
+CONFIG_SCHEMA: Final = cv.config_entry_only_config_schema(DOMAIN)
+
+# The platforms this integration forwards its entry to. Order is the order they are set
+# up in and, reversed, the order they come down in.
+PLATFORMS: Final = [
+    Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.SELECT,
+    Platform.SENSOR,
+    Platform.SWITCH,
+]
+
+# Where the curated device profiles live, relative to this package.
+PROFILES_DIR_NAME: Final = "profiles_db"
+
+
+@dataclass(frozen=True, slots=True)
+class BackendInfo:
+    """What the Health sensor has to say about one backend beyond whether it answered.
+
+    Resolved once at setup rather than asked for on every state write: the upstream
+    version cannot change without the upstream integration reloading, which reloads this
+    one, and an entity property that reaches into another integration's runtime data on
+    every update is a coupling that only shows up under load.
+    """
+
+    backend_id: BackendId
+    upstream_domain: str
+    upstream_version: str | None
 
 
 @dataclass
 class DeviceLinksRuntimeData:
     """Everything the integration keeps for the lifetime of its config entry.
 
-    Quality-scale rule runtime-data: state lives here rather than in hass.data, and the
-    entry is typed as DeviceLinksConfigEntry so mypy checks access to it. Phase 1 fills
-    this with the coordinator, the backends, and the job runner.
+    Quality-scale rule runtime-data: state lives here rather than in `hass.data`, and the
+    entry is typed as `DeviceLinksConfigEntry` so mypy checks access to it.
     """
 
-    backends: dict[str, object] = field(default_factory=dict)
+    coordinator: DeviceLinksCoordinator
+    runner: JobRunner
+    toggles: RuleToggleLimiter
+    events: DeviceLinksEventBridge
+    backends: dict[BackendId, Backend]
+    backend_info: tuple[BackendInfo, ...]
+    version: str | None
+    deployment: Deployment | None
+    profiles: ProfileDatabase | None = None
+
+    # The plan a profile switch opened and nobody has applied yet. Held rather than
+    # applied, because FR-E1 makes activating a profile a decision about what should be
+    # true and applying it a separate, deliberate act. Phase 1E's panel serves it.
+    pending_plan: Plan | None = None
 
 
 type DeviceLinksConfigEntry = ConfigEntry[DeviceLinksRuntimeData]
 
 
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register the services and the WebSocket commands, entry or no entry.
+
+    Quality-scale rule action-setup. An automation calling `device_links.apply` validates
+    when it is loaded rather than failing while this integration is still retrying its
+    setup, and a call that arrives with no entry loaded is answered with a translated
+    reason instead of "service not found". The WebSocket commands are registered here for
+    the other half of the same reason: they are global rather than per entry, so a reload
+    must not register a second copy of each (`config-entry-unloading`).
+    """
+    async_setup_services(hass)
+    async_register_commands(hass)
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry) -> bool:
     """Set up Device Links from a config entry."""
-    entry.runtime_data = DeviceLinksRuntimeData()
+    profiles = await hass.async_add_executor_job(_load_profile_database)
+    backends, backend_info = _async_build_backends(hass, profiles)
+    if not backends:
+        raise ConfigEntryNotReady(
+            "no protocol integration that Device Links adapts is loaded yet, so there is "
+            "nothing to read or write; this is retried rather than failed because "
+            "after_dependencies does not order the upstream integration before this one",
+            translation_domain=DOMAIN,
+            translation_key="no_backend_loaded",
+        )
+
+    coordinator = DeviceLinksCoordinator(hass, backends=backends, store=DeviceLinksStore(hass))
+    try:
+        await coordinator.async_setup()
+    except StorageSchemaError as error:
+        # E18 wants the integration up and read-only with a Repairs issue rather than
+        # silently empty. The Repairs half is here; read-only mode is open item T23. What
+        # must not happen meanwhile is coming up with an empty profile list, because the
+        # next save would write it over the file that could not be read. Failing with a
+        # translated reason leaves the file untouched, which is the half of E18 that
+        # cannot be added later.
+        async_raise_storage_issue(hass, error)
+        raise ConfigEntryError(
+            str(error),
+            translation_domain=DOMAIN,
+            translation_key=error.translation_key or "storage_unreadable",
+            translation_placeholders=error.translation_placeholders,
+        ) from error
+
+    events = DeviceLinksEventBridge(hass, entry, coordinator)
+    runner = JobRunner(coordinator, on_finished=events.async_job_finished)
+    try:
+        entry.runtime_data = DeviceLinksRuntimeData(
+            coordinator=coordinator,
+            runner=runner,
+            toggles=RuleToggleLimiter(hass, coordinator, runner),
+            events=events,
+            backends=backends,
+            backend_info=backend_info,
+            version=await _async_version(hass),
+            deployment=await hass.async_add_executor_job(read_deployment),
+            profiles=profiles,
+        )
+        events.async_setup()
+        async_setup_raw_services(hass, entry)
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    except Exception:
+        # `async_setup_entry` already subscribed to every backend, and Home Assistant does
+        # not call `async_unload_entry` for an entry that failed to set up. Without this,
+        # a platform that would not load leaves those subscriptions and the debounced
+        # refresh timer running for the life of the process, and a later reload adds a
+        # second set on top of them.
+        events.async_shutdown()
+        async_unload_raw_services(hass)
+        await coordinator.async_shutdown()
+        raise
+    # An option that needs a restart to take effect is an option nobody turns on, and the
+    # one this listens for decides whether services that write to a group directly exist
+    # at all (Decision D14).
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
+    # Raises what should be raised and, just as importantly, withdraws what should not be:
+    # the storage issue a previous failed setup left behind is gone by the end of this.
+    async_setup_repairs(hass, entry)
+    _LOGGER.info(
+        "Device Links is set up with the %s backend(s)",
+        ", ".join(sorted(str(backend_id) for backend_id in backends)),
+    )
     return True
+
+
+async def _async_options_updated(hass: HomeAssistant, entry: DeviceLinksConfigEntry) -> None:
+    """Reload the entry, because its options decide what is built and what is registered."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: DeviceLinksConfigEntry) -> bool:
-    """Unload a config entry.
+    """Unload a config entry, taking down exactly what setup put up.
 
-    Phase 1 removes event subscriptions, unregisters the panel, and cancels running jobs
-    here. There is nothing to tear down yet, so this only has to succeed.
+    Nothing is torn down until the platforms have gone, because a platform that failed to
+    unload still has live entities, and entities holding a runner that has been shut down
+    is worse than an entry that stayed loaded.
     """
+    if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        return False
+    runtime = entry.runtime_data
+    async_clear_issues(hass)
+    async_unload_raw_services(hass)
+    runtime.toggles.async_shutdown()
+    await runtime.runner.async_shutdown()
+    runtime.events.async_shutdown()
+    await runtime.coordinator.async_shutdown()
     return True
+
+
+def _load_profile_database() -> ProfileDatabase | None:
+    """Read the shipped curated profiles. Blocking, so it runs in the executor.
+
+    A database that cannot be read is not a reason to refuse to set up: every model then
+    falls back to per-group emitters, which is cruder but correct, and an integration that
+    will not start because a curated file is malformed helps nobody.
+    """
+    directory = Path(__file__).parent / PROFILES_DIR_NAME
+    try:
+        return load_profiles(
+            {
+                path.name: path.read_text()
+                for path in sorted(directory.glob("*.json"))
+                if path.name != "schema.json"
+            }
+        )
+    except (OSError, ValueError):
+        _LOGGER.warning(
+            "the curated profile database in %s could not be read, so devices fall back "
+            "to the association groups they report for themselves",
+            directory,
+            exc_info=True,
+        )
+        return None
+
+
+def _async_build_backends(
+    hass: HomeAssistant, profiles: ProfileDatabase | None
+) -> tuple[dict[BackendId, Backend], tuple[BackendInfo, ...]]:
+    """Build an adapter for every upstream integration that is loaded and connected.
+
+    Zigbee and Matter have no adapter yet (Phase 2 and Phase 3), so this is Z-Wave only
+    today and is written as a loop over what exists rather than as a special case, which
+    is what keeps `BACKEND_INTEGRATIONS` the single list of what is adapted.
+    """
+    backends: dict[BackendId, Backend] = {}
+    info: list[BackendInfo] = []
+    for zwave_js_entry in hass.config_entries.async_entries("zwave_js"):
+        if zwave_js_entry.state is not ConfigEntryState.LOADED:
+            continue
+        typed = cast("ZwaveJSConfigEntry", zwave_js_entry)
+        try:
+            driver = async_get_driver(typed)
+        except ZWaveAccessorError:
+            _LOGGER.debug(
+                "the zwave_js entry %s is loaded but its client has no driver yet",
+                zwave_js_entry.entry_id,
+            )
+            continue
+        backends[BackendId.ZWAVE] = ZWaveBackend(driver=driver, profiles=profiles)
+        info.append(
+            BackendInfo(
+                backend_id=BackendId.ZWAVE,
+                upstream_domain="zwave_js",
+                upstream_version=async_get_server_version(typed),
+            )
+        )
+        break
+    return backends, tuple(info)
+
+
+async def _async_version(hass: HomeAssistant) -> str | None:
+    """Return the version this integration declares in its manifest."""
+    integration = await async_get_integration(hass, DOMAIN)
+    version = integration.version
+    return None if version is None else str(version)

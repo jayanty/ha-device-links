@@ -104,6 +104,10 @@ SNAPSHOT_REASON: Final = "pre_apply"
 # 2 s between attempts, not that `asyncio.sleep` sleeps.
 type Sleeper = Callable[[float], Awaitable[None]]
 
+# Told about every finished job, so the Home Assistant layer can put it on the bus without
+# this module knowing that a bus exists.
+type JobFinishedCallback = Callable[["JobReport"], None]
+
 
 class JobStatus(StrEnum):
     """How a whole job ended.
@@ -342,12 +346,17 @@ class JobRunner:
         max_concurrent_devices: int = DEFAULT_MAX_CONCURRENT_DEVICES,
         operation_timeout_seconds: float = OPERATION_TIMEOUT_SECONDS,
         sleep: Sleeper = asyncio.sleep,
+        on_finished: JobFinishedCallback | None = None,
     ) -> None:
         """Hold what the runner needs. Nothing is read and nothing is written yet."""
         self._coordinator = coordinator
         self._max_concurrent_devices = max_concurrent_devices
         self._operation_timeout = operation_timeout_seconds
         self._sleep = sleep
+        # Called for every job this runner finishes, whatever started it. It is here
+        # rather than at each call site so that a service call, a button and a WebSocket
+        # command cannot differ in whether they announced what they did (FR-E2).
+        self._on_finished = on_finished
         self._job: _Job | None = None
         self._shut_down = False
 
@@ -364,17 +373,40 @@ class JobRunner:
             devices_in_flight=tuple(sorted(job.devices_in_flight)),
         )
 
+    @property
+    def active_rule_ids(self) -> frozenset[str]:
+        """Return the rules the running job is writing for, or nothing when idle.
+
+        What a per-rule status sensor needs to say `applying`. Derived from the job's
+        operations rather than from its scope description, because the scope is a line of
+        text for a history and a rule id is what an entity is keyed by.
+        """
+        job = self._job
+        if job is None:
+            return frozenset()
+        return frozenset(
+            op.item.link.rule_id
+            for op in job.ops
+            if op.item.link is not None and op.item.link.rule_id is not None
+        )
+
     async def async_apply(
         self,
         plan: Plan,
         *,
         scope: PlanScope | None = None,
         remove_unmanaged: frozenset[str] = frozenset(),
+        job_id: str | None = None,
     ) -> JobReport:
         """Apply this plan and return what happened to every item in it.
 
         `scope` and `remove_unmanaged` must be the ones the plan was built with: they are
         how the plan is rebuilt to find out whether it is still current (E15).
+
+        `job_id` lets a caller that cannot await this job name it before it starts. The
+        WebSocket API applies in a background task, so that closing the panel does not
+        interrupt writes that are already reaching somebody's house, and it has to be able
+        to hand the panel the id of the job it just started. Everything else generates one.
         """
         if self._shut_down:
             raise RunnerShutdownError(
@@ -391,7 +423,7 @@ class JobRunner:
                 translation_key="job_running",
             )
         job = _Job(
-            id=uuid4().hex,
+            id=job_id or uuid4().hex,
             created_at=_now(),
             scope=_describe(scope),
             ops=[_Op(item) for item in plan.items],
@@ -399,11 +431,17 @@ class JobRunner:
         )
         self._job = job
         _LOGGER.info("job %s starting: %s items, scope %s", job.id, len(job.ops), job.scope)
+        # `active_rule_ids` is this runner's own published state and a rule status sensor
+        # reads it, so both edges have to be announced. Without the second one the last
+        # state written during a job is the one written from inside it, which says
+        # `applying` and stays saying it until something else happens to change.
+        self._coordinator.async_update_listeners()
         try:
             return await self._run(job, plan, scope, remove_unmanaged)
         finally:
             self._job = None
             job.finished.set()
+            self._coordinator.async_update_listeners()
 
     @callback
     def async_cancel(self) -> None:
@@ -699,12 +737,12 @@ class JobRunner:
 
     def _stale_reason(self, write: _Write) -> Diagnostic:
         """Say why this device was skipped, which is not always that somebody edited it."""
-        key = (
+        return Diagnostic(
             "stale_plan"
             if self._coordinator.is_available(write.link.source.identity)
-            else "device_unavailable"
+            else "device_unavailable",
+            _about(write.link),
         )
-        return Diagnostic(key, _about(write.link))
 
     def _take_snapshot(self, job: _Job, handles: Mapping[str, DeviceHandle]) -> None:
         """Record everything every touched device holds, before a single write (FR-P3).
@@ -943,7 +981,7 @@ class JobRunner:
         _LOGGER.info(
             "job %s %s: %s", job.id, status, ", ".join(sorted({r.outcome for r in results}))
         )
-        return JobReport(
+        report = JobReport(
             id=job.id,
             created_at=job.created_at,
             scope=job.scope,
@@ -951,6 +989,9 @@ class JobRunner:
             snapshot_id=job.snapshot_id,
             results=results,
         )
+        if self._on_finished is not None:
+            self._on_finished(report)
+        return report
 
 
 def _now() -> str:

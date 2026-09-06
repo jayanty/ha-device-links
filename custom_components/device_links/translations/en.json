@@ -10,5 +10,411 @@
       "already_configured": "Device Links is already set up. Only one instance is supported.",
       "no_backend": "None of the supported protocol integrations is loaded. Set up Z-Wave JS, MQTT (for Zigbee2MQTT), or Matter first, then add Device Links."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Device Links options",
+        "description": "Both of these are off to begin with, because each turns a deliberate act into an automatic one.",
+        "data": {
+          "auto_apply_on_profile_switch": "Apply immediately when the Active profile select is used",
+          "enable_raw_services": "Enable the raw Z-Wave association services"
+        },
+        "data_description": {
+          "auto_apply_on_profile_switch": "Off by default: choosing a profile opens a plan and applying it is a separate press. This is about the Active profile select entity, which has nowhere to show a plan; the panel always shows one before it writes anything, whatever this is set to.",
+          "enable_raw_services": "Expert tools. They add and remove one association group entry directly, with no rule and no plan behind them, and they still refuse to touch a lifeline. Leave them off unless you are scripting or debugging."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "health": {
+        "name": "Health"
+      },
+      "active_profile_status": {
+        "name": "Active profile status"
+      },
+      "pending_links": {
+        "name": "Pending links"
+      },
+      "rule_status": {
+        "name": "{rule} status"
+      }
+    },
+    "binary_sensor": {
+      "drift": {
+        "name": "Drift"
+      }
+    },
+    "switch": {
+      "rule_switch": {
+        "name": "Link: {rule}"
+      }
+    },
+    "select": {
+      "active_profile": {
+        "name": "Active profile"
+      }
+    },
+    "button": {
+      "apply_active_profile": {
+        "name": "Apply active profile"
+      },
+      "verify": {
+        "name": "Verify"
+      }
+    }
+  },
+  "exceptions": {
+    "backend_not_loaded": {
+      "message": "The {backend} integration is not loaded, so the group {group} link from {device} to {target} was not written. Set that protocol integration up again, then apply."
+    },
+    "blocked_by_plan": {
+      "message": "The plan refused a change on {device} without saying why. That is a fault in Device Links rather than in the device; please report it with the diagnostics file."
+    },
+    "button_semantics_unknown": {
+      "message": "{emitter} on {device} may toggle rather than always sending off, so an off-all button here can turn the lights back on every second press. Test it before you rely on it."
+    },
+    "check_failed": {
+      "message": "The Z-Wave driver could not be asked whether group {group} on {device} may reach {target}, so nothing was written. Check that Z-Wave JS is running, then try again."
+    },
+    "device_unavailable": {
+      "message": "{device} stopped answering, so its group {group} link to {target} was left alone. It will be planned again once the device can be read."
+    },
+    "feature_unavailable_color": {
+      "message": "{emitter} does not send colour commands, so the colour part of this rule was left out."
+    },
+    "feature_unavailable_level_hold": {
+      "message": "{emitter} does not send hold-to-dim, so holding the control will do nothing. The rest of the rule still works."
+    },
+    "feature_unavailable_level_set": {
+      "message": "{emitter} does not send a brightness level, so dimming was left out of this rule. The rest of it still works."
+    },
+    "feature_unavailable_on_off": {
+      "message": "{emitter} does not send an on or off command, so this rule cannot switch anything with it. Choose a control that does, or take on/off out of the rule."
+    },
+    "feature_unavailable_scene": {
+      "message": "{emitter} does not send scene commands, so the scene part of this rule was left out."
+    },
+    "feature_unavailable_status_report": {
+      "message": "{emitter} does not report its own state, so the status feedback part of this rule was left out."
+    },
+    "group_full": {
+      "message": "Group {group} on {device} is full ({used} of {capacity}). Remove an entry it holds, or point this rule at a group with room, before adding {target}."
+    },
+    "group_not_offered": {
+      "message": "No control of {device} uses association group {group}. The groups it offers are: {groups}."
+    },
+    "import_unknown_devices": {
+      "message": "This profile names devices that are not on this network: {devices}. The rules waiting for them are: {rules}. Nothing was imported, so nothing was lost."
+    },
+    "job_running": {
+      "message": "An apply is already running. Wait for it to finish and plan again: a plan made before it started would be out of date by the time it ran."
+    },
+    "level_hold_without_on_off": {
+      "message": "{emitter} can dim on hold but cannot switch on or off, so the light can be dimmed and not turned on. Add on/off to the rule if the control supports it."
+    },
+    "lifeline_is_protected": {
+      "message": "Group {group} on {device} is its lifeline, which is how the device reports to Home Assistant at all. Device Links never writes to it."
+    },
+    "link_write_failed": {
+      "message": "{device} did not accept the group {group} link to {target}. The error the backend reported is in the job details."
+    },
+    "link_write_raised": {
+      "message": "Writing the group {group} link from {device} to {target} failed unexpectedly, so it was not written. The error is in the log."
+    },
+    "multi_channel_downgrade": {
+      "message": "{emitter} cannot address a single endpoint, so the link to {device} was written to the whole device instead. Every endpoint of it will respond."
+    },
+    "no_active_profile": {
+      "message": "No profile is active, so there is nothing to do. Activate one first."
+    },
+    "no_backend_loaded": {
+      "message": "None of the protocol integrations Device Links adapts is loaded yet, so there is nothing to read or write. Setup is retried automatically; if Z-Wave JS was removed for good, remove Device Links as well."
+    },
+    "no_supported_commands": {
+      "message": "{target} cannot act on the commands {device} sends from group {group}, so the link would do nothing and was not written."
+    },
+    "not_a_zwave_device": {
+      "message": "{device} is not a Z-Wave device, and this action works on Z-Wave only."
+    },
+    "not_loaded": {
+      "message": "Device Links is not loaded, so there is nothing to act on. Its integration page says why it did not start."
+    },
+    "operation_timeout": {
+      "message": "{device} did not answer within {seconds} seconds while writing the group {group} link to {target}. It was retried twice and then reported as failed."
+    },
+    "plan_out_of_date": {
+      "message": "This plan was made before something changed, so nothing was written. Plan again and look at what it says now."
+    },
+    "profile_exists": {
+      "message": "A profile with the id {profile} already exists. Update that one, or give this one a different id."
+    },
+    "profile_invalid": {
+      "message": "This profile could not be read: {error}. Nothing was changed."
+    },
+    "profile_not_active": {
+      "message": "{profile} is not the active profile, so applying it would change what your house does without you switching to it. Activate it first, then apply."
+    },
+    "runner_shut_down": {
+      "message": "Device Links is unloading, so this apply was refused rather than written through backends that are being taken down. Try again once it has started up."
+    },
+    "security_class_mismatch": {
+      "message": "{device} and {target} were included with different security classes, so the radio refuses the group {group} link. Re-include one of them so that both match."
+    },
+    "self_association": {
+      "message": "A device cannot be in its own association group, so {device} cannot control itself over the radio."
+    },
+    "self_association_use_hybrid_leg": {
+      "message": "{device} cannot control itself over the radio. An automation can carry that instead; Device Links does not write those legs yet."
+    },
+    "setting_not_applied": {
+      "message": "{device} accepted the change to {setting} and then reported its old value, so the setting did not stick."
+    },
+    "setting_not_reported": {
+      "message": "{device} did not report {setting} back after it was written, so the change could not be confirmed."
+    },
+    "setting_write_failed": {
+      "message": "{setting} could not be written to {device}. The error is in the log; nothing else about the rule was changed."
+    },
+    "settings_not_available": {
+      "message": "{device} has no {setting} setting that Device Links knows how to write, so that part of the rule was not applied. The rest of it is unaffected; contributing a profile entry for this model would add it."
+    },
+    "source_is_long_range": {
+      "message": "{device} joined over Z-Wave Long Range, which cannot use associations at all. Re-include it as classic Z-Wave if you want to link it."
+    },
+    "stale_plan": {
+      "message": "{device} changed after this plan was made, so its group {group} link to {target} was not written. Plan again to see what is needed now."
+    },
+    "storage_no_migration": {
+      "message": "The stored profiles are at schema version {found} and this version of Device Links reads version {supported}, and there is no way to migrate between them. Restore the file from a backup, or move it aside and start again."
+    },
+    "storage_unreadable": {
+      "message": "The stored profiles could not be read: {error}. The file was left exactly as it is, so nothing has been lost."
+    },
+    "storage_version_too_new": {
+      "message": "The stored profiles were written by a newer version of Device Links (schema version {found}; this one reads {supported}). Update Home Assistant, or restore the file from a backup."
+    },
+    "system_link_protected": {
+      "message": "Group {group} on {device} holds a system link, which Device Links never writes to, so the entry for {target} was left alone."
+    },
+    "target_cannot_receive": {
+      "message": "{device} cannot act on {feature}, so that part of the rule would do nothing and was left out."
+    },
+    "target_is_long_range": {
+      "message": "{device} joined over Z-Wave Long Range, which cannot be an association target. Re-include it as classic Z-Wave if you want to link it."
+    },
+    "target_security_class_not_granted": {
+      "message": "{target} was not granted the security class {device} sends group {group} on, so the radio refuses the link. Re-include {target} with matching security."
+    },
+    "two_way_target_has_no_control": {
+      "message": "{device} has no single control that can drive the other device back, so this rule works in one direction only."
+    },
+    "unknown_check_result": {
+      "message": "The Z-Wave driver answered {value} when asked whether the group {group} link from {device} to {target} may be written, and this version of Device Links does not recognise that answer, so it refused. Please report it."
+    },
+    "unknown_device": {
+      "message": "{device} is not a device Device Links can see."
+    },
+    "unknown_emitter": {
+      "message": "{device} has no control called {emitter}. If the device was replaced by a different model, point the rule at one of the controls it does have."
+    },
+    "unknown_group": {
+      "message": "{device} does not report an association group {group}, so the link to {target} cannot be written. Re-interview the device in Z-Wave JS if you expected it to have one."
+    },
+    "unknown_job": {
+      "message": "No job with the id {job} is in the history. Only the most recent applies are kept."
+    },
+    "unknown_profile": {
+      "message": "There is no profile called {profile}. It may have been renamed or deleted since this was opened."
+    },
+    "unknown_rule": {
+      "message": "The active profile has no rule with the id {rule}."
+    },
+    "unmanaged_not_selected": {
+      "message": "The group {group} entry on {device} pointing at {target} was not created by Device Links, so it was left alone. Tick it in the plan if you want it removed."
+    },
+    "unsupported_operation": {
+      "message": "Device Links cannot carry out {operation} on {device} yet, so it was reported rather than attempted."
+    },
+    "verify_missing": {
+      "message": "The group {group} link from {device} to {target} was written and is not on the device, so it counts as drifted. Apply again, or look at the group in Z-Wave JS."
+    },
+    "verify_not_confirmed": {
+      "message": "{device} did not confirm the group {group} link to {target} on a fresh read, so it is reported as unconfirmed rather than as applied. Press Verify when the device is awake and reachable."
+    },
+    "verify_still_present": {
+      "message": "The group {group} entry on {device} pointing at {target} was removed and is still on the device, so it counts as drifted."
+    },
+    "verify_unreadable": {
+      "message": "{device} could not be read after the write, so the group {group} link to {target} cannot be confirmed. Press Verify when the device is reachable."
+    }
+  },
+  "issues": {
+    "backend_unavailable": {
+      "title": "The {backend} backend is not answering",
+      "description": "Device Links reaches your {backend} devices through the {integration} integration, and it has stopped answering. Every {backend} device is shown as unavailable, nothing is planned for one while it cannot be read, and no links have been changed. Check that {integration} is loaded and that the add-on behind it is running; this clears by itself when it answers again."
+    },
+    "pending_wakeup": {
+      "title": "{device} has not woken up",
+      "description": "{links} link(s) have been waiting for {device} to wake up for more than {hours} hours. Battery devices take a write when they next report in, so this usually clears on its own: press a button on the device, or wait for its next check-in. If it stays here, the device may be out of range or its battery may be flat."
+    },
+    "pending_wakeup_instructed": {
+      "title": "{device} has not woken up",
+      "description": "{links} link(s) have been waiting for {device} to wake up for more than {hours} hours. To wake it: {instruction}. If it stays here afterwards, the device may be out of range or its battery may be flat."
+    },
+    "rules_missing_devices": {
+      "title": "{count} rule(s) name a device that is not on the network",
+      "description": "These rules are waiting for devices that are not on the network: {rules}. The devices they name are: {devices}. Nothing has been changed on any device. If one was replaced, point its rules at the new device; if it was removed for good, delete the rules that name it."
+    },
+    "storage_unreadable": {
+      "title": "Device Links could not read its stored profiles",
+      "description": "The file {path} could not be read: {error}. Device Links did not start, and the file was left exactly as it is, so nothing has been lost. Restore it from a backup, or move it aside and set your profiles up again. The links already on your devices are untouched either way."
+    }
+  },
+  "services": {
+    "apply": {
+      "name": "Apply",
+      "description": "Write what the active profile asks for to the devices in scope. Only what is in scope is touched, and links Device Links did not create are left alone unless you name them.",
+      "fields": {
+        "profile_id": {
+          "name": "Profile",
+          "description": "The profile to apply. It has to be the active one; activating a different profile is a separate action."
+        },
+        "rule_ids": {
+          "name": "Rules",
+          "description": "Apply only these rules. Leave empty to apply the whole profile."
+        },
+        "device_id": {
+          "name": "Devices",
+          "description": "Apply only the work that lands on these devices. Leave empty for every device."
+        },
+        "remove_unmanaged": {
+          "name": "Unmanaged links to remove",
+          "description": "Fingerprints of links Device Links did not create, which you want removed. Anything not named here is left on the device."
+        }
+      }
+    },
+    "verify": {
+      "name": "Verify",
+      "description": "Read the devices in scope from the devices themselves rather than from the driver's cache, and write nothing. This is the safe way to find out what is really on them.",
+      "fields": {
+        "profile_id": {
+          "name": "Profile",
+          "description": "The profile to verify. It has to be the active one."
+        },
+        "rule_ids": {
+          "name": "Rules",
+          "description": "Verify only the devices these rules write to. Leave empty for the whole profile."
+        },
+        "device_id": {
+          "name": "Devices",
+          "description": "Verify only these devices. Leave empty for every device."
+        }
+      }
+    },
+    "set_rule_enabled": {
+      "name": "Enable or disable a rule",
+      "description": "Turn one rule on or off. This adds or removes its links on the devices, so it is rate limited to one change per rule every 30 seconds: association tables live in device memory that wears out.",
+      "fields": {
+        "rule_id": {
+          "name": "Rule",
+          "description": "The id of the rule, as the panel shows it."
+        },
+        "enabled": {
+          "name": "Enabled",
+          "description": "On writes the rule's links to the devices; off takes them off again."
+        }
+      }
+    },
+    "activate_profile": {
+      "name": "Activate a profile",
+      "description": "Make one profile the active one. Nothing is written to a device unless you ask for it: the plan is prepared and left for you to look at.",
+      "fields": {
+        "profile_id": {
+          "name": "Profile",
+          "description": "The id of the profile to make active."
+        },
+        "apply": {
+          "name": "Apply straight away",
+          "description": "Write the new profile to the devices as soon as it is active, without showing the plan first. Off by default."
+        }
+      }
+    },
+    "export_profile": {
+      "name": "Export a profile",
+      "description": "Return a profile as YAML, ready to keep in version control. Nothing local to this Home Assistant is included, so the file means the same thing on another instance.",
+      "fields": {
+        "profile_id": {
+          "name": "Profile",
+          "description": "The profile to export. Leave empty for the active one."
+        }
+      }
+    },
+    "import_profile": {
+      "name": "Import a profile",
+      "description": "Store the profile this YAML describes and return the plan it implies. Nothing is written to a device. A file naming devices this network does not have is refused whole, so a half-imported profile is not possible.",
+      "fields": {
+        "yaml": {
+          "name": "Profile YAML",
+          "description": "The text of an exported profile."
+        }
+      }
+    },
+    "zwave_get_associations": {
+      "name": "Read Z-Wave associations",
+      "description": "Expert tool. Return every association group of one device and what is in it, from what was last read. Available only while the raw Z-Wave services option is on.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The Z-Wave device to read."
+        }
+      }
+    },
+    "zwave_add_association": {
+      "name": "Add a Z-Wave association",
+      "description": "Expert tool. Add one entry to one association group, with no rule and no plan behind it. It refuses to touch a lifeline. Available only while the raw Z-Wave services option is on.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The device whose association group is written."
+        },
+        "group": {
+          "name": "Group",
+          "description": "The association group number, as the device reports it. Group 1 is the lifeline and is refused."
+        },
+        "target_device_id": {
+          "name": "Target device",
+          "description": "The device to put in that group."
+        },
+        "target_endpoint": {
+          "name": "Target endpoint",
+          "description": "The endpoint on the target, when the group supports endpoint targets. Leave empty for the whole device."
+        }
+      }
+    },
+    "zwave_remove_association": {
+      "name": "Remove a Z-Wave association",
+      "description": "Expert tool. Remove one entry from one association group, with no rule and no plan behind it. It refuses to touch a lifeline. Available only while the raw Z-Wave services option is on.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The device whose association group is written."
+        },
+        "group": {
+          "name": "Group",
+          "description": "The association group number, as the device reports it. Group 1 is the lifeline and is refused."
+        },
+        "target_device_id": {
+          "name": "Target device",
+          "description": "The device to take out of that group."
+        },
+        "target_endpoint": {
+          "name": "Target endpoint",
+          "description": "The endpoint on the target, when the entry names one. Leave empty for the whole device."
+        }
+      }
+    }
   }
 }

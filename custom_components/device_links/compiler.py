@@ -46,6 +46,20 @@ from custom_components.device_links.profile_db import SEMANTICS_UNKNOWN
 # tells it to its own associations, which is what makes the second switch follow the first.
 MIRROR_CAPABILITY: Final = "mirror_hub_commands"
 
+# What is said about a control that cannot carry a feature the rule asked for. Spelled out
+# per feature rather than built from the feature's name, so that every key a user can see
+# in their own language is a literal somebody can find by searching for it: a key composed
+# at runtime is a key nobody notices is missing from `strings.json` until it appears raw in
+# the UI, and `tests/test_translations.py` is what makes that impossible.
+FEATURE_UNAVAILABLE: Final[Mapping[Feature, str]] = {
+    Feature.ON_OFF: "feature_unavailable_on_off",
+    Feature.LEVEL_SET: "feature_unavailable_level_set",
+    Feature.LEVEL_HOLD: "feature_unavailable_level_hold",
+    Feature.SCENE: "feature_unavailable_scene",
+    Feature.COLOR: "feature_unavailable_color",
+    Feature.STATUS_REPORT: "feature_unavailable_status_report",
+}
+
 
 @dataclass(frozen=True, slots=True)
 class CompiledRule:
@@ -189,7 +203,7 @@ class _Compilation:
             if group is None:
                 unavailable.append(
                     Diagnostic(
-                        f"feature_unavailable_{feature}",
+                        FEATURE_UNAVAILABLE[feature],
                         {"feature": str(feature), "emitter": emitter.label},
                     )
                 )
@@ -346,9 +360,13 @@ class _Compilation:
             self.warnings.append(
                 Diagnostic(
                     "settings_not_available",
+                    # `setting` rather than `capability`, because the Z-Wave adapter says
+                    # the same thing about the same situation and one message has to fit
+                    # both: a key whose placeholders depend on which layer produced it is
+                    # a key whose message can only be written for one of them.
                     {
-                        "capability": MIRROR_CAPABILITY,
                         "device": source.handle.name_at_authoring,
+                        "setting": MIRROR_CAPABILITY,
                         "choice": str(self.rule.mirror_source),
                     },
                 )

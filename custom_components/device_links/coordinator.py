@@ -143,6 +143,19 @@ class DeviceLinksCoordinator:
         self._pending: set[str] = set()
         self._flush_handle: CALLBACK_TYPE | None = None
 
+        # Whether each backend answered the last time it was asked, and what went wrong
+        # the last time something did not. Both are read by the Health sensor, which is
+        # the first entity anybody looks at when a system nobody can debug goes quiet.
+        # They start at "answering": nothing has failed yet, and reporting an outage
+        # before the first read would make a healthy start look like a fault.
+        self._backend_available: dict[BackendId, bool] = dict.fromkeys(self._backends, True)
+        self._last_error: dict[str, str] | None = None
+
+        # Entities, which are pushed to rather than polled (quality-scale rule
+        # parallel-updates). Held here rather than on the entities so that an entity that
+        # forgot to unsubscribe is visible as a count rather than as a leak nobody finds.
+        self._listeners: list[CALLBACK_TYPE] = []
+
         # Devices somebody else is in the middle of a conversation with, counted so that
         # two holders of the same device release it only when both have let go.
         self._held: Counter[str] = Counter()
@@ -171,6 +184,38 @@ class DeviceLinksCoordinator:
             unsubscribe()
         self._unsubscribes.clear()
         self._cancel_flush()
+
+    # Telling the entities.
+
+    @callback
+    def async_add_listener(self, update_callback: CALLBACK_TYPE) -> CALLBACK_TYPE:
+        """Call this back whenever anything an entity displays may have changed.
+
+        Returns the unsubscribe callable, which an entity calls from
+        `async_will_remove_from_hass` (quality-scale rule entity-event-setup). A listener
+        that outlives its entity fires at an object Home Assistant has already torn down
+        and survives a reload, which is the leak nobody finds; `listener_count` exists so
+        a test can see one rather than waiting for the second reload to.
+        """
+        self._listeners.append(update_callback)
+
+        @callback
+        def _remove() -> None:
+            if update_callback in self._listeners:
+                self._listeners.remove(update_callback)
+
+        return _remove
+
+    @property
+    def listener_count(self) -> int:
+        """Return how many entities are currently subscribed."""
+        return len(self._listeners)
+
+    @callback
+    def async_update_listeners(self) -> None:
+        """Tell every subscribed entity to write its state again."""
+        for update_callback in list(self._listeners):
+            update_callback()
 
     # What is known.
 
@@ -202,9 +247,75 @@ class DeviceLinksCoordinator:
         """Say whether this device answered the last time it was asked."""
         return identity in self._observed and identity not in self._unavailable
 
+    @property
+    def available(self) -> bool:
+        """Say whether anything at all can be read right now.
+
+        One backend answering is enough: the Zigbee half of a house being unreachable does
+        not make the Z-Wave half unknowable, and taking every entity away because one
+        protocol dropped would hide the state that is still true.
+        """
+        return any(self._backend_available.values())
+
+    @property
+    def backend_availability(self) -> Mapping[BackendId, bool]:
+        """Return whether each backend answered the last time it was asked."""
+        return dict(self._backend_available)
+
+    @property
+    def last_error(self) -> Mapping[str, str] | None:
+        """Return what last went wrong reading a device, without any network identifier.
+
+        The backend and the exception type, and no message: this is a state attribute,
+        which is world-readable, ends up in the recorder, and gets screenshotted into
+        issue reports. The full text is in the log, which is where a person triaging one
+        of these is already looking.
+        """
+        return None if self._last_error is None else dict(self._last_error)
+
+    def pending_link_fingerprints(self) -> frozenset[str]:
+        """Return the links whose last job left them queued at a sleeping node (E5).
+
+        The latest job to mention a fingerprint is the one that counts: a later apply that
+        landed answers an earlier one that was queued. What this cannot see is a node that
+        woke up and took the write without a job of ours running, which is why the count
+        is described as what the last job left rather than as what is on the devices.
+        """
+        latest: dict[str, bool] = {}
+        for job in self._state.jobs:
+            for result in job.results:
+                latest[result.fingerprint] = result.status == "pending_wakeup"
+        return frozenset(fingerprint for fingerprint, waiting in latest.items() if waiting)
+
     def backend_for(self, handle: DeviceHandle) -> Backend | None:
         """Return the adapter that speaks this device's protocol, if it is loaded."""
         return self._backends.get(handle.backend)
+
+    @property
+    def devices(self) -> Mapping[str, DeviceHandle]:
+        """Return every device any backend has listed, by identity.
+
+        What the WebSocket API lists and what diagnostics dumps. A device that has stopped
+        answering is still here, because it is still on the network: ask `is_available`
+        before treating what is cached about it as current.
+        """
+        return dict(self._handles)
+
+    def capabilities_for(self, identity: str) -> DeviceCapabilities | None:
+        """Return what this device can do, as it was last read, or None if never read."""
+        return self._capabilities.get(identity)
+
+    def compiled_for(self, rule_id: str) -> CompiledRule | None:
+        """Return what one rule of the active profile compiled to, disabled or not."""
+        return self._compiled.get(rule_id)
+
+    def compile_rule(self, rule: Rule) -> CompiledRule:
+        """Compile a rule against the devices as they are now, storing nothing.
+
+        What `rules/validate` answers with: a rule the user is still editing, checked
+        against real capabilities, without it having to exist in a profile first.
+        """
+        return compile_rule(rule, self._capabilities)
 
     # What is stored, and what that means for ownership.
 
@@ -220,6 +331,75 @@ class DeviceLinksCoordinator:
         self._state = state
         self._store.async_schedule_save(state)
         self._resolve_ownership()
+
+    @callback
+    def async_activate_profile(self, profile_id: str) -> bool:
+        """Make one stored profile the active one, and say whether it exists.
+
+        Nothing is written to a device: activating changes which rules are wanted, and
+        making the devices match that is an apply, which the user asks for separately
+        (FR-E1). Decision D10 is why this is a single id rather than a set.
+        """
+        if not any(profile.id == profile_id for profile in self._state.profiles):
+            return False
+        self.async_update_state(replace(self._state, active_profile_id=profile_id))
+        return True
+
+    def handle_for(self, identity: str) -> DeviceHandle | None:
+        """Return the handle of a device this coordinator has seen, by its identity."""
+        return self._handles.get(identity)
+
+    def owner_of(self, fingerprint: str) -> str | None:
+        """Return the rule of the active profile that claims this link, if any."""
+        return self._owners.get(fingerprint)
+
+    def is_rule_enabled(self, rule_id: str, *, default: bool) -> bool:
+        """Say whether this rule of the active profile is enabled, as it stands now.
+
+        `default` answers for a rule that is not in the active profile, which a rule
+        entity briefly is while it is being torn down: its rule left the profile and Home
+        Assistant has not finished removing it yet. Its own last-known value is the only
+        honest answer in that window, and inventing one would make a switch flip under a
+        user's eyes on its way out.
+        """
+        profile = self.active_profile
+        if profile is None:
+            return default
+        return next((rule.enabled for rule in profile.rules if rule.id == rule_id), default)
+
+    @callback
+    def async_set_rule_enabled(self, rule_id: str, enabled: bool) -> bool:
+        """Enable or disable one rule of the active profile, and say whether it exists.
+
+        Only the stored intent changes here: nothing is written to a device, because
+        disabling a rule is what makes its links unwanted and removing them is an apply
+        like any other (FR-R5). The two are deliberately separate so a caller can decide
+        the intent without a radio conversation, and so the ownership index is already
+        right when the plan is built.
+
+        False means no rule of the active profile has that id, which is a caller error
+        rather than something to raise about here: the layers above turn it into a
+        translated `ServiceValidationError`.
+        """
+        profile = self.active_profile
+        if profile is None or not any(rule.id == rule_id for rule in profile.rules):
+            return False
+        updated = replace(
+            profile,
+            rules=tuple(
+                rule.with_enabled(enabled) if rule.id == rule_id else rule for rule in profile.rules
+            ),
+        )
+        self.async_update_state(
+            replace(
+                self._state,
+                profiles=tuple(
+                    updated if candidate.id == profile.id else candidate
+                    for candidate in self._state.profiles
+                ),
+            )
+        )
+        return True
 
     @callback
     def async_note_applied(self, rule_ids: Iterable[str]) -> None:
@@ -267,15 +447,11 @@ class DeviceLinksCoordinator:
         for backend_id, backend in self._backends.items():
             try:
                 devices = await backend.async_devices()
-            except Exception:
-                _LOGGER.warning(
-                    "the %s backend did not answer, so its devices are marked unavailable "
-                    "and their last known state is kept",
-                    backend_id,
-                    exc_info=True,
-                )
+            except Exception as error:  # an adapter may raise anything its client raises
+                self._note_backend_lost(backend_id, error)
                 self._mark_backend_unavailable(backend_id)
                 continue
+            self._note_backend_answering(backend_id)
             for device in devices:
                 self._handles[device.handle.identity] = device.handle
                 await self._read_device(device.handle, deep=deep)
@@ -293,13 +469,19 @@ class DeviceLinksCoordinator:
         try:
             capabilities = await backend.async_capabilities(handle)
             observed = await backend.async_observed(handle, deep)
-        except Exception:  # an adapter may raise anything its client raises
-            _LOGGER.warning(
-                "%s did not answer, so its last known state is kept and it is marked "
-                "unavailable rather than empty",
-                handle.identity,
-                exc_info=True,
-            )
+        except Exception as error:  # an adapter may raise anything its client raises
+            # Logged once per device rather than once per refresh: a node that has been
+            # unreachable for a week would otherwise fill the log with the same line every
+            # two seconds, and a line that appears that often is one nobody reads
+            # (quality-scale rule log-when-unavailable).
+            if handle.identity not in self._unavailable:
+                _LOGGER.warning(
+                    "%s did not answer, so its last known state is kept and it is marked "
+                    "unavailable rather than empty",
+                    handle.identity,
+                    exc_info=True,
+                )
+            self._note_error(str(handle.backend), error)
             self._unavailable.add(handle.identity)
             return None
         self._handles[handle.identity] = handle
@@ -307,6 +489,35 @@ class DeviceLinksCoordinator:
         self._observed[handle.identity] = observed
         self._unavailable.discard(handle.identity)
         return observed
+
+    def _note_backend_lost(self, backend_id: BackendId, error: Exception) -> None:
+        """Record that a backend stopped answering, and say so exactly once.
+
+        Once, because the alternative is one warning per refresh for as long as the
+        add-on is down, and a log line that repeats every two seconds is one a user
+        scrolls past on the way to the one that matters (quality-scale rule
+        log-when-unavailable). The recovery below is logged once for the same reason and
+        at INFO, because coming back is not a fault.
+        """
+        self._note_error(str(backend_id), error)
+        if self._backend_available.get(backend_id, True):
+            _LOGGER.warning(
+                "the %s backend stopped answering, so its devices are marked unavailable "
+                "and their last known state is kept",
+                backend_id,
+                exc_info=error,
+            )
+        self._backend_available[backend_id] = False
+
+    def _note_backend_answering(self, backend_id: BackendId) -> None:
+        """Record that a backend answered, and say so once if it had stopped."""
+        if not self._backend_available.get(backend_id, True):
+            _LOGGER.info("the %s backend is answering again", backend_id)
+        self._backend_available[backend_id] = True
+
+    def _note_error(self, backend_id: str, error: Exception) -> None:
+        """Keep what last went wrong, without keeping anything that identifies a network."""
+        self._last_error = {"backend": backend_id, "error": type(error).__name__}
 
     def _mark_backend_unavailable(self, backend_id: BackendId) -> None:
         """Mark every device of a backend that has stopped answering, keeping the cache.
@@ -333,6 +544,11 @@ class DeviceLinksCoordinator:
             self._observed[identity] = replace(
                 device, links=tuple(self._owned(link) for link in device.links)
             )
+        # Every path that changes what an entity would say ends here: a read, a stored
+        # state change, a debounced refresh. Notifying from one place rather than from
+        # three is what makes "the entity is stale" impossible to introduce by adding a
+        # fourth.
+        self.async_update_listeners()
 
     def _compile_active_profile(
         self,
@@ -393,7 +609,7 @@ class DeviceLinksCoordinator:
         the caller never saw is a plan they cannot reason about. The executor refreshes and
         then plans.
         """
-        identities = self._identities_in_scope(scope)
+        identities = self.identities_in_scope(scope)
         observed: list[ObservedLink] = []
         for identity in sorted(identities):
             observed.extend(self._observed[identity].links)
@@ -443,7 +659,7 @@ class DeviceLinksCoordinator:
             return item.link.fingerprint in selected
         return item.link.rule_id in rule_ids
 
-    def _identities_in_scope(self, scope: PlanScope | None) -> set[str]:
+    def identities_in_scope(self, scope: PlanScope | None) -> set[str]:
         """Return the devices this plan may touch, which never includes an unreadable one.
 
         A device we cannot read is left out of both halves: its desired links are not added
@@ -476,6 +692,17 @@ class DeviceLinksCoordinator:
         if profile is None:
             return {}
         return {rule.id: self._rule_state(rule) for rule in profile.rules}
+
+    def rule_link_counts(self, rule_id: str) -> tuple[int, int]:
+        """Return how many links this rule wants, and how many are really on the devices.
+
+        "3 of 4" is what makes a drifted rule actionable: it says the fault is one link
+        rather than the whole rule, which is the difference between checking one group and
+        re-including a device.
+        """
+        wanted = self._links_of(rule_id)
+        present = self._present
+        return len(wanted), sum(1 for link in wanted if link.fingerprint in present)
 
     def _rule_state(self, rule: Rule) -> RuleState:
         """Return one rule's state, asking the questions in the order that keeps it honest.

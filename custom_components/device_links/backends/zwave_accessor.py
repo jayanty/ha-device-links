@@ -38,7 +38,12 @@ if TYPE_CHECKING:
     from zwave_js_server.model.driver import Driver
     from zwave_js_server.model.node import Node
 
-__all__ = ["ZWaveAccessorError", "async_get_driver", "async_get_node"]
+__all__ = [
+    "ZWaveAccessorError",
+    "async_get_driver",
+    "async_get_node",
+    "async_get_server_version",
+]
 
 
 class ZWaveAccessorError(HomeAssistantError):
@@ -70,6 +75,24 @@ def async_get_driver(zwave_js_entry: ZwaveJSConfigEntry) -> Driver:
     if driver is None:
         raise ZWaveAccessorError("The Z-Wave JS client is not connected")
     return driver
+
+
+@callback
+def async_get_server_version(zwave_js_entry: ZwaveJSConfigEntry) -> str | None:
+    """Return the zwave-js-server version behind a loaded zwave_js config entry.
+
+    Reported by the Health sensor, which is what a remote debugging session reads first
+    (PRD Section 17.1): "which Z-Wave JS is this" is the question that decides whether an
+    upstream behaviour is worth reproducing locally or is already fixed.
+
+    None rather than raising, because a version is never the reason to fail: the client
+    fills `version` in on connect, so it is None exactly while the connection is still
+    being made, and an integration that refused to set up over a missing version string
+    would be refusing over nothing. It lives here rather than at the call site because it
+    reaches into zwave_js internals, and this module is the only place that may.
+    """
+    version = zwave_js_entry.runtime_data.client.version
+    return None if version is None else version.server_version
 
 
 @callback

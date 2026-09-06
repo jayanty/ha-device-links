@@ -39,7 +39,7 @@ and a rule id. The Home Assistant layer surfaces them as the detail of one trans
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from enum import StrEnum
 from typing import Final
 
@@ -174,6 +174,27 @@ def profile_from_data(data: object) -> Profile:
     except ValueError as error:
         raise ProfileFormatError(f"this is not a usable profile: {error}") from error
     return profile
+
+
+def devices_to_data(handles: Iterable[DeviceHandle]) -> dict[str, object]:
+    """Return these devices keyed by identity, as the rule reader expects to be given them.
+
+    The WebSocket API takes a rule that refers to devices by identity and resolves those
+    identities against the network rather than against a device block the client sent.
+    That is what makes a rule naming a device this network does not have a refusal (E38)
+    rather than a rule about a device somebody described in a payload.
+    """
+    return {handle.identity: _device_to_data(handle, keep_local_ids=False) for handle in handles}
+
+
+def rule_to_data(rule: Rule) -> dict[str, object]:
+    """Return one rule as plain data, referring to its devices by identity."""
+    return _rule_to_data(rule)
+
+
+def rule_from_data(value: object, devices: Mapping[str, DeviceHandle]) -> Rule:
+    """Return the rule this data describes, or say exactly what is wrong with it."""
+    return _rule_from_data(value, 0, devices)
 
 
 def observed_link_to_data(link: ObservedLink) -> dict[str, object]:

@@ -1,0 +1,145 @@
+# Every field of every service, and nothing that is not in `services.py`. Names and
+# descriptions live in `strings.json` under `services`, which is what Home Assistant shows
+# in the UI and what makes them translatable; a test asserts that this file, that file and
+# the voluptuous schemas all name the same services and the same fields.
+apply:
+  fields:
+    profile_id:
+      example: bedroom
+      selector:
+        text:
+    rule_ids:
+      example: '["bedroom-main"]'
+      selector:
+        object:
+    device_id:
+      selector:
+        device:
+          integration: device_links
+          multiple: true
+    remove_unmanaged:
+      example: '["zwave|3538613642:36|0|7|zwave|3538613642:35||on_off"]'
+      selector:
+        object:
+
+verify:
+  fields:
+    profile_id:
+      example: bedroom
+      selector:
+        text:
+    rule_ids:
+      example: '["bedroom-main"]'
+      selector:
+        object:
+    device_id:
+      selector:
+        device:
+          integration: device_links
+          multiple: true
+
+set_rule_enabled:
+  fields:
+    rule_id:
+      required: true
+      example: bedroom-main
+      selector:
+        text:
+    enabled:
+      required: true
+      selector:
+        boolean:
+
+activate_profile:
+  fields:
+    profile_id:
+      required: true
+      example: bedroom
+      selector:
+        text:
+    apply:
+      default: false
+      selector:
+        boolean:
+
+export_profile:
+  fields:
+    profile_id:
+      example: bedroom
+      selector:
+        text:
+
+import_profile:
+  fields:
+    yaml:
+      required: true
+      selector:
+        text:
+          multiline: true
+
+# The advanced services below exist only while the "raw Z-Wave services" option is on
+# (Decision D14). They write to an association group directly, with no rule and no plan
+# behind them, and they refuse to touch a lifeline.
+zwave_get_associations:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: zwave_js
+
+zwave_add_association:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: zwave_js
+    group:
+      required: true
+      example: 7
+      selector:
+        number:
+          min: 2
+          max: 255
+          mode: box
+    target_device_id:
+      required: true
+      selector:
+        device:
+          integration: zwave_js
+    target_endpoint:
+      example: 1
+      selector:
+        number:
+          min: 0
+          max: 127
+          mode: box
+
+zwave_remove_association:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: zwave_js
+    group:
+      required: true
+      example: 7
+      selector:
+        number:
+          min: 2
+          max: 255
+          mode: box
+    target_device_id:
+      required: true
+      selector:
+        device:
+          integration: zwave_js
+    target_endpoint:
+      example: 1
+      selector:
+        number:
+          min: 0
+          max: 127
+          mode: box

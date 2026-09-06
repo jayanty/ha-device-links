@@ -8,7 +8,12 @@ from homeassistant.data_entry_flow import FlowResultType
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.device_links.const import DOMAIN, INTEGRATION_TITLE
+from custom_components.device_links.const import (
+    DOMAIN,
+    INTEGRATION_TITLE,
+    OPTION_AUTO_APPLY_ON_PROFILE_SWITCH,
+    OPTION_ENABLE_RAW_SERVICES,
+)
 
 
 @pytest.mark.parametrize("backend", ["zwave_js", "mqtt", "matter"])
@@ -43,3 +48,55 @@ async def test_only_one_instance_is_allowed(hass: HomeAssistant) -> None:
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "already_configured"
+
+
+async def test_the_options_flow_shows_both_options_off(
+    hass: HomeAssistant, device_links_entry: MockConfigEntry
+) -> None:
+    """Both are off unless somebody asks: one writes to a house, one arms expert tools."""
+    result = await hass.config_entries.options.async_init(device_links_entry.entry_id)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "init"
+    schema = result["data_schema"]({})
+    assert schema == {
+        OPTION_AUTO_APPLY_ON_PROFILE_SWITCH: False,
+        OPTION_ENABLE_RAW_SERVICES: False,
+    }
+
+
+async def test_the_options_flow_saves_what_was_chosen(
+    hass: HomeAssistant, device_links_entry: MockConfigEntry
+) -> None:
+    """Saving reloads the entry, which is what makes the raw services appear (D14)."""
+    result = await hass.config_entries.options.async_init(device_links_entry.entry_id)
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {OPTION_AUTO_APPLY_ON_PROFILE_SWITCH: True, OPTION_ENABLE_RAW_SERVICES: True},
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert device_links_entry.options == {
+        OPTION_AUTO_APPLY_ON_PROFILE_SWITCH: True,
+        OPTION_ENABLE_RAW_SERVICES: True,
+    }
+    assert hass.services.has_service(DOMAIN, "zwave_add_association")
+
+
+async def test_the_options_flow_keeps_what_was_already_chosen(
+    hass: HomeAssistant, device_links_entry: MockConfigEntry
+) -> None:
+    """A form that forgets the current setting is a form that turns things off by accident."""
+    hass.config_entries.async_update_entry(
+        device_links_entry, options={OPTION_ENABLE_RAW_SERVICES: True}
+    )
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(device_links_entry.entry_id)
+
+    assert result["data_schema"]({}) == {
+        OPTION_AUTO_APPLY_ON_PROFILE_SWITCH: False,
+        OPTION_ENABLE_RAW_SERVICES: True,
+    }
