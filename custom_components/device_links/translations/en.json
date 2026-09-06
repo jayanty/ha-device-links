@@ -15,14 +15,22 @@
     "step": {
       "init": {
         "title": "Device Links options",
-        "description": "Both of these are off to begin with, because each turns a deliberate act into an automatic one.",
+        "description": "The three switches are off to begin with. Two of them turn a deliberate act into an automatic one; the third writes files into your configuration directory. The two text fields are not switches: the base topic says which Zigbee2MQTT to talk to and already holds that add-on's own default, and the mirror path is where the YAML copies go when the mirror is on.",
         "data": {
           "auto_apply_on_profile_switch": "Apply immediately when the Active profile select is used",
-          "enable_raw_services": "Enable the raw Z-Wave association services"
+          "enable_raw_services": "Enable the raw Z-Wave association services",
+          "zigbee_base_topic": "Zigbee2MQTT base topic",
+          "yaml_mirror": "Mirror the profiles to YAML files",
+          "yaml_mirror_path": "Where to write the YAML copies",
+          "hybrid_legs": "Allow HA-executed legs"
         },
         "data_description": {
           "auto_apply_on_profile_switch": "Off by default: choosing a profile opens a plan and applying it is a separate press. This is about the Active profile select entity, which has nowhere to show a plan; the panel always shows one before it writes anything, whatever this is set to.",
-          "enable_raw_services": "Expert tools. They add and remove one association group entry directly, with no rule and no plan behind them, and they still refuse to touch a lifeline. Leave them off unless you are scripting or debugging."
+          "enable_raw_services": "Expert tools. They add and remove one association group entry directly, with no rule and no plan behind them, and they still refuse to touch a lifeline. Leave them off unless you are scripting or debugging.",
+          "zigbee_base_topic": "The topic every Zigbee2MQTT message hangs off, as set in that add-on's configuration. Leave it as zigbee2mqtt unless you changed it or you run a second instance, which uses a different one. One instance is adapted: if you run several, this is the one Device Links reads and writes. Saving reloads the integration so the new topic takes effect.",
+          "yaml_mirror": "Off by default, because it writes files into your configuration directory. On, every change to a profile writes the same YAML the export button gives you, so a configuration directory you keep in version control shows your rules changing in a diff. It is a copy in one direction only: editing a file here changes nothing, and importing one is a separate, deliberate step.",
+          "yaml_mirror_path": "A folder inside your configuration directory. It is created if it is not there. Only files this integration wrote are ever changed or deleted in it, so pointing it at a folder of your own will not tidy anything away, but give it a folder of its own anyway. A path that leads outside the configuration directory is refused and the mirror stays off, with a line in the log saying so.",
+          "hybrid_legs": "Off by default. Some intents cannot be written to a radio at all: on-only propagation, a scene button acting on its own load, and a scene button LED following a light in another room. With this on, a rule may opt in to having Home Assistant carry those pieces. They are labelled HA-executed everywhere they appear, and they stop working whenever Home Assistant does, while the rest of the same rule keeps working."
         }
       }
     }
@@ -82,6 +90,9 @@
     "device_unavailable": {
       "message": "{device} stopped answering, so its group {group} link to {target} was left alone. It will be planned again once the device can be read."
     },
+    "diff_needs_one_other_side": {
+      "message": "A comparison needs exactly one other side: another profile, or a snapshot. This asked for neither or for both."
+    },
     "feature_unavailable_color": {
       "message": "{emitter} does not send colour commands, so the colour part of this rule was left out."
     },
@@ -105,6 +116,27 @@
     },
     "group_not_offered": {
       "message": "No control of {device} uses association group {group}. The groups it offers are: {groups}."
+    },
+    "hybrid_button_led_one_target": {
+      "message": "Keeping {emitter} in sync works with one target, and this rule has {count}. One button has one light on it, so several targets would each be telling it something different and it would show whichever spoke last. Split this into one rule per target, or turn the option off."
+    },
+    "hybrid_no_button_indication": {
+      "message": "The control {emitter} on {device} has no button indication Device Links knows how to write, so the leg that would make its LED follow a light cannot be made. Only a curated device profile can say which indicator belongs to which button, and guessing would light the wrong one."
+    },
+    "hybrid_no_scene": {
+      "message": "The control {emitter} on {device} does not report a scene number when it is pressed, as far as Device Links knows, so a leg that has to react to a press on it cannot be made. Guessing the number would make the leg fire when a different button was pressed."
+    },
+    "hybrid_opt_in_unused": {
+      "message": "The rule {rule} asks Home Assistant to carry {kind}, and does not ask for the feature that option acts on, so it does nothing. Add the feature, or turn the option off."
+    },
+    "hybrid_reverse_carries_both": {
+      "message": "This rule is two way, so the leg back from each target to {emitter} still carries both on and off. Only the direction you authored is limited to one of them."
+    },
+    "hybrid_scene_unverified": {
+      "message": "The scene number {emitter} on {device} reports has not been observed, only inferred from the device's own button numbering, so a leg that reacts to a press on it may react to a different button. Press it once with the rule enabled and check that the right thing happened."
+    },
+    "hybrid_self_load_not_targeted": {
+      "message": "This rule asks Home Assistant to act on the control's own load on {device}, and does not list that device as a target, so there is nothing for the leg to act on. Add the device to the targets."
     },
     "import_unknown_devices": {
       "message": "This profile names devices that are not on this network: {devices}. The rules waiting for them are: {rules}. Nothing was imported, so nothing was lost."
@@ -167,7 +199,7 @@
       "message": "A device cannot be in its own association group, so {device} cannot control itself over the radio."
     },
     "self_association_use_hybrid_leg": {
-      "message": "{device} cannot control itself over the radio. An automation can carry that instead; Device Links does not write those legs yet."
+      "message": "{device} cannot control itself over the radio: a device cannot be a member of its own association group. Home Assistant can carry that part instead. Turn on hybrid legs in the Device Links options, then tick “Also turn off this device's own load” on this rule. That part runs in Home Assistant and stops when Home Assistant does; the rest of the rule does not."
     },
     "setting_not_applied": {
       "message": "{device} accepted the change to {setting} and then reported its old value, so the setting did not stick."
@@ -195,6 +227,42 @@
     },
     "storage_version_too_new": {
       "message": "The stored profiles were written by a newer version of Device Links (schema version {found}; this one reads {supported}). Update Home Assistant, or restore the file from a backup."
+    },
+    "swap_across_backends": {
+      "message": "A {old} device cannot be swapped for a {new} one. Every link a rule makes lives in one protocol, so the replacement would change the address of every link and which targets can be reached at all. Write the rules again for the new device."
+    },
+    "swap_device_not_referenced": {
+      "message": "No rule of the active profile refers to {device}, so a swap would change nothing."
+    },
+    "swap_duplicate_target_merged": {
+      "message": "The rule {rule} already sent to {device}, so the two are now one target."
+    },
+    "swap_feature_lost": {
+      "message": "{device} cannot carry {feature} for the rule {rule}, so that part of the rule stops working after the swap."
+    },
+    "swap_mapping_incomplete": {
+      "message": "Nothing has been chosen to take over from these controls: {controls}. Pick one for each before applying the swap."
+    },
+    "swap_not_possible": {
+      "message": "This swap cannot be made: {reasons}."
+    },
+    "swap_replacement_unavailable": {
+      "message": "{device} is not answering, so nothing can be written to it and this swap was not applied. Nothing was changed on either device."
+    },
+    "swap_replacement_unreadable": {
+      "message": "{device} has not been read yet, so what it can do is unknown and nothing can be moved onto it. Refresh it and try again."
+    },
+    "swap_same_device": {
+      "message": "{device} is already the device the rules name, so there is nothing to swap it for."
+    },
+    "swap_target_endpoint_moved": {
+      "message": "The rule {rule} now sends to endpoint {endpoint} of {device}, which is where that device receives."
+    },
+    "swap_unknown_old_device": {
+      "message": "No rule of the active profile refers to the device {device}."
+    },
+    "swap_would_lose_work": {
+      "message": "This swap would leave part of these rules unwritten: {rules}. Look at what the preview says is lost, then confirm it."
     },
     "system_link_protected": {
       "message": "Group {group} on {device} holds a system link, which Device Links never writes to, so the entry for {target} was left alone."
@@ -232,6 +300,9 @@
     "unknown_rule": {
       "message": "The active profile has no rule with the id {rule}."
     },
+    "unknown_snapshot": {
+      "message": "No snapshot with the id {snapshot} is kept. Only the last 20 are, so an older one has been dropped to make room."
+    },
     "unmanaged_not_selected": {
       "message": "The group {group} entry on {device} pointing at {target} was not created by Device Links, so it was left alone. Tick it in the plan if you want it removed."
     },
@@ -249,12 +320,58 @@
     },
     "verify_unreadable": {
       "message": "{device} could not be read after the write, so the group {group} link to {target} cannot be confirmed. Press Verify when the device is reachable."
+    },
+    "zigbee_bind_failed": {
+      "message": "The Zigbee bridge refused to bind {cluster} from {device} to {target}. The error it reported is in the job details."
+    },
+    "zigbee_bridge_offline": {
+      "message": "Zigbee2MQTT on {topic} is offline, so the {cluster} binding from {device} to {target} was not written. It will be planned again once the bridge is back."
+    },
+    "zigbee_clusters_failed": {
+      "message": "{device} bound some of what was asked for and not all of it: {clusters} did not bind, so the link to {target} is incomplete. The bridge reports a partial failure as a success, so this is reported as failed rather than as applied. Apply again, and check that {target} is reachable."
+    },
+    "zigbee_coordinator_binding_protected": {
+      "message": "The {cluster} binding on {device} points at the Zigbee coordinator, which is how the device reports to Home Assistant at all. Device Links never writes to those."
+    },
+    "zigbee_foreign_group": {
+      "message": "The Zigbee group {target} was not created by Device Links, so the {cluster} binding from {device} was not written to it. Only groups named with the dl_ prefix are ours to use."
+    },
+    "zigbee_group_failed": {
+      "message": "The Zigbee group {group} could not be set up, so the {cluster} binding from {device} to {target} was not written. Check Zigbee2MQTT and apply again."
+    },
+    "zigbee_no_response": {
+      "message": "The Zigbee bridge did not answer within {seconds} seconds, so it is not known whether the {cluster} binding from {device} to {target} was made. Look at the device again, or apply once more: an apply that is already done writes nothing."
+    },
+    "zigbee_self_binding": {
+      "message": "A device cannot be bound to itself, so {device} cannot control itself over the radio."
+    },
+    "zigbee_settings_not_written": {
+      "message": "Device Links can read what {device} exposes but does not write Zigbee device settings yet, so {setting} was left alone. Change it in Zigbee2MQTT for now."
+    },
+    "zigbee_source_cannot_send": {
+      "message": "The control this rule uses on {device} does not send {cluster}, so binding it to {target} would do nothing. Choose a control that sends it."
+    },
+    "zigbee_target_cannot_receive": {
+      "message": "{target} does not act on {cluster}, so the binding from {device} would be accepted and then do nothing. Choose an endpoint of {target} that does."
+    },
+    "zigbee_target_endpoint_required": {
+      "message": "A Zigbee binding always names an endpoint of the target, and this rule names {target} as a whole, so the {cluster} binding from {device} was not written. Point the rule at one endpoint."
+    },
+    "zigbee_unknown_device": {
+      "message": "Zigbee2MQTT does not report {target}, so the {cluster} binding from {device} was not written. It may have been removed from the network."
+    },
+    "zigbee_wake_the_device": {
+      "message": "{device} was not listening, so the {cluster} binding to {target} is queued rather than written. Wake the device and apply again."
     }
   },
   "issues": {
     "backend_unavailable": {
       "title": "The {backend} backend is not answering",
       "description": "Device Links reaches your {backend} devices through the {integration} integration, and it has stopped answering. Every {backend} device is shown as unavailable, nothing is planned for one while it cannot be read, and no links have been changed. Check that {integration} is loaded and that the add-on behind it is running; this clears by itself when it answers again."
+    },
+    "hybrid_legs_failing": {
+      "title": "Home Assistant is failing to carry some Device Links legs",
+      "description": "{errors} of the last {fired} firings of the {legs} HA-executed legs in this profile did not go through. These legs are the parts of your rules that no radio can carry, so they only work while Home Assistant is running and can reach the devices. Look at the Device Links log for which leg failed and why. The rest of each rule is written into the devices and is unaffected."
     },
     "pending_wakeup": {
       "title": "{device} has not woken up",
@@ -271,6 +388,14 @@
     "storage_unreadable": {
       "title": "Device Links could not read its stored profiles",
       "description": "The file {path} could not be read: {error}. Device Links did not start, and the file was left exactly as it is, so nothing has been lost. Restore it from a backup, or move it aside and set your profiles up again. The links already on your devices are untouched either way."
+    },
+    "swap_candidate": {
+      "title": "{device} looks as though it has been replaced",
+      "description": "{device} is named by {count} rule(s) ({rules}) and is no longer on the network, and {replacement} is on the network with the same model and no rules pointing at it. That is what a replaced device looks like. Open Device Links, choose the device, and use Swap: it maps each control across, rewrites every rule that named the old device, and shows you the whole plan before anything is written. Nothing has been changed."
+    },
+    "swap_device_changed": {
+      "title": "{device} now answers as a different model",
+      "description": "The device at {device}'s address reports a different model than the {count} rule(s) that name it were written against ({rules}), which is what Z-Wave's replace-failed-node leaves behind. The rules still name the right address, so they are being applied to it, and its controls are probably not the ones they were written for: a paddle that was group 2 on the old model may be something else on this one. Open Device Links and use Swap to say which control on {replacement} takes over from which, and to see the whole plan before anything is written."
     }
   },
   "services": {
@@ -354,11 +479,15 @@
     },
     "import_profile": {
       "name": "Import a profile",
-      "description": "Store the profile this YAML describes and return the plan it implies. Nothing is written to a device. A file naming devices this network does not have is refused whole, so a half-imported profile is not possible.",
+      "description": "Store the profile this YAML describes and return the plan it implies. Nothing is written to a device. A file naming devices this network does not have is refused whole, so a half-imported profile is not possible; turn on \"Import even if devices are missing\" when that is what you meant, which is what a device swap starts with.",
       "fields": {
         "yaml": {
           "name": "Profile YAML",
           "description": "The text of an exported profile."
+        },
+        "allow_missing_devices": {
+          "name": "Import even if devices are missing",
+          "description": "Import the file even though some of the devices it names are not on this network. Off by default, because a file from another home would otherwise be imported as though it described this one. Turn it on when a device has been replaced: the rules come in naming the device that has gone, and the swap flow re-points them onto its replacement."
         }
       }
     },

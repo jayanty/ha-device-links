@@ -12,7 +12,17 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { COMMANDS, DeviceLinksApi } from "../src/api";
 import { componentSet } from "../src/ha-components";
 import type { DeviceLinksView } from "../src/views/view-base";
-import { deviceDetail, deviceRow, job, plan, profileRow, ruleRow, SOURCE } from "./fixtures";
+import {
+  deviceDetail,
+  deviceRow,
+  job,
+  link,
+  plan,
+  profileRow,
+  ruleRow,
+  SOURCE,
+  snapshot,
+} from "./fixtures";
 import { type MockHass, mockHass } from "./mock-hass";
 
 async function flush(): Promise<void> {
@@ -69,6 +79,21 @@ function loaded(): MockHass {
   hass.results.set(COMMANDS.snapshotsList, { snapshots: [] });
   hass.results.set(COMMANDS.templatesList, { templates: [{ id: "remote" }, { id: "off_all" }] });
   hass.results.set(COMMANDS.plan, plan());
+  return hass;
+}
+
+/** The Activity view with one snapshot on it, and a rollback the backend would answer. */
+function withSnapshot(): MockHass {
+  const hass = loaded();
+  hass.results.set(COMMANDS.snapshotsList, { snapshots: [snapshot()] });
+  hass.results.set(COMMANDS.snapshotsRollback, {
+    snapshot: snapshot(),
+    plan: plan(),
+    returns_on_next_apply: [link({ rule_id: "rule-1", rule_name: "Goodnight, everything off" })],
+    unreadable_devices: ["zwave:home:29"],
+    job_id: null,
+    status: "preview",
+  });
   return hass;
 }
 
@@ -308,6 +333,66 @@ describe("the activity view", () => {
     expect(details.length).toBeGreaterThan(0);
     // Closed by default: the raw text is available, not the first thing read.
     expect([...details].every((element) => !element.open)).toBe(true);
+  });
+
+  it("restores a snapshot through the plan dialog, and writes nothing to open it", async () => {
+    const hass = withSnapshot();
+    const view = await mount("device-links-activity", hass);
+
+    buttons(view)
+      .find((button) => button.textContent?.trim() === "Restore")
+      ?.click();
+    await flush();
+    await view.updateComplete;
+
+    // The plan came from the rollback command, without a token, so nothing was written.
+    const sent = hass.sent.filter((message) => message.type === COMMANDS.snapshotsRollback);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ snapshot_id: "job-1" });
+    expect(sent[0]?.plan_token).toBeUndefined();
+    const dialog = view.shadowRoot?.querySelector("dl-plan-dialog");
+    expect(dialog?.shadowRoot?.textContent).toContain("Bedroom Scene Controller");
+  });
+
+  it("says in the dialog which removals a rule that is still on will undo", async () => {
+    const hass = withSnapshot();
+    const view = await mount("device-links-activity", hass);
+
+    buttons(view)
+      .find((button) => button.textContent?.trim() === "Restore")
+      ?.click();
+    await flush();
+    await view.updateComplete;
+
+    const dialog = view.shadowRoot?.querySelector("dl-plan-dialog");
+    const shown = dialog?.shadowRoot?.textContent?.replace(/\s+/g, " ") ?? "";
+    expect(shown).toContain("rules that are still on: Goodnight, everything off");
+    expect(shown).toContain("read as drifted");
+    expect(shown).toContain("cannot be read");
+  });
+
+  it("applies a rollback with the token of the plan on screen and no other", async () => {
+    const hass = withSnapshot();
+    const view = await mount("device-links-activity", hass);
+    buttons(view)
+      .find((button) => button.textContent?.trim() === "Restore")
+      ?.click();
+    await flush();
+    await view.updateComplete;
+
+    const dialog = view.shadowRoot?.querySelector("dl-plan-dialog");
+    [...(dialog?.shadowRoot?.querySelectorAll("button") ?? [])]
+      .find((button) => button.textContent?.trim().startsWith("Apply"))
+      ?.click();
+    await flush();
+
+    const applied = hass.sent.filter(
+      (message) => message.type === COMMANDS.snapshotsRollback && message.plan_token !== undefined,
+    );
+    expect(applied).toHaveLength(1);
+    expect(applied[0]).toMatchObject({ snapshot_id: "job-1", plan_token: "token-1" });
+    // And never through the ordinary apply, which would plan from the profile instead.
+    expect(hass.sent.some((message) => message.type === COMMANDS.apply)).toBe(false);
   });
 });
 

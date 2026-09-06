@@ -35,8 +35,10 @@ import { customElement, property, state } from "lit/decorators.js";
 import { type DeviceLinksApi, DeviceLinksApiError, describeError } from "../api";
 import "../components/dialog";
 import { renderIcon } from "../components/icon";
+import { renderLoops } from "../components/loops";
 import {
   backendLabel,
+  describeHybridLeg,
   describeLink,
   emitterUsage,
   featureIcon,
@@ -51,13 +53,14 @@ import type { HomeAssistant } from "../hass";
 import { localizeDiagnostic } from "../messages";
 import { sharedStyles } from "../styles";
 import type {
-  CompiledRule,
   DeviceDetail,
   DeviceRow,
   Emitter,
   Feature,
+  HybridKind,
   MirrorChoice,
   RuleData,
+  RuleValidation,
   TemplateId,
 } from "../types";
 
@@ -112,6 +115,50 @@ const TEMPLATE_DEFAULTS: Record<
   custom: { features: ["on_off"], direction: "one_way", mirror: "leave" },
 };
 
+/**
+ * The three HA-executed opt-ins, in the words the user meets them in (PRD Section 6.7).
+ *
+ * `needs` is what the chosen control must report before an opt-in can be offered at all: a
+ * scene number for the two that react to a press, an indicator id for the one that lights a
+ * button. Offering a tick box the compiler would refuse is worse than offering none, so a
+ * control that cannot carry a leg does not get the choice.
+ *
+ * Every label says what it does and every help line says the cost, in the same sentence,
+ * because the cost is the whole point of Decision D3: this part runs in Home Assistant, and
+ * it stops when Home Assistant stops.
+ */
+const HYBRID_CHOICES: {
+  value: HybridKind;
+  needs: "scene_id" | "indicator_id";
+  label: string;
+  help: string;
+}[] = [
+  {
+    value: "on_only",
+    needs: "scene_id",
+    label: "Only pass on, never off",
+    help: "An association carries on and off together, so Home Assistant does this part: it hears the button press and turns the targets on.",
+  },
+  {
+    value: "off_only",
+    needs: "scene_id",
+    label: "Only pass off, never on",
+    help: "The same the other way round. Home Assistant hears the press and turns the targets off.",
+  },
+  {
+    value: "self_load",
+    needs: "scene_id",
+    label: "Also turn off this device's own load",
+    help: "A device cannot be in its own association group, so Home Assistant turns this device's own load off when the button is pressed. Add the device to the targets as well.",
+  },
+  {
+    value: "button_led",
+    needs: "indicator_id",
+    label: "Keep this button's LED in sync with the target",
+    help: "Nothing on the radio can address one button's LED, so Home Assistant watches the target and lights the button to match.",
+  },
+];
+
 const MIRROR_CHOICES: { value: MirrorChoice; label: string; help: string }[] = [
   {
     value: "leave",
@@ -129,6 +176,34 @@ const MIRROR_CHOICES: { value: MirrorChoice; label: string; help: string }[] = [
     help: "Writes the device's mirror setting so only the targets respond.",
   },
 ];
+
+/**
+ * A rule while it is being written, which is not yet a rule that could be saved.
+ *
+ * The one difference from `RuleData` is the source endpoint, which is null until a control
+ * is chosen and is that control's own `endpoint` afterwards. A draft is what the steps
+ * edit; `payloadOf` is the only way one becomes something the backend is sent, and it
+ * answers null while the draft is still missing a piece, so the difference cannot be
+ * forgotten at the one call site that matters (open item T50).
+ */
+export interface RuleDraft extends Omit<RuleData, "source"> {
+  source: { device: string; endpoint: number | null; emitter_id: string };
+}
+
+/**
+ * Return the rule this draft describes, or null while it does not describe one yet.
+ *
+ * Both the compile-as-you-type call and the save go through here, so what the user was
+ * shown in the review step is exactly what is stored: two paths building the payload
+ * separately is how a rule gets validated in one shape and saved in another.
+ */
+export function payloadOf(draft: RuleDraft): RuleData | null {
+  const { device, endpoint, emitter_id } = draft.source;
+  if (device === "" || emitter_id === "" || endpoint === null || draft.targets.length === 0) {
+    return null;
+  }
+  return { ...draft, source: { device, endpoint, emitter_id } };
+}
 
 /** What the owner is told when a rule was stored. */
 export interface RuleSavedDetail {
@@ -166,7 +241,16 @@ export class DeviceLinksRuleEditor extends LitElement {
    */
   @property({ attribute: false }) initialTemplate: TemplateId | null = null;
 
-  @state() private _draft: RuleData | null = null;
+  /**
+   * Whether this Home Assistant allows HA-executed legs at all (FR-H1).
+   *
+   * The global half of Decision D3's two gates, from the panel config. False hides the
+   * whole section rather than greying it: an opt-in nothing would ever register is not a
+   * choice, it is a promise the product does not keep.
+   */
+  @property({ type: Boolean }) hybridAllowed = false;
+
+  @state() private _draft: RuleDraft | null = null;
 
   @state() private _step: Step = "template";
 
@@ -174,7 +258,7 @@ export class DeviceLinksRuleEditor extends LitElement {
 
   @state() private _loadingSource = false;
 
-  @state() private _compiled: CompiledRule | null = null;
+  @state() private _compiled: RuleValidation | null = null;
 
   @state() private _validating = false;
 
@@ -320,7 +404,7 @@ export class DeviceLinksRuleEditor extends LitElement {
     `;
   }
 
-  private _renderStep(draft: RuleData): TemplateResult {
+  private _renderStep(draft: RuleDraft): TemplateResult {
     switch (this._step) {
       case "template":
         return this._renderTemplateStep(draft);
@@ -339,7 +423,7 @@ export class DeviceLinksRuleEditor extends LitElement {
   // Step 1: the intent.
   // ------------------------------------------------------------------------------------
 
-  private _renderTemplateStep(draft: RuleData): TemplateResult {
+  private _renderTemplateStep(draft: RuleDraft): TemplateResult {
     const templates = Object.keys(TEMPLATE_DEFAULTS) as TemplateId[];
     return html`
       <div class="template-grid">
@@ -376,7 +460,7 @@ export class DeviceLinksRuleEditor extends LitElement {
   // Step 2: the control, and its headroom.
   // ------------------------------------------------------------------------------------
 
-  private _renderSourceStep(draft: RuleData): TemplateResult {
+  private _renderSourceStep(draft: RuleDraft): TemplateResult {
     const chosen = this._deviceFor(draft.source.device);
     if (chosen === null) {
       return html`
@@ -402,7 +486,7 @@ export class DeviceLinksRuleEditor extends LitElement {
     `;
   }
 
-  private _renderEmitters(draft: RuleData): TemplateResult {
+  private _renderEmitters(draft: RuleDraft): TemplateResult {
     const emitters = this._sourceDetail?.emitters ?? [];
     if (emitters.length === 0) {
       return html`<p class="secondary">
@@ -416,7 +500,7 @@ export class DeviceLinksRuleEditor extends LitElement {
     `;
   }
 
-  private _renderEmitter(draft: RuleData, emitter: Emitter): TemplateResult {
+  private _renderEmitter(draft: RuleDraft, emitter: Emitter): TemplateResult {
     // A lifeline is how the device reports to Home Assistant at all. It is shown, so the
     // user can see the group is accounted for, and it is not selectable and offers no
     // control: Device Links never writes to it.
@@ -520,7 +604,14 @@ export class DeviceLinksRuleEditor extends LitElement {
     const available = Object.keys(emitter.actions) as Feature[];
     const kept = draft.features.filter((feature) => available.includes(feature));
     this._update({
-      source: { ...draft.source, emitter_id: emitter.emitter_id },
+      // The endpoint comes with the control, because it is a property of the control: the
+      // Z-Wave root is 0 and an Inovelli Blue's paddle is Zigbee endpoint 2, and a rule
+      // that named neither was refused by `rules/upsert` on every protocol (T50).
+      source: {
+        ...draft.source,
+        endpoint: emitter.endpoint,
+        emitter_id: emitter.emitter_id,
+      },
       // A feature the chosen control cannot carry is dropped rather than left to compile
       // into a warning the user did not cause. If that empties the set, the template's
       // intent is kept as far as the control allows.
@@ -532,7 +623,7 @@ export class DeviceLinksRuleEditor extends LitElement {
   // Step 3: the targets.
   // ------------------------------------------------------------------------------------
 
-  private _renderTargetsStep(draft: RuleData): TemplateResult {
+  private _renderTargetsStep(draft: RuleDraft): TemplateResult {
     const chosen = new Set(draft.targets.map((target) => target.device));
     const candidates = this._filtered(
       this.devices.filter((device) => device.identity !== draft.source.device),
@@ -567,6 +658,16 @@ export class DeviceLinksRuleEditor extends LitElement {
                     <span>${device.name}</span>
                     <span class="chip muted">${backendLabel(device.backend)}</span>
                     ${
+                      // Which endpoint the link will land on, shown rather than only sent.
+                      // It is the device's own answer to "where does a link land when
+                      // nobody chose", and a device with more than one is open item T56.
+                      device.receiving_endpoint === null
+                        ? nothing
+                        : html`<span class="chip muted">
+                          Endpoint ${device.receiving_endpoint}
+                        </span>`
+                    }
+                    ${
                       device.available
                         ? nothing
                         : html`<span class="chip warn">Not answering</span>`
@@ -595,7 +696,11 @@ export class DeviceLinksRuleEditor extends LitElement {
     const checked = (event.target as HTMLInputElement).checked;
     const targets = draft.targets.filter((target) => target.device !== device.identity);
     if (checked) {
-      targets.push({ device: device.identity, endpoint: null });
+      // Where a link lands on this device when nobody was offered the choice. Null on
+      // Z-Wave, which is a node association on the whole device and is what the compiler
+      // expects; the endpoint the load is on for a Zigbee device, whose binding is refused
+      // outright without one (T50). An endpoint picker for a target with several is T56.
+      targets.push({ device: device.identity, endpoint: device.receiving_endpoint });
     }
     this._update({ targets });
   }
@@ -604,7 +709,7 @@ export class DeviceLinksRuleEditor extends LitElement {
   // Step 4: behaviour.
   // ------------------------------------------------------------------------------------
 
-  private _renderBehaviourStep(draft: RuleData): TemplateResult {
+  private _renderBehaviourStep(draft: RuleDraft): TemplateResult {
     const emitter = this._selectedEmitter(draft);
     const actions = emitter?.actions ?? {};
     return html`
@@ -688,7 +793,88 @@ export class DeviceLinksRuleEditor extends LitElement {
         `,
       )}
       ${this._renderSettingPreview()}
+      ${this._renderHybridSection(draft)}
     `;
+  }
+
+  /**
+   * The HA-executed opt-ins, which are the one place this product bends local-first.
+   *
+   * Hidden entirely unless the integration's own option is on, and hidden per choice unless
+   * the chosen control can carry it. What is never hidden is the label: every leg is called
+   * HA-executed here, in the review step, and in the plan, so nobody has to work out which
+   * half of their rule stops when Home Assistant does.
+   */
+  private _renderHybridSection(draft: RuleDraft): TemplateResult | typeof nothing {
+    if (!this.hybridAllowed) {
+      return nothing;
+    }
+    const emitter = this._selectedEmitter(draft);
+    const offered = HYBRID_CHOICES.filter(
+      (choice) => emitter !== null && emitter[choice.needs] !== null,
+    );
+    return html`
+      <h3 style="margin-top: 16px">
+        Run in Home Assistant <span class="chip warn">HA-executed</span>
+      </h3>
+      <p class="secondary">
+        These are the parts no radio can carry. Home Assistant does them, so they stop
+        working while Home Assistant is off or restarting. The rest of this rule is written
+        into the devices and keeps working either way.
+      </p>
+      ${
+        offered.length === 0
+          ? html`<p class="secondary">
+            ${
+              emitter === null
+                ? "Choose a control first."
+                : `${emitter.label} does not report a scene number or a button LED that Device Links knows how to use, so none of these can be offered for it.`
+            }
+          </p>`
+          : offered.map((choice) => this._renderHybridChoice(draft, choice))
+      }
+    `;
+  }
+
+  private _renderHybridChoice(
+    draft: RuleDraft,
+    choice: (typeof HYBRID_CHOICES)[number],
+  ): TemplateResult {
+    // On-only and off-only are opposite intents rather than one option with a direction,
+    // and the backend refuses a rule that asks for both, so ticking one unticks the other
+    // here rather than letting a save be refused for a reason nobody can see.
+    const opposite: Partial<Record<HybridKind, HybridKind>> = {
+      on_only: "off_only",
+      off_only: "on_only",
+    };
+    return html`
+      <label class="choice">
+        <input
+          type="checkbox"
+          .checked=${draft.hybrid.includes(choice.value)}
+          @change=${(event: Event) =>
+            this._toggleHybrid(choice.value, opposite[choice.value], event)}
+        />
+        <span>
+          <span>${choice.label}</span>
+          <span class="chip warn">HA-executed</span>
+          <span class="secondary" style="display: block">${choice.help}</span>
+        </span>
+      </label>
+    `;
+  }
+
+  private _toggleHybrid(kind: HybridKind, opposite: HybridKind | undefined, event: Event): void {
+    const draft = this._draft;
+    if (draft === null) {
+      return;
+    }
+    const checked = (event.target as HTMLInputElement).checked;
+    const hybrid = draft.hybrid.filter((existing) => existing !== kind && existing !== opposite);
+    if (checked) {
+      hybrid.push(kind);
+    }
+    this._update({ hybrid });
   }
 
   /** The exact parameter a mirror choice writes, taken from the compiler rather than guessed. */
@@ -727,7 +913,7 @@ export class DeviceLinksRuleEditor extends LitElement {
   // Step 5: review, which is where the compiler gets the last word.
   // ------------------------------------------------------------------------------------
 
-  private _renderReviewStep(draft: RuleData): TemplateResult {
+  private _renderReviewStep(draft: RuleDraft): TemplateResult {
     const compiled = this._compiled;
     return html`
       <div class="notice">
@@ -743,7 +929,7 @@ export class DeviceLinksRuleEditor extends LitElement {
     `;
   }
 
-  private _renderDiagnostics(compiled: CompiledRule): TemplateResult {
+  private _renderDiagnostics(compiled: RuleValidation): TemplateResult {
     return html`
       ${compiled.errors.map(
         (error) => html`<div class="notice error" role="alert">
@@ -763,12 +949,16 @@ export class DeviceLinksRuleEditor extends LitElement {
           </p>`
           : nothing
       }
+      ${renderLoops(compiled.loops)}
     `;
   }
 
-  private _renderCompiled(compiled: CompiledRule): TemplateResult {
+  private _renderCompiled(compiled: RuleValidation): TemplateResult {
     if (compiled.links.length === 0) {
-      return html`<p>No links.</p>`;
+      return html`
+        <p>No links written to devices.</p>
+        ${this._renderHybridLegs(compiled)}
+      `;
     }
     return html`
       <h3>${plural(compiled.links.length, "link")}</h3>
@@ -791,6 +981,36 @@ export class DeviceLinksRuleEditor extends LitElement {
             </ul>
           `
       }
+      ${this._renderHybridLegs(compiled)}
+    `;
+  }
+
+  /**
+   * What Home Assistant will carry for this rule, under its own heading and its own label.
+   *
+   * Never mixed into the link list. A link is written into a device and survives Home
+   * Assistant being off; a leg is a listener that does not. Showing them in one list would
+   * be exactly the blurring Decision D3 says must not happen quietly.
+   */
+  private _renderHybridLegs(compiled: RuleValidation): TemplateResult | typeof nothing {
+    if (compiled.hybrid_legs.length === 0) {
+      return nothing;
+    }
+    return html`
+      <h3 style="margin-top: 12px">
+        ${plural(compiled.hybrid_legs.length, "HA-executed leg")}
+      </h3>
+      <p class="secondary">
+        Run by Home Assistant, not written to a device. These stop working while Home
+        Assistant is off; everything above keeps working.
+      </p>
+      <ul class="list">
+        ${compiled.hybrid_legs.map(
+          (leg) => html`<li>
+            <span class="chip warn">HA-executed</span> ${describeHybridLeg(leg)}
+          </li>`,
+        )}
+      </ul>
     `;
   }
 
@@ -858,7 +1078,7 @@ export class DeviceLinksRuleEditor extends LitElement {
     return this._deviceFor(identity)?.name ?? identity;
   }
 
-  private _selectedEmitter(draft: RuleData): Emitter | null {
+  private _selectedEmitter(draft: RuleDraft): Emitter | null {
     return (
       this._sourceDetail?.emitters.find(
         (emitter) => emitter.emitter_id === draft.source.emitter_id,
@@ -915,7 +1135,7 @@ export class DeviceLinksRuleEditor extends LitElement {
   }
 
   /** What each step needs before it can be left. Nothing is guessed on the user's behalf. */
-  private _canLeave(step: Step, draft: RuleData): boolean {
+  private _canLeave(step: Step, draft: RuleDraft): boolean {
     switch (step) {
       case "template":
         return true;
@@ -958,6 +1178,7 @@ export class DeviceLinksRuleEditor extends LitElement {
         direction: defaults.direction,
         mirror_source: defaults.mirror,
         features: [...defaults.features],
+        hybrid: [],
         source: { device: "", endpoint: null, emitter_id: "" },
         targets: [],
       };
@@ -967,6 +1188,10 @@ export class DeviceLinksRuleEditor extends LitElement {
     this._draft = {
       ...this.rule,
       features: [...this.rule.features],
+      // Defaulted rather than assumed present: a rule stored before hybrid legs existed
+      // arrives without the key, and a draft with an undefined list would throw on the
+      // first render of the section rather than showing nothing ticked.
+      hybrid: [...(this.rule.hybrid ?? [])],
       targets: [...this.rule.targets],
     };
     this._step = "template";
@@ -979,7 +1204,7 @@ export class DeviceLinksRuleEditor extends LitElement {
     }
   }
 
-  private _update(patch: Partial<RuleData>): void {
+  private _update(patch: Partial<RuleDraft>): void {
     if (this._draft === null) {
       return;
     }
@@ -1004,13 +1229,14 @@ export class DeviceLinksRuleEditor extends LitElement {
     if (!this.api || draft === null) {
       return;
     }
-    if (draft.source.device === "" || draft.source.emitter_id === "" || !draft.targets.length) {
+    const rule = payloadOf(draft);
+    if (rule === null) {
       this._compiled = null;
       return;
     }
     this._validating = true;
     void this.api
-      .validateRule(draft)
+      .validateRule(rule)
       .then((compiled) => {
         this._compiled = compiled;
         this._error = null;
@@ -1028,13 +1254,23 @@ export class DeviceLinksRuleEditor extends LitElement {
     if (!this.api || draft === null) {
       return;
     }
+    // Unreachable from the review step, which cannot be arrived at without a control and a
+    // target, and cheaper than a save that would be refused for a reason the user cannot
+    // see. The type is what makes it a check rather than a hope. It says so out loud rather
+    // than returning quietly: a Save button that does nothing at all is the one outcome
+    // worse than a refusal, and if this ever becomes reachable it has to be visible.
+    const rule = payloadOf(draft);
+    if (rule === null) {
+      this._error = "This rule still needs a control and at least one target.";
+      return;
+    }
     this._saving = true;
     this._error = null;
     try {
-      await this.api.upsertRule(draft, this.profileId);
+      await this.api.upsertRule(rule, this.profileId);
       this.dispatchEvent(
         new CustomEvent<RuleSavedDetail>("dl-rule-saved", {
-          detail: { rule: draft, apply },
+          detail: { rule, apply },
           bubbles: true,
           composed: true,
         }),

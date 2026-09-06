@@ -34,6 +34,33 @@ from custom_components.device_links.models import (
 )
 
 
+class SystemScope(StrEnum):
+    """What a backend's `ObservedLink.is_system` mark applies to.
+
+    The one place two protocols mean genuinely different things by the same flag, so each
+    backend says which, and core asks rather than guessing. Both sentences are worth having
+    where the decision lives:
+
+    - **Z-Wave is `SLOT`**: an association group has one purpose, so a group holding the
+      controller is a lifeline and nothing else may ever go into it, whatever we are trying
+      to put there.
+    - **Zigbee is `ENTRY`**: an endpoint's cluster is a table of independent bindings, so a
+      reporting binding to the coordinator protects itself and nothing beside it.
+
+    Asking by slot everywhere was open item T49. It is right for Z-Wave and false on Zigbee,
+    where Zigbee2MQTT puts a reporting binding on exactly the endpoint and cluster a button's
+    presses come from: every rule from the first Zigbee remote added to a network would have
+    been refused with no way out from the UI.
+
+    A backend that is unsure answers `SLOT`, which refuses more than it must rather than
+    less: this flag guards CLAUDE.md Section 3 rule 4, and the safe direction to be wrong in
+    is the one that declines to write.
+    """
+
+    SLOT = "slot"
+    ENTRY = "entry"
+
+
 class LinkResultStatus(StrEnum):
     """What became of one link the executor asked a backend to write.
 
@@ -211,6 +238,30 @@ class Backend(Protocol):
     ) -> SettingResult:
         """Write one named setting to the device and read it back."""
 
+    async def async_read_indication(self, handle: DeviceHandle, emitter_id: str) -> bool | None:
+        """Return whether one control's own indicator is lit, or None when it cannot be read.
+
+        The indicator is the little light on a scene button, and it is here because hybrid
+        leg kind (c) is the one intent that writes to a control rather than to a link (PRD
+        Section 6.7). Named for what it is rather than for how a protocol carries it: a
+        backend that has no such thing answers None, and the leg refuses to compile.
+
+        None also covers "this control has one and the device has not reported its state",
+        which matters because the leg records what it found before its first write so that
+        turning the leg off puts the light back. Nothing was found, nothing is restored,
+        and that is said rather than papered over with a guess at the default.
+        """
+
+    async def async_write_indication(
+        self, handle: DeviceHandle, emitter_id: str, lit: bool
+    ) -> bool:
+        """Light or unlight one control's own indicator, and say whether it was written.
+
+        A plain bool rather than a `LinkResult`, because this is not a link and never
+        appears in a plan: it is one leg firing, and what a caller does with a failure is
+        count it (FR-H2's `hybrid_errors`) rather than report it into a job.
+        """
+
     def subscribe(self, callback: Callable[[str], None]) -> Callable[[], None]:
         """Call `callback` with a device identity whenever that device's state changes.
 
@@ -221,3 +272,38 @@ class Backend(Protocol):
 
     def wake_instructions(self, handle: DeviceHandle) -> str | None:
         """Return how a user wakes this device, or None when it is always listening."""
+
+    def system_scope(self) -> SystemScope:
+        """Return whether this protocol's system entries reserve their whole slot.
+
+        A constant per adapter rather than a question about one link: it is a fact about the
+        protocol, not about a device, and answering it per link would invite an adapter to
+        make it depend on state. See `SystemScope` for what each answer means.
+        """
+
+    def registry_identifier(self, handle: DeviceHandle) -> tuple[str, str] | None:
+        """Return the device registry identifier the upstream integration registered.
+
+        A `(domain, value)` pair, where the domain is the upstream integration's own
+        (`zwave_js`, `mqtt`, `matter`) and never this one's: our entities attach by
+        reusing what somebody else registered, and inventing a namespace of our own makes
+        an orphan device rather than an error (see `rule_entity`).
+
+        **This is the adapter's question and nobody else's**, which is the whole reason it
+        is on the protocol. A `DeviceHandle` carries a network address and no more, and the
+        rest of the identifier is knowledge only the adapter has: the Z-Wave home id is in
+        the protocol address, while a Zigbee2MQTT identifier embeds the MQTT base topic
+        this instance is configured with, and a second instance on the same broker uses a
+        different one (Stage 0 item P2). Deriving it anywhere above this line would mean
+        core code holding one protocol's format, which is what open item T57 was.
+
+        None means this device has no upstream record and never will: a handle naming a
+        managed Zigbee group is an address on a radio rather than a device somebody added.
+        A handle that should have one but whose device has been removed is not this
+        method's business: it answers with the identifier, and the registry answers with
+        nothing when it holds no such device.
+
+        The identifier is derived rather than stored, for the reason open item T13 records:
+        a stored id goes stale the first time somebody rebuilds their device registry or
+        replaces a node, and a lookup keyed on the protocol address cannot.
+        """

@@ -17,6 +17,7 @@ from custom_components.device_links.backends.base import (
     ObservedDevice,
     SettingResult,
     SettingValue,
+    SystemScope,
 )
 from custom_components.device_links.models import Backend as BackendId
 from custom_components.device_links.models import (
@@ -49,8 +50,12 @@ def test_the_protocol_is_runtime_checkable_and_names_the_expected_surface() -> N
         "async_remove_link",
         "async_read_setting",
         "async_write_setting",
+        "async_read_indication",
+        "async_write_indication",
         "subscribe",
         "wake_instructions",
+        "system_scope",
+        "registry_identifier",
     }
     actual = {name for name in dir(Backend) if not name.startswith("_")}
 
@@ -180,8 +185,22 @@ class _StubBackend:
     ) -> SettingResult:
         return SettingResult(ok=False, reason=Diagnostic("settings_not_available"))
 
+    async def async_read_indication(self, handle: DeviceHandle, emitter_id: str) -> bool | None:
+        return None
+
+    async def async_write_indication(
+        self, handle: DeviceHandle, emitter_id: str, lit: bool
+    ) -> bool:
+        return False
+
     def subscribe(self, callback: Callable[[str], None]) -> Callable[[], None]:
         return lambda: None
 
     def wake_instructions(self, handle: DeviceHandle) -> str | None:
+        return None
+
+    def system_scope(self) -> SystemScope:
+        return SystemScope.SLOT
+
+    def registry_identifier(self, handle: DeviceHandle) -> tuple[str, str] | None:
         return None

@@ -44,6 +44,16 @@ export abstract class DeviceLinksView extends LitElement {
   /** What another view asked this one to open, or null when it was opened plainly. */
   @property({ attribute: false }) selected: string | null = null;
 
+  /**
+   * Whether this Home Assistant allows HA-executed legs (FR-H1).
+   *
+   * From the panel config rather than from a command, because it cannot change without the
+   * config entry reloading. False is the default and the honest answer for an older
+   * backend: no hybrid opt-in is offered, so nothing can be ticked that the backend would
+   * never register.
+   */
+  @property({ type: Boolean }) hybridAllowed = false;
+
   /** Ask the shell to show another tab, and to open something in it. */
   protected goTo(tab: string, select?: string): void {
     this.dispatchEvent(

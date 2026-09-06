@@ -8,7 +8,7 @@ of issues that should exist right now, and everything of ours that is not in tha
 deleted. A condition that clears cannot leave an issue behind, because no code path
 exists that would keep one.
 
-The four:
+The five:
 
 - **E1**, a backend that stopped answering. Not "the upstream integration is missing":
   with one adapted protocol, that state fails setup with `ConfigEntryNotReady` and the
@@ -22,11 +22,16 @@ The four:
   question as "can we read it": a node that is asleep or a backend that is restarting
   makes a rule `unknown` (E4), and raising the swap-flow issue for that is how somebody
   learns to dismiss it.
+- **FR-H2**, HA-executed legs failing often enough to matter. The one failure in this
+  integration with nowhere else to be seen: a leg fires at three in the morning against a
+  house nobody is watching, so there is no dialog and no job summary to report into. The
+  counters live on the entities; this is what puts the fact in front of somebody who was
+  not looking for it.
 - **E18**, stored data that could not be read at all. The entry does not load in that
   state, so this issue is the only thing that can explain what happened, and it names the
   file so the user can move it aside.
 
-**Two of the four cannot be noticed by an event.** A queued write ages without anything
+**Two of the five cannot be noticed by an event.** A queued write ages without anything
 happening: no device answers, no state moves, nothing fires. So the checks also run on a
 timer, which is what makes "more than a day" a real threshold rather than one that only
 triggers when something else happens to change.
@@ -45,6 +50,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, STORAGE_KEY
+from .swap import find_replacements
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -63,7 +69,28 @@ ISSUE_PENDING_WAKEUP: Final = "pending_wakeup"
 # it where the instruction should be is worse than a sentence that does not promise one.
 ISSUE_PENDING_WAKEUP_INSTRUCTED: Final = "pending_wakeup_instructed"
 ISSUE_RULES_MISSING_DEVICES: Final = "rules_missing_devices"
+# FR-S3, and two keys for the same reason the pending-wake-up pair has two: a device
+# that left the network and a node that answers as a different model are different
+# sentences, and one message covering both would describe neither.
+ISSUE_SWAP_CANDIDATE: Final = "swap_candidate"
+ISSUE_SWAP_DEVICE_CHANGED: Final = "swap_device_changed"
 ISSUE_STORAGE_UNREADABLE: Final = "storage_unreadable"
+# FR-H2: a hybrid leg that fails often enough is the one failure in this integration with
+# nowhere else to be seen. A leg fires at three in the morning against a house nobody is
+# watching, so there is no dialog and no job summary; the counters are on the entities and
+# this is what puts the fact in front of somebody who was not looking for it.
+ISSUE_HYBRID_LEGS_FAILING: Final = "hybrid_legs_failing"
+
+# What counts as "failing" for a hybrid leg, measured over the last few firings rather than
+# over the life of the entry (`HybridLegs.recent`). Both halves matter: a rate on its own
+# would raise an issue for one failed press out of one, and a count on its own would stay
+# silent for a leg that has failed forty times out of four thousand. A light that was
+# rebooting when a button was pressed is not a fault; a quarter of recent presses going
+# nowhere is. A window is also what makes it clear again: a lifetime ratio would need a
+# dozen good presses to fall back under the threshold after an hour of a light being
+# unplugged, and would say "4 of the last 4" throughout.
+HYBRID_ERROR_RATE: Final = 0.25
+HYBRID_ERROR_FLOOR: Final = 4
 
 # E5 says 24 hours. A battery remote that has not been touched for a day is one where
 # something is wrong with the device or with the mesh, rather than one nobody has pressed.
@@ -93,7 +120,7 @@ class _Issue:
 
 @callback
 def async_setup_repairs(hass: HomeAssistant, entry: DeviceLinksConfigEntry) -> None:
-    """Start watching for the conditions E1, E5 and E19 describe.
+    """Start watching for the conditions E1, E5, E19 and FR-H2 describe.
 
     Two triggers, because two of the conditions have no event behind them: the coordinator
     tells us whenever anything it knows changed, and the timer covers the passage of time
@@ -121,7 +148,11 @@ def async_check_issues(hass: HomeAssistant, entry: DeviceLinksConfigEntry) -> No
     wanted: dict[str, _Issue] = {}
     _backends(runtime, wanted)
     _pending_wakeups(runtime, wanted)
-    _missing_devices(runtime, wanted)
+    # Before the missing-device report, which leaves out whatever this one has already
+    # taken: two issues about one device is two things to read and one thing to do.
+    replaced = _swap_candidates(runtime, wanted)
+    _missing_devices(runtime, wanted, replaced)
+    _hybrid_legs(runtime, wanted)
 
     registry = ir.async_get(hass)
     existing = {issue_id for (domain, issue_id) in list(registry.issues) if domain == DOMAIN}
@@ -263,7 +294,9 @@ def _pending_since(coordinator: DeviceLinksCoordinator) -> Mapping[str, datetime
     return since
 
 
-def _missing_devices(runtime: DeviceLinksRuntimeData, wanted: dict[str, _Issue]) -> None:
+def _missing_devices(
+    runtime: DeviceLinksRuntimeData, wanted: dict[str, _Issue], replaced: set[str]
+) -> None:
     """Add one issue naming every rule whose device is not on the network (E19).
 
     One issue for all of them, because the answer is the same for each: the swap flow,
@@ -293,6 +326,9 @@ def _missing_devices(runtime: DeviceLinksRuntimeData, wanted: dict[str, _Issue])
         for handle in (rule.source.device, *(target.device for target in rule.targets)):
             if not availability.get(handle.backend, False):
                 continue
+            if handle.identity in replaced:
+                # A swap has been offered for this one, which is the thing to do about it.
+                continue
             if coordinator.handle_for(handle.identity) is None:
                 rules.add(rule.id)
                 devices.add(handle.name_at_authoring)
@@ -307,3 +343,73 @@ def _missing_devices(runtime: DeviceLinksRuntimeData, wanted: dict[str, _Issue])
             "devices": ", ".join(sorted(devices)),
         },
     )
+
+
+def _hybrid_legs(runtime: DeviceLinksRuntimeData, wanted: dict[str, _Issue]) -> None:
+    """Say when Home Assistant is failing to carry the legs it took on (FR-H2).
+
+    One issue for the integration rather than one per rule: the answer is the same for
+    every one of them, and it is not "look at this rule", it is "the part of your setup
+    that depends on Home Assistant being up and reachable is not working". The rules are
+    named in the message so it can be acted on.
+    """
+    errors, fired = runtime.hybrid.recent
+    if errors < HYBRID_ERROR_FLOOR or fired == 0:
+        return
+    if errors / fired < HYBRID_ERROR_RATE:
+        return
+    wanted[ISSUE_HYBRID_LEGS_FAILING] = _Issue(
+        translation_key=ISSUE_HYBRID_LEGS_FAILING,
+        severity=ir.IssueSeverity.WARNING,
+        placeholders={
+            "errors": str(errors),
+            "fired": str(fired),
+            "legs": str(runtime.hybrid.totals.legs),
+        },
+    )
+
+
+def _swap_candidates(runtime: DeviceLinksRuntimeData, wanted: dict[str, _Issue]) -> set[str]:
+    """Offer the swap flow for each device that looks replaced (FR-S3).
+
+    Returns the identities it spoke for, so E19 does not report them a second time.
+
+    The judgment this issue lives or dies by is the trigger, and it is in
+    `swap.find_replacements` rather than here, because it is a question about rules and
+    devices rather than about Home Assistant. The short version: a device that is merely
+    unreachable never raises this, only one that has left its own network's device listing
+    or come back as a different model, and only when something with that model is sitting
+    unused on the network ready to take over. A Repairs issue that appeared every time a
+    battery remote went quiet for an hour would be the last one anybody read.
+
+    Not fixable in place. The flow is three decisions (which replacement, which control
+    takes over from which, and a plan to confirm), which is a wizard rather than a confirm
+    dialog, so the issue says where it is and the panel runs it.
+    """
+    coordinator = runtime.coordinator
+    profile = coordinator.active_profile
+    if profile is None:
+        return set()
+    replacements = find_replacements(
+        rules=profile.rules,
+        listed=coordinator.devices,
+        answering=[
+            backend_id
+            for backend_id, available in coordinator.backend_availability.items()
+            if available
+        ],
+    )
+    for replacement in replacements:
+        wanted[f"{ISSUE_SWAP_CANDIDATE}_{replacement.old.identity}"] = _Issue(
+            translation_key=(
+                ISSUE_SWAP_DEVICE_CHANGED if replacement.changed_in_place else ISSUE_SWAP_CANDIDATE
+            ),
+            severity=ir.IssueSeverity.WARNING,
+            placeholders={
+                "device": replacement.old.name_at_authoring,
+                "replacement": replacement.candidates[0].name_at_authoring,
+                "count": str(len(replacement.rule_ids)),
+                "rules": ", ".join(replacement.rule_ids),
+            },
+        )
+    return {replacement.old.identity for replacement in replacements}

@@ -1,0 +1,658 @@
+"""The payload the rule editor builds, pushed through the real `rules/upsert`.
+
+Open item T50 is what this file exists for, and the shape of that bug is the reason it
+had to be a new kind of test rather than one more case in an old one.
+
+Everything here was already tested in layers, and each layer was right about itself.
+`tests/test_panel_contract.py` proves the panel's TypeScript types are exactly the shapes
+`serialize.py` produces, in both directions. `tests/test_websocket.py` exercises every
+command against payloads written beside it. `frontend/test/rule-editor.test.ts` proves the
+stepper sends `rules/upsert` when the user presses Save. Every one of those passed while
+**every rule the panel could save was refused**: the editor built
+`source: {device, endpoint: null, emitter_id}`, `yaml_io._require_int` wants a whole
+number, and the two never met because a type check is not an acceptance check and no test
+took a payload the editor would really build and gave it to the handler that really reads
+it.
+
+So that is what this file does, and the only thing it does: build the rule the way
+`dialogs/rule-editor.ts` builds it, out of the same serialized payloads the panel is
+handed (`devices/list` rows and `devices/get` details), send it through `rules/upsert` over
+a real WebSocket connection, and assert it is accepted and comes back the same. Four
+shapes, because the endpoints differ in all four: a one-way Z-Wave rule, a two-way Z-Wave
+rule (the reverse leg is where endpoints bite hardest), a one-way Zigbee rule, whose
+binding is refused outright if the target endpoint is not named, and a two-way Zigbee rule,
+which is the pair of Inovelli Blues the `virtual_3way` template defaults to.
+
+`panel_rule` below is the mirror of the editor, and it is a mirror rather than the thing
+itself because the editor is TypeScript. Two things keep the mirror honest:
+
+- `frontend/test/rule-editor.test.ts::the payload it sends` drives the real component and
+  asserts the payload it sends derives its endpoints from exactly these two fields, so an
+  editor that stopped filling them in fails there.
+- `RuleSourceData.endpoint` is `number` in `types.ts`, not `number | null`, so the
+  original bug is now a TypeScript error rather than something a test has to notice.
+
+The endpoints are read with `.get`, the way a JavaScript client reads a field that may not
+be in the payload at all: a serializer that stopped carrying `Emitter.endpoint` or
+`DeviceRow.receiving_endpoint` sends `null` from the panel and must fail here with the
+refusal a user would see, not with a `KeyError` about a Python dictionary.
+
+Since T57 the Zigbee cases go through `devices/get` by Home Assistant device id, exactly
+as the Z-Wave ones do: every backend answers `registry_identifier` for its own devices, so
+a Zigbee handle resolves to the `mqtt` device record Zigbee2MQTT's discovery registered and
+the panel can open one. They used to reach `websocket._device_detail` directly, because
+that lookup had no answer for Zigbee and no Zigbee device could be opened or chosen as a
+source at all. `test_issue_57_...` below is the acceptance half of that: it walks the whole
+path a user walks, from the device list to a saved rule, rather than asserting that an
+identifier string comes out right.
+
+One limit, said here rather than left to be discovered: the last two tests are pins rather
+than regression tests. They passed before T50 was closed and are here to say what must keep
+being refused.
+"""
+
+from __future__ import annotations
+
+from collections.abc import AsyncGenerator, Iterable, Mapping
+from typing import Any
+
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
+import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.typing import WebSocketGenerator
+
+import custom_components.device_links as integration
+from custom_components.device_links.const import DOMAIN
+from custom_components.device_links.models import Backend as BackendId
+from tests.conftest import CONTROLLER, MAIN_LIGHTS
+from tests.factories import AUX_IEEE, LIGHT_IEEE, zigbee_handle
+from tests.fakes.zigbee import FakeBridge, build_bridge_from_fixture
+
+# --------------------------------------------------------------------------------------
+# The editor, mirrored
+# --------------------------------------------------------------------------------------
+
+# `TEMPLATE_DEFAULTS` in `dialogs/rule-editor.ts`: what choosing a template pre-fills.
+TEMPLATE_DEFAULTS: Mapping[str, tuple[list[str], str, str]] = {
+    "remote": (["on_off", "level_set", "level_hold"], "one_way", "leave"),
+    "virtual_3way": (["on_off", "level_set", "level_hold"], "two_way", "leave"),
+    "scene_button": (["on_off"], "one_way", "leave"),
+    "off_all": (["on_off"], "one_way", "off"),
+    "status_feedback": (["status_report"], "one_way", "leave"),
+    "custom": (["on_off"], "one_way", "leave"),
+}
+
+
+def panel_rule(  # noqa: PLR0913
+    *,
+    rule_id: str,
+    name: str,
+    template: str,
+    source: dict[str, Any],
+    detail: dict[str, Any],
+    emitter_id: str,
+    targets: Iterable[dict[str, Any]],
+    hybrid: list[str] | None = None,
+) -> dict[str, Any]:
+    """Return the rule payload the editor would send for these choices.
+
+    Step by step as `rule-editor.ts` does it: the template fills the defaults, choosing a
+    device sets the backend, choosing a control sets the source endpoint and drops the
+    features that control cannot carry, and ticking a target takes the endpoint the device
+    says a link lands on when nobody was offered the choice.
+    """
+    defaults, direction, mirror = TEMPLATE_DEFAULTS[template]
+    emitter = next(
+        candidate for candidate in detail["emitters"] if candidate["emitter_id"] == emitter_id
+    )
+    # `_chooseEmitter`: a feature the control cannot carry is dropped rather than left to
+    # compile into a warning the user did not cause, and an empty set falls back to one.
+    kept = [feature for feature in defaults if feature in emitter["actions"]]
+    return {
+        "id": rule_id,
+        "name": name,
+        "template": template,
+        "backend": source["backend"],
+        "enabled": True,
+        "direction": direction,
+        "mirror_source": mirror,
+        # `available.slice(0, 1)` in the editor, which is the first key of `actions` in the
+        # order the payload lists them, not the first in sorted order.
+        "features": kept or list(emitter["actions"])[:1],
+        # Always sent, empty on almost every rule: the editor's hybrid section writes what
+        # was ticked, and a rule that ticked nothing says so rather than omitting the key.
+        "hybrid": hybrid or [],
+        "source": {
+            "device": source["identity"],
+            "endpoint": emitter.get("endpoint"),
+            "emitter_id": emitter_id,
+        },
+        "targets": [
+            {"device": target["identity"], "endpoint": target.get("receiving_endpoint")}
+            for target in targets
+        ],
+    }
+
+
+# --------------------------------------------------------------------------------------
+# A house with both radios in it, and an admin connection to it
+# --------------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def zigbee2mqtt(monkeypatch: pytest.MonkeyPatch) -> FakeBridge:
+    """Make setup believe MQTT is loaded, and hand the adapter the G1 capture."""
+    bridge = build_bridge_from_fixture()
+    monkeypatch.setattr(integration, "async_mqtt_is_available", lambda hass: True)
+    monkeypatch.setattr(integration, "HomeAssistantMqttClient", lambda hass: bridge)
+    return bridge
+
+
+@pytest.fixture
+async def both_radios(
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    zwave_js_devices: dict[int, dr.DeviceEntry],
+    zigbee2mqtt_devices: dict[str, dr.DeviceEntry],
+    zigbee2mqtt: FakeBridge,
+) -> AsyncGenerator[MockConfigEntry]:
+    """Device Links over the fake Z-Wave network and the fake Zigbee bridge at once."""
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=DOMAIN, title="Device Links")
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    yield entry
+    if entry.state is ConfigEntryState.LOADED:
+        await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
+
+@pytest.fixture
+async def client(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, both_radios: MockConfigEntry
+) -> Any:
+    """An admin WebSocket client, which is the only kind the panel can be."""
+    return await hass_ws_client(hass)
+
+
+async def call(client: Any, command: str, **data: Any) -> Any:
+    """Send one command and return its result, failing loudly if it was refused."""
+    await client.send_json_auto_id({"type": f"device_links/{command}", **data})
+    message = await client.receive_json()
+    assert message["success"], message["error"]
+    return message["result"]
+
+
+async def refused(client: Any, command: str, **data: Any) -> dict[str, Any]:
+    """Send one command that is expected to be refused, and return the refusal."""
+    await client.send_json_auto_id({"type": f"device_links/{command}", **data})
+    message = await client.receive_json()
+    assert not message["success"], f"{command} was accepted: {message.get('result')}"
+    error: dict[str, Any] = message["error"]
+    return error
+
+
+async def rows(client: Any) -> dict[str, dict[str, Any]]:
+    """Return the device list the panel holds, keyed by identity."""
+    listed = await call(client, "devices/list")
+    return {device["identity"]: device for device in listed["devices"]}
+
+
+async def zwave_detail(client: Any, device: dict[str, Any]) -> dict[str, Any]:
+    """Return what the editor loads when a Z-Wave device is chosen as the source."""
+    return await call(client, "devices/get", device_id=device["device_id"])
+
+
+async def zigbee_detail(client: Any, device: dict[str, Any]) -> dict[str, Any]:
+    """Return what the editor loads when a Zigbee device is chosen as the source.
+
+    The same call the Z-Wave half makes, which is the whole of what T57 changed: a Zigbee
+    handle now resolves to the `mqtt` device record Zigbee2MQTT's discovery registered, so
+    `devices/get` can be asked for one by Home Assistant device id.
+    """
+    return await call(client, "devices/get", device_id=device["device_id"])
+
+
+def stored(profile: dict[str, Any], rule_id: str) -> dict[str, Any]:
+    """Return one rule as it came back from the backend, by id."""
+    return next(row["rule"] for row in profile["rules"] if row["rule"]["id"] == rule_id)
+
+
+@pytest.fixture
+async def profile(client: Any) -> str:
+    """An empty profile of the user's own, made active, as pressing New profile does."""
+    created = await call(
+        client, "profiles/create", profile={"id": "panel", "name": "Panel", "rules": []}
+    )
+    profile_id: str = created["profile"]["id"]
+    await call(client, "profiles/activate", profile_id=profile_id)
+    return profile_id
+
+
+# --------------------------------------------------------------------------------------
+# The rules the panel builds, through the handler that reads them
+# --------------------------------------------------------------------------------------
+
+
+async def test_issue_50_a_one_way_zwave_rule_the_panel_builds_is_accepted(
+    client: Any, profile: str
+) -> None:
+    """The plainest rule the panel can produce: one button, one light, on/off and dim."""
+    devices = await rows(client)
+    source = devices[f"zwave:{_home()}:{CONTROLLER}"]
+    detail = await zwave_detail(client, source)
+    target = devices[f"zwave:{_home()}:{MAIN_LIGHTS}"]
+    rule = panel_rule(
+        rule_id="panel-remote",
+        name="Main button controls Master Bedroom Lights",
+        template="remote",
+        source=source,
+        detail=detail,
+        emitter_id=_first_control(detail),
+        targets=[target],
+    )
+
+    compiled = await call(client, "rules/validate", rule=rule)
+    saved = await call(client, "rules/upsert", rule=rule, profile_id=profile)
+
+    assert compiled["errors"] == []
+    assert compiled["links"], "the rule the panel built compiles to no links"
+    assert saved["rule"] == {**rule, "features": sorted(rule["features"])}
+    # And it is really stored, rather than merely echoed back.
+    assert stored(await call(client, "profiles/get", profile_id=profile), "panel-remote")
+
+
+async def test_a_rule_with_the_hybrid_opt_in_the_panel_builds_is_accepted(
+    client: Any, profile: str
+) -> None:
+    """The HA-executed opt-in, from the checkbox to the stored rule and back (FR-H1).
+
+    The sixth test level in CLAUDE.md Section 8, on the newest boundary in the product: the
+    editor's hybrid section builds a `hybrid` list, `rules/upsert` validates it, and the
+    round trip has to survive `yaml_io` in both directions. A contract test that only agreed
+    on types would pass while the panel sent a value the backend refused, which is exactly
+    what T50 was.
+    """
+    devices = await rows(client)
+    source = devices[f"zwave:{_home()}:{CONTROLLER}"]
+    detail = await zwave_detail(client, source)
+    target = devices[f"zwave:{_home()}:{MAIN_LIGHTS}"]
+    # The editor only offers an opt-in on a control that reports what the leg needs, so
+    # this picks the control the way `_renderHybridSection` filters them.
+    button = next(emitter for emitter in detail["emitters"] if emitter["scene_id"] is not None)
+    rule = panel_rule(
+        rule_id="panel-hybrid",
+        name="Button 2 only ever turns things off",
+        template="scene_button",
+        source=source,
+        detail=detail,
+        emitter_id=button["emitter_id"],
+        targets=[target],
+        hybrid=["off_only"],
+    )
+
+    compiled = await call(client, "rules/validate", rule=rule)
+    saved = await call(client, "rules/upsert", rule=rule, profile_id=profile)
+
+    assert compiled["errors"] == []
+    # The whole of kind (a): the association is not written, and the leg carries the intent.
+    assert compiled["links"] == []
+    assert [leg["kind"] for leg in compiled["hybrid_legs"]] == ["off_only"]
+    assert saved["rule"]["hybrid"] == ["off_only"]
+    assert stored(await call(client, "profiles/get", profile_id=profile), "panel-hybrid")[
+        "hybrid"
+    ] == ["off_only"]
+
+
+async def test_issue_50_a_two_way_zwave_rule_the_panel_builds_is_accepted(
+    client: Any, profile: str
+) -> None:
+    """Two-way is where the endpoints bite: the reverse leg lands back on the source."""
+    devices = await rows(client)
+    source = devices[f"zwave:{_home()}:{CONTROLLER}"]
+    detail = await zwave_detail(client, source)
+    rule = panel_rule(
+        rule_id="panel-3way",
+        name="Virtual 3-way",
+        template="virtual_3way",
+        source=source,
+        detail=detail,
+        emitter_id=_first_control(detail),
+        targets=[devices[f"zwave:{_home()}:{MAIN_LIGHTS}"]],
+    )
+
+    compiled = await call(client, "rules/validate", rule=rule)
+    await call(client, "rules/upsert", rule=rule, profile_id=profile)
+    plan = await call(client, "plan", rule_ids=["panel-3way"])
+
+    assert compiled["errors"] == []
+    # Both directions compiled, and each leg drives from the endpoint its own control uses.
+    assert {link["source"]["identity"] for link in compiled["links"]} == {
+        source["identity"],
+        devices[f"zwave:{_home()}:{MAIN_LIGHTS}"]["identity"],
+    }
+    assert plan["counts"]["add"], "a two-way rule the panel saved planned no work"
+    assert not plan["counts"]["blocked"]
+
+
+async def test_issue_50_a_zigbee_rule_the_panel_builds_is_accepted(
+    hass: HomeAssistant, client: Any, both_radios: MockConfigEntry, profile: str
+) -> None:
+    """Zigbee refuses a binding that does not name both endpoints, so this is the sharp one.
+
+    The aux paddle drives from endpoint 2 and the light's load receives on endpoint 1.
+    Neither is a number the panel can guess: one comes from the emitter the user picked and
+    the other from the target device's own capabilities.
+    """
+    devices = await rows(client)
+    source = devices[zigbee_handle(AUX_IEEE).identity]
+    detail = await zigbee_detail(client, source)
+    target = devices[zigbee_handle(LIGHT_IEEE).identity]
+    rule = panel_rule(
+        rule_id="panel-zigbee",
+        name="Aux paddle controls Entrance Inside Lights",
+        template="remote",
+        source=source,
+        detail=detail,
+        emitter_id=_first_control(detail),
+        targets=[target],
+    )
+
+    compiled = await call(client, "rules/validate", rule=rule)
+    await call(client, "rules/upsert", rule=rule, profile_id=profile)
+    plan = await call(client, "plan", rule_ids=["panel-zigbee"])
+
+    assert rule["backend"] == str(BackendId.ZIGBEE2MQTT)
+    assert compiled["errors"] == []
+    assert compiled["warnings"] == []
+    # The endpoints the hardware really has, on both ends of every link.
+    assert {
+        (link["source"]["endpoint"], link["target"]["endpoint"]) for link in compiled["links"]
+    } == {(2, 1)}
+    assert plan["counts"]["add"], "a Zigbee rule the panel saved planned no work"
+    assert not plan["counts"]["blocked"]
+
+
+async def test_issue_50_a_two_way_zigbee_rule_the_panel_builds_converges(
+    hass: HomeAssistant, client: Any, both_radios: MockConfigEntry, profile: str
+) -> None:
+    """The canonical two-Inovelli-Blue 3-way, authored the way the panel authors it."""
+    devices = await rows(client)
+    source = devices[zigbee_handle(AUX_IEEE).identity]
+    detail = await zigbee_detail(client, source)
+    target = devices[zigbee_handle(LIGHT_IEEE).identity]
+    rule = panel_rule(
+        rule_id="panel-zigbee-3way",
+        name="Entrance 3-way",
+        template="virtual_3way",
+        source=source,
+        detail=detail,
+        emitter_id=_first_control(detail),
+        targets=[target],
+    )
+
+    compiled = await call(client, "rules/validate", rule=rule)
+    await call(client, "rules/upsert", rule=rule, profile_id=profile)
+    plan = await call(client, "plan", rule_ids=["panel-zigbee-3way"])
+
+    assert compiled["errors"] == []
+    assert compiled["warnings"] == []
+    # Forward off the aux paddle onto the light's load, reverse off the light's paddle onto
+    # the aux's load. Named by device as well as by endpoint, because both legs run between
+    # the same pair of endpoint numbers: a set of (2, 1) pairs alone would still hold when
+    # the reverse leg had stopped being compiled at all, which is the regression this is
+    # here to catch. Nothing here is endpoint 0, the Z-Wave root, which is nothing on Zigbee.
+    assert {
+        (
+            link["source"]["identity"],
+            link["source"]["endpoint"],
+            link["target"]["identity"],
+            link["target"]["endpoint"],
+        )
+        for link in compiled["links"]
+    } == {
+        (source["identity"], 2, target["identity"], 1),
+        (target["identity"], 2, source["identity"], 1),
+    }
+    assert plan["counts"]["add"]
+    assert not plan["counts"]["blocked"]
+
+
+async def test_issue_50_a_rule_the_panel_saved_survives_export_and_import(
+    client: Any, profile: str
+) -> None:
+    """A rule the panel built is a rule the YAML codec can write and read back.
+
+    `rules/upsert` and `profiles/import` narrow the same data through the same module, so
+    a payload one accepts and the other refuses would be a rule that could be saved and
+    never restored.
+    """
+    devices = await rows(client)
+    source = devices[f"zwave:{_home()}:{CONTROLLER}"]
+    detail = await zwave_detail(client, source)
+    rule = panel_rule(
+        rule_id="panel-export",
+        name="Goodnight",
+        template="off_all",
+        source=source,
+        detail=detail,
+        emitter_id=_first_control(detail),
+        targets=[devices[f"zwave:{_home()}:{MAIN_LIGHTS}"]],
+    )
+    await call(client, "rules/upsert", rule=rule, profile_id=profile)
+
+    exported = await call(client, "profiles/export", profile_id=profile)
+    imported = await call(client, "profiles/import", yaml=exported["yaml"])
+    reread = stored(await call(client, "profiles/get", profile_id=profile), "panel-export")
+
+    assert imported["profile"]["rules"] == 1
+    # The number itself, not merely a rule that parsed: an endpoint dropped in the file
+    # would come back as a rule that still reads as valid and links somewhere else.
+    assert reread["source"] == rule["source"]
+    assert reread["targets"] == rule["targets"]
+
+
+async def test_a_target_that_can_receive_nothing_is_reported_before_the_save(
+    hass: HomeAssistant, client: Any, both_radios: MockConfigEntry, profile: str
+) -> None:
+    """A device with no endpoint for a link to land on, chosen as a target.
+
+    The other half of the endpoint decision, and the one that has to end somewhere a user
+    can act. `DeviceCapabilities.receiving_endpoint` is None for the Aqara sensors on this
+    network, because they serve no cluster a binding could send to, and that is the same
+    devices whose `receivable` set is empty. So the editor sends a null endpoint, and the
+    answer the user gets is the compiler's, at the review step, before anything is stored:
+    "cannot act on on_off", per feature, with the target named, and "Save and apply"
+    disabled because the rule compiles to nothing. Saving it anyway is still allowed and
+    still accepted, which is the editor's deliberate choice (a rule that could not be saved
+    is only lost), so this is a rule reported as blocked rather than a save that fails.
+    """
+    devices = await rows(client)
+    source = devices[zigbee_handle(AUX_IEEE).identity]
+    detail = await zigbee_detail(client, source)
+    sensor = next(
+        device
+        for device in devices.values()
+        if device["backend"] == str(BackendId.ZIGBEE2MQTT) and device["receiving_endpoint"] is None
+    )
+    rule = panel_rule(
+        rule_id="panel-sensor",
+        name="Paddle drives a thermometer",
+        template="remote",
+        source=source,
+        detail=detail,
+        emitter_id=_first_control(detail),
+        targets=[sensor],
+    )
+
+    compiled = await call(client, "rules/validate", rule=rule)
+
+    assert compiled["links"] == []
+    assert {error["translation_key"] for error in compiled["errors"]} == {"target_cannot_receive"}
+    assert all(error["placeholders"]["device"] == sensor["name"] for error in compiled["errors"])
+
+
+async def test_issue_57_a_zigbee_device_can_be_opened_and_used_as_a_rule_source(
+    client: Any, profile: str
+) -> None:
+    """T57, end to end: list, open, refresh, author, save, plan. All by device id.
+
+    The acceptance half of the sixth test level. `registry_identifier` returning the right
+    string is a unit test and it is not the claim that matters: the claim is that a person
+    can pick a Zigbee device in the panel and end up with a rule that plans work, through
+    the commands the panel really sends.
+
+    So every step here is the panel's own path and not a shortcut around it. The device
+    list is what the Devices view and the editor's source picker both filter on, and the
+    picker drops any row whose `device_id` is null, so the row is checked for one before
+    anything else: that null is the whole of what T57 was. `devices/get` and
+    `devices/refresh` both take a device id, and the Devices view calls the second one when
+    a user presses Refresh. `plan` takes a list of them, which is what the Devices view's
+    "Plan for this device" sends.
+    """
+    devices = await rows(client)
+    source = devices[zigbee_handle(AUX_IEEE).identity]
+
+    # 1. The source picker can see it at all, which is what was broken.
+    assert source["device_id"] is not None, "a Zigbee device still has no device id"
+    assert source["emitters"] > 0, "the source picker also needs a device with controls"
+
+    # 2. Opening it, and refreshing it, both of which the Devices view does by id.
+    detail = await zigbee_detail(client, source)
+    refreshed = await call(client, "devices/refresh", device_id=source["device_id"], deep=False)
+
+    assert detail["device"]["identity"] == source["identity"]
+    assert refreshed["device"]["identity"] == source["identity"]
+    assert [emitter["emitter_id"] for emitter in detail["emitters"]] == [
+        emitter["emitter_id"] for emitter in refreshed["emitters"]
+    ]
+
+    # 3. Authoring a rule off one of its controls, and saving it.
+    target = devices[zigbee_handle(LIGHT_IEEE).identity]
+    rule = panel_rule(
+        rule_id="panel-zigbee-source",
+        name="Aux paddle controls Entrance Inside Lights",
+        template="remote",
+        source=source,
+        detail=detail,
+        emitter_id=_first_control(detail),
+        targets=[target],
+    )
+    saved = await call(client, "rules/upsert", rule=rule, profile_id=profile)
+
+    assert saved["rule"]["source"]["device"] == source["identity"]
+
+    # 4. And planning for that device by id, which is the last command taking one.
+    plan = await call(client, "plan", device_ids=[source["device_id"]])
+
+    assert plan["counts"]["add"], "a rule sourced on a Zigbee device planned no work"
+    assert [device["identity"] for device in plan["devices"]] == [source["identity"]]
+
+
+async def test_issue_57_a_zigbee_rules_switch_lands_on_that_devices_page(
+    hass: HomeAssistant, client: Any, both_radios: MockConfigEntry, profile: str
+) -> None:
+    """The other half of what an identifier is for: FR-E1 attachment, on Zigbee.
+
+    A rule's switch goes on its source device's own device page, which needs the same
+    identifier and was equally impossible before T57. Counted as devices rather than as
+    entities, because the failure mode is not a missing switch: it is a second, orphaned
+    device page beside the real one, which "the entity exists" passes for.
+    """
+    from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+
+    registry = dr.async_get(hass)
+    devices = await rows(client)
+    source = devices[zigbee_handle(AUX_IEEE).identity]
+    detail = await zigbee_detail(client, source)
+    upstream = registry.async_get(source["device_id"])
+    assert upstream is not None
+    before = {frozenset(device.identifiers) for device in registry.devices.values()}
+    rule = panel_rule(
+        rule_id="panel-zigbee-entity",
+        name="Aux paddle controls Entrance Inside Lights",
+        template="remote",
+        source=source,
+        detail=detail,
+        emitter_id=_first_control(detail),
+        targets=[devices[zigbee_handle(LIGHT_IEEE).identity]],
+    )
+    await call(client, "rules/upsert", rule=rule, profile_id=profile)
+    await hass.async_block_till_done()
+
+    entities = er.async_get(hass)
+    switches = [
+        entry
+        for entry in er.async_entries_for_config_entry(entities, both_radios.entry_id)
+        if entry.unique_id.endswith("_rule_panel-zigbee-entity")
+    ]
+
+    assert len(switches) == 1, "no rule switch was created for a Zigbee-sourced rule"
+    attached = registry.async_get(switches[0].device_id or "")
+    assert attached is not None
+    assert attached.identifiers == upstream.identifiers, (
+        "the rule switch is not on the Zigbee device: its record carries "
+        f"{attached.identifiers} rather than {upstream.identifiers}"
+    )
+    assert {frozenset(device.identifiers) for device in registry.devices.values()} == before, (
+        "attaching to the Zigbee device made a device group of its own, which is the "
+        "orphan a near-miss identifier produces"
+    )
+
+
+# --------------------------------------------------------------------------------------
+# What the backend still refuses, and why that is the right layer for it
+# --------------------------------------------------------------------------------------
+
+
+async def test_a_null_source_endpoint_is_still_refused_rather_than_guessed(
+    client: Any, profile: str
+) -> None:
+    """T50's decision, pinned: the editor fills the endpoints in, and nothing else does.
+
+    A null arriving here would have to mean both "the user did not choose" and "there is
+    genuinely no endpoint", and those need different answers. So the refusal stays, and
+    this is the message that was reaching every save from the panel until T50 was closed.
+    """
+    devices = await rows(client)
+    source = devices[f"zwave:{_home()}:{CONTROLLER}"]
+    detail = await zwave_detail(client, source)
+    rule = panel_rule(
+        rule_id="panel-null",
+        name="No endpoint",
+        template="remote",
+        source=source,
+        detail=detail,
+        emitter_id=_first_control(detail),
+        targets=[devices[f"zwave:{_home()}:{MAIN_LIGHTS}"]],
+    )
+    rule["source"]["endpoint"] = None
+
+    error = await refused(client, "rules/upsert", rule=rule, profile_id=profile)
+
+    assert error["translation_key"] == "profile_invalid"
+    assert "source endpoint must be a whole number, not nothing" in error["message"]
+
+
+# --------------------------------------------------------------------------------------
+# Helpers
+# --------------------------------------------------------------------------------------
+
+
+def _home() -> str:
+    """Return the fake network's home id, which every Z-Wave identity starts with."""
+    from tests.factories import HOME_ID  # noqa: PLC0415
+
+    return str(HOME_ID)
+
+
+def _first_control(detail: dict[str, Any]) -> str:
+    """Return the first control the editor would offer, which is what a user clicks.
+
+    A lifeline is shown and is not selectable, exactly as `_renderEmitter` renders it.
+    """
+    return next(
+        emitter["emitter_id"] for emitter in detail["emitters"] if not emitter["is_lifeline"]
+    )

@@ -31,6 +31,7 @@ from custom_components.device_links.models import (
     Direction,
     Emitter,
     Feature,
+    HybridKind,
     HybridLeg,
     Link,
     LinkTarget,
@@ -117,6 +118,7 @@ class _Compilation:
     capabilities: Mapping[str, DeviceCapabilities]
     links: list[Link] = field(default_factory=list)
     settings: list[SettingWrite] = field(default_factory=list)
+    hybrid_legs: list[HybridLeg] = field(default_factory=list)
     warnings: list[Diagnostic] = field(default_factory=list)
     errors: list[Diagnostic] = field(default_factory=list)
 
@@ -127,8 +129,16 @@ class _Compilation:
         if source is None or emitter is None:
             return self._result()
 
-        actions = self._resolved_actions(emitter)
-        for target, target_capabilities in self._targets():
+        taken = self._hybrid_features()
+        actions = self._resolved_actions(emitter, self.rule.features - set(taken), taken)
+        # The reverse leg carries what the forward one does **plus** whatever a hybrid leg
+        # took over, and that is not an oversight: an association carries on and off
+        # together, so a rule that limits its own direction to one of them cannot limit the
+        # other direction at all. `hybrid_reverse_carries_both` is the warning that says so,
+        # and dropping the feature here instead would have made that warning a lie.
+        reverse = sorted(set(actions) | set(taken))
+        targets = self._targets()
+        for target, target_capabilities in targets:
             self._add_links(
                 _Leg(
                     writer=source,
@@ -139,13 +149,15 @@ class _Compilation:
                 ),
                 actions,
             )
-            self._compile_reverse(source, target_capabilities, actions)
+            self._compile_reverse(source, target_capabilities, reverse)
 
+        self._compile_hybrid(source, emitter, taken, targets)
         self._check_semantics(source, emitter)
         self._compile_mirror(source)
         self.links.sort(
             key=lambda link: (link.target.handle.identity, link.feature, link.fingerprint)
         )
+        self.hybrid_legs.sort(key=lambda leg: leg.identity)
         return self._result()
 
     def _result(self) -> CompiledRule:
@@ -153,6 +165,7 @@ class _Compilation:
         return CompiledRule(
             links=tuple(self.links),
             settings=tuple(self.settings),
+            hybrid_legs=tuple(self.hybrid_legs),
             warnings=_distinct(self.warnings),
             errors=_distinct(self.errors),
         )
@@ -189,16 +202,23 @@ class _Compilation:
         )
         return None
 
-    def _resolved_actions(self, emitter: Emitter) -> dict[Feature, str]:
+    def _resolved_actions(
+        self, emitter: Emitter, wanted: frozenset[Feature], taken: Mapping[Feature, HybridKind]
+    ) -> dict[Feature, str]:
         """Return the group carrying each requested feature, reporting the ones with none.
 
         A feature the control cannot carry is a warning while anything else still compiles,
         and an error when nothing does: a rule that produces no link at all has not been
         partly honoured, it has been ignored, and the user has to be told that plainly.
+
+        `wanted` is what the **native** legs still owe, which is the rule's features less
+        whatever a hybrid leg has taken over. A feature a hybrid leg carries is never
+        reported as unavailable: the control not sending it is precisely why the leg exists,
+        and saying so would be reporting the answer as the problem.
         """
         resolved: dict[Feature, str] = {}
         unavailable: list[Diagnostic] = []
-        for feature in sorted(self.rule.features):
+        for feature in sorted(wanted):
             group = emitter.actions.get(feature)
             if group is None:
                 unavailable.append(
@@ -210,7 +230,10 @@ class _Compilation:
             else:
                 resolved[feature] = group
         (self.warnings if resolved else self.errors).extend(unavailable)
-        if Feature.LEVEL_HOLD in resolved and Feature.ON_OFF not in resolved:
+        # Hold-to-dim with nothing turning the light on is a rule that half works, and a
+        # feature a hybrid leg took over is turning it on: reporting it here would be the
+        # same "the answer as the problem" the docstring above refuses.
+        if Feature.LEVEL_HOLD in resolved and Feature.ON_OFF not in {*resolved, *taken}:
             self.warnings.append(
                 Diagnostic("level_hold_without_on_off", {"emitter": emitter.label})
             )
@@ -221,12 +244,17 @@ class _Compilation:
         usable: list[tuple[RuleTarget, DeviceCapabilities]] = []
         for target in self.rule.targets:
             if target.device.identity == self.rule.source.device.identity:
-                self.errors.append(
-                    Diagnostic(
-                        "self_association_use_hybrid_leg",
-                        {"device": target.device.name_at_authoring},
+                # A rule that names its own source as a target is asking for kind (b), and
+                # the only question is whether the user opted in. With the opt-in it becomes
+                # a hybrid leg in `_compile_hybrid`; without it the refusal stands and its
+                # message is the one that names the way out.
+                if HybridKind.SELF_LOAD not in self.rule.hybrid:
+                    self.errors.append(
+                        Diagnostic(
+                            "self_association_use_hybrid_leg",
+                            {"device": target.device.name_at_authoring},
+                        )
                     )
-                )
                 continue
             capabilities = self._capabilities_of(target.device.identity)
             if capabilities is None:
@@ -297,7 +325,7 @@ class _Compilation:
         self,
         source: DeviceCapabilities,
         target: DeviceCapabilities,
-        actions: Mapping[Feature, str],
+        features: Sequence[Feature],
     ) -> None:
         """Compile the other direction of a two-way rule, off one control on the target.
 
@@ -307,10 +335,19 @@ class _Compilation:
         captured. Splitting the reverse leg across several controls would associate buttons
         the user never chose, so a target with no single control that can do the job gets a
         warning and the rule stays one-way.
+
+        **Both ends are asked rather than assumed**, which they were not until T48 was
+        closed. This leg used to be written from endpoint 0 to `rule.source.endpoint`, which
+        are Z-Wave shapes: 0 is the Z-Wave root, and on a Zigbee device it is nothing at all,
+        so every reverse leg of a two-way Zigbee rule was refused at apply time with a plan
+        that reported no warning and never converged. The control now says where it drives
+        from (`Emitter.endpoint`) and the receiving device says where a link lands on it
+        (`DeviceCapabilities.receiving_endpoint`), and Z-Wave answers 0 and None, which is
+        exactly what was hardcoded here before.
         """
-        if self.rule.direction is not Direction.TWO_WAY or not actions:
+        if self.rule.direction is not Direction.TWO_WAY or not features:
             return
-        emitter = _emitter_carrying(target.emitters, actions)
+        emitter = _emitter_carrying(target.emitters, features)
         if emitter is None:
             self.warnings.append(
                 Diagnostic(
@@ -322,12 +359,186 @@ class _Compilation:
         self._add_links(
             _Leg(
                 writer=target,
-                writer_endpoint=0,
+                writer_endpoint=emitter.endpoint,
                 emitter=emitter,
                 receiver=source,
-                receiver_endpoint=self.rule.source.endpoint or None,
+                receiver_endpoint=self._reverse_receiver_endpoint(source),
             ),
-            actions,
+            features,
+        )
+
+    def _reverse_receiver_endpoint(self, source: DeviceCapabilities) -> int | None:
+        """Return the endpoint the reverse leg lands on, back at the rule's own source.
+
+        The one place in the compiler where the user was never offered the choice: a rule
+        names the endpoint its source **drives from** and the endpoint each target is driven
+        **on**, and has no field at all for the endpoint the source is driven on when the
+        rule is two-way. So the device answers instead, when its protocol has an answer.
+
+        Z-Wave has none and reports None, which falls through to what this line always did:
+        `rule.source.endpoint or None`, so a root-endpoint source targets the whole node and
+        a multi-endpoint source targets the endpoint the rule named. Nothing about a Z-Wave
+        rule changes.
+        """
+        if source.receiving_endpoint is not None:
+            return source.receiving_endpoint
+        return self.rule.source.endpoint or None
+
+    # Hybrid legs (PRD Section 6.7, Decision D3).
+
+    def _hybrid_features(self) -> dict[Feature, HybridKind]:
+        """Return the features a hybrid leg takes over from the native legs, and which kind.
+
+        Only two features can be taken over, and only when the rule asked for them: on/off,
+        by an on-only or off-only leg, and the status report, by a button-LED leg. A feature
+        that is taken over produces no link at all, which is the whole point. Writing the
+        association **and** the leg would be a group that carries both on and off plus a
+        listener that carries one of them, which is the intent the user rejected plus a
+        second copy of half of it.
+        """
+        taken: dict[Feature, HybridKind] = {}
+        for kind in (HybridKind.ON_ONLY, HybridKind.OFF_ONLY):
+            if kind in self.rule.hybrid and Feature.ON_OFF in self.rule.features:
+                taken[Feature.ON_OFF] = kind
+        if (
+            HybridKind.BUTTON_LED in self.rule.hybrid
+            and Feature.STATUS_REPORT in self.rule.features
+        ):
+            taken[Feature.STATUS_REPORT] = HybridKind.BUTTON_LED
+        return taken
+
+    def _compile_hybrid(
+        self,
+        source: DeviceCapabilities,
+        emitter: Emitter,
+        taken: Mapping[Feature, HybridKind],
+        targets: Sequence[tuple[RuleTarget, DeviceCapabilities]],
+    ) -> None:
+        """Produce the legs Home Assistant will carry, and refuse the ones it cannot.
+
+        Every leg here is labelled HA-executed everywhere it is shown, and every one of them
+        stops working while Home Assistant is down. That is the honest cost of the three
+        intents no radio can carry, and it is why nothing reaches here without both the
+        global option and the rule's own opt-in.
+        """
+        if not self.rule.hybrid:
+            return
+        for feature, kind in sorted(taken.items()):
+            if kind is HybridKind.BUTTON_LED and len(targets) > 1:
+                # One button has one light on it, and one leg per target would be several
+                # legs writing the same indicator from different states: the LED would flip
+                # on every change of any of them and settle on whichever wrote last.
+                # Refused rather than compiled into a fight it cannot win.
+                self.errors.append(
+                    Diagnostic(
+                        "hybrid_button_led_one_target",
+                        {"emitter": emitter.label, "count": str(len(targets))},
+                    )
+                )
+                continue
+            for target, _capabilities in targets:
+                self._add_hybrid(kind, emitter, feature, LinkTarget(target.device, target.endpoint))
+        if HybridKind.SELF_LOAD in self.rule.hybrid:
+            self._compile_self_load(source, emitter)
+        self._check_unused_opt_ins(taken)
+        if (
+            self.hybrid_legs
+            and self.rule.direction is Direction.TWO_WAY
+            and Feature.ON_OFF in taken
+        ):
+            self.warnings.append(
+                Diagnostic("hybrid_reverse_carries_both", {"emitter": emitter.label})
+            )
+
+    def _check_unused_opt_ins(self, taken: Mapping[Feature, HybridKind]) -> None:
+        """Say when an opt-in acts on nothing this rule asked for.
+
+        The editor offers a control's opt-ins from what that control can carry rather than
+        from what the rule wants, so "keep this button's LED in sync" can be ticked on a
+        rule with no status report in it. That combination compiles to nothing at all, and
+        a checkbox that silently does nothing is worse than one that was never offered: the
+        rule saves clean and the user waits for a light that will never follow anything.
+
+        `SELF_LOAD` is excluded because it is about a target rather than a feature, and it
+        has its own warning for the case where nothing names the device.
+        """
+        used = set(taken.values()) | {HybridKind.SELF_LOAD}
+        for kind in sorted(self.rule.hybrid - used):
+            self.warnings.append(
+                Diagnostic("hybrid_opt_in_unused", {"kind": str(kind), "rule": self.rule.name})
+            )
+
+    def _compile_self_load(self, source: DeviceCapabilities, emitter: Emitter) -> None:
+        """Add the leg that lets a scene button act on its own device's load (kind b).
+
+        Only when the rule names its own source device as a target, which is the way the
+        user says so: opting into the kind without naming the device would be an intent
+        with nothing to act on, and it is reported rather than assumed.
+        """
+        wanted = [
+            target
+            for target in self.rule.targets
+            if target.device.identity == self.rule.source.device.identity
+        ]
+        if not wanted:
+            self.warnings.append(
+                Diagnostic(
+                    "hybrid_self_load_not_targeted",
+                    {"device": source.handle.name_at_authoring},
+                )
+            )
+            return
+        for target in wanted:
+            endpoint = source.receiving_endpoint if target.endpoint is None else target.endpoint
+            self._add_hybrid(
+                HybridKind.SELF_LOAD,
+                emitter,
+                Feature.ON_OFF,
+                LinkTarget(source.handle, endpoint),
+            )
+
+    def _add_hybrid(
+        self, kind: HybridKind, emitter: Emitter, feature: Feature, target: LinkTarget
+    ) -> None:
+        """Add one leg, or say what the device has not told us that the leg would need.
+
+        Two facts, and neither is guessed. A leg that reacts to a button press needs the
+        scene number that button reports over the lifeline; a leg that lights a button needs
+        that button's indication id. Guessing either produces a leg that fires on somebody
+        else's button or lights somebody else's LED, which is worse than a leg that says it
+        cannot be made.
+        """
+        if kind is HybridKind.BUTTON_LED:
+            if emitter.indicator_id is None:
+                self.errors.append(
+                    Diagnostic(
+                        "hybrid_no_button_indication",
+                        {
+                            "emitter": emitter.label,
+                            "device": self.rule.source.device.name_at_authoring,
+                        },
+                    )
+                )
+                return
+        elif emitter.scene_id is None:
+            self.errors.append(
+                Diagnostic(
+                    "hybrid_no_scene",
+                    {"emitter": emitter.label, "device": self.rule.source.device.name_at_authoring},
+                )
+            )
+            return
+        self.hybrid_legs.append(
+            HybridLeg(
+                rule_id=self.rule.id,
+                kind=kind,
+                source=self.rule.source.device,
+                emitter_id=emitter.emitter_id,
+                feature=feature,
+                target=target,
+                scene_id=emitter.scene_id,
+                indicator_id=emitter.indicator_id,
+            )
         )
 
     def _check_semantics(self, source: DeviceCapabilities, emitter: Emitter) -> None:
@@ -338,10 +549,22 @@ class _Compilation:
         second press, which is the exact opposite of what the user asked for. The warning is
         how that unresolved finding reaches the person pressing the button.
         """
-        if self.rule.template is Template.OFF_ALL and emitter.semantics == SEMANTICS_UNKNOWN:
+        if emitter.semantics != SEMANTICS_UNKNOWN:
+            return
+        if self.rule.template is Template.OFF_ALL:
             self.warnings.append(
                 Diagnostic(
                     "button_semantics_unknown",
+                    {"emitter": emitter.label, "device": source.handle.name_at_authoring},
+                )
+            )
+        # A leg that fires on a press is trusting the same unobserved fact from the other
+        # side: the scene number this control reports is curated rather than captured
+        # (open item T70), so a leg on it is offered with the doubt attached.
+        if any(leg.kind is not HybridKind.BUTTON_LED for leg in self.hybrid_legs):
+            self.warnings.append(
+                Diagnostic(
+                    "hybrid_scene_unverified",
                     {"emitter": emitter.label, "device": source.handle.name_at_authoring},
                 )
             )

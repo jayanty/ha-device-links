@@ -35,6 +35,13 @@ MULTILEVEL_START_LEVEL_CHANGE: Final = 4
 MULTILEVEL_STOP_LEVEL_CHANGE: Final = 5
 SCENE_ACTIVATION_SET: Final = 1
 
+# Where a Z-Wave control drives from. Association groups are reported per endpoint and every
+# control Device Links offers is on the root, so this is the endpoint every Z-Wave emitter
+# carries (`models.Emitter.endpoint`). It is 0 rather than None because a Z-Wave association
+# really is written from the root endpoint; what a Z-Wave link leaves unset is the *target*
+# endpoint, which is a different question and stays None.
+ROOT_ENDPOINT: Final = 0
+
 # JSON gives string command class keys and the live driver gives integers, so the map is
 # keyed by the normalized integer form and both shapes are accepted at the boundary.
 type IssuedCommands = Mapping[str, Sequence[int]] | Mapping[int, Sequence[int]]
@@ -262,6 +269,7 @@ def _build_emitter(ordered: Sequence[_UsableGroup], label: str, grouping: str) -
     return Emitter(
         emitter_id=f"g{ordered[0].group_id}",
         label=label,
+        endpoint=ROOT_ENDPOINT,
         group_ids=tuple(member.group_id for member in ordered),
         actions={
             feature: member.group_id for member in ordered for feature in sorted(member.features)
@@ -353,6 +361,7 @@ def _curated_emitter(
     return Emitter(
         emitter_id=derived_ids.get(frozenset(group_ids), emitter.emitter_id),
         label=emitter.label,
+        endpoint=ROOT_ENDPOINT,
         group_ids=group_ids,
         actions=dict(emitter.actions),
         capacity=(
@@ -364,6 +373,11 @@ def _curated_emitter(
         is_lifeline=False,
         grouping=GROUPING_PROFILE_DB,
         semantics=emitter.semantics,
+        # Only a curated entry can answer these: neither the scene number a button reports
+        # nor the id of the little light on it is discoverable from association group
+        # information, so a derived emitter leaves both None and refuses hybrid legs.
+        scene_id=emitter.scene_id,
+        indicator_id=emitter.indicator_id,
     )
 
 

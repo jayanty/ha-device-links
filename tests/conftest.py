@@ -31,7 +31,7 @@ from custom_components.device_links.models import (
     Template,
 )
 from custom_components.device_links.storage import StoredState
-from tests.factories import HOME_ID, handle
+from tests.factories import HOME_ID, handle, zigbee_devices
 from tests.fakes.zwave import FakeDriver, build_driver_from_fixture
 
 # The zwave_js integration's own domain, which is also the namespace of the device
@@ -127,6 +127,46 @@ async def device_links_entry(
     if entry.state is ConfigEntryState.LOADED:
         await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
+
+
+# The mqtt integration's own domain, which is the namespace Zigbee2MQTT's devices are
+# registered under: it publishes MQTT discovery and `mqtt` registers what it finds.
+MQTT_DOMAIN = "mqtt"
+
+# The base topic every fixture bridge publishes on, and therefore the prefix of every
+# Zigbee identifier below (Stage 0 item P2).
+ZIGBEE_BASE_TOPIC = "zigbee2mqtt"
+
+
+@pytest.fixture
+def zigbee2mqtt_devices(hass: HomeAssistant) -> dict[str, dr.DeviceEntry]:
+    """Register one `mqtt` device per Zigbee device, as the P2 capture found them.
+
+    Zigbee2MQTT's devices are `mqtt` devices, filed under `<base topic>_<ieee address>`.
+    Registering them is what lets the panel address a Zigbee device by Home Assistant
+    device id at all (open item T57): without these records `devices/get` has nothing to
+    resolve and `Serializer.device_id` answers None for every Zigbee handle.
+
+    The coordinator is left out on purpose. Zigbee2MQTT registers no device for it, and a
+    fixture that invented one would make a device page for something a rule can never name.
+    """
+    entry = MockConfigEntry(domain=MQTT_DOMAIN, title="MQTT", entry_id="mqttentry")
+    entry.add_to_hass(hass)
+    registry = dr.async_get(hass)
+    devices: dict[str, dr.DeviceEntry] = {}
+    for device in zigbee_devices().values():
+        definition = device.get("definition") or {}
+        if not definition:
+            continue
+        ieee = device["ieee_address"]
+        devices[ieee] = registry.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(MQTT_DOMAIN, f"{ZIGBEE_BASE_TOPIC}_{ieee}")},
+            manufacturer=definition.get("vendor"),
+            model=definition.get("model"),
+            name=device["friendly_name"],
+        )
+    return devices
 
 
 @pytest.fixture

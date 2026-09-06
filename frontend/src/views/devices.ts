@@ -26,6 +26,7 @@ import { customElement, state } from "lit/decorators.js";
 import { DeviceLinksApiError, describeError, type PlanScope } from "../api";
 import "../components/two-pane";
 import "../dialogs/plan-dialog";
+import "../dialogs/swap-wizard";
 import { renderIcon } from "../components/icon";
 import {
   backendLabel,
@@ -74,6 +75,15 @@ export class DeviceLinksDevices extends DeviceLinksView {
 
   @state() private _planHeading = "Plan and apply";
 
+  /**
+   * The device the swap wizard was opened on, or null when it is closed.
+   *
+   * An empty string means "opened from the toolbar", where the wizard asks which device
+   * has gone rather than being told; a device that has left the network has no page to
+   * open the wizard from, and that is exactly the case a swap is usually for.
+   */
+  @state() private _swapping: string | null = null;
+
   /** Every device's links, read once so "what controls this device" can be answered. */
   private _linkIndex: LinkRow[] = [];
 
@@ -101,6 +111,17 @@ export class DeviceLinksDevices extends DeviceLinksView {
           <div slot="detail" class="card">${this._renderDetail()}</div>
         </dl-two-pane>
       </div>
+      <dl-swap-wizard
+        .hass=${this.hass}
+        .api=${this.api}
+        .components=${this.components}
+        .narrow=${this.narrow}
+        .open=${this._swapping !== null}
+        .devices=${this._devices}
+        .oldIdentity=${this._swapping === "" ? null : this._swapping}
+        @dl-swap-closed=${this._closeSwap}
+        @dl-swap-applied=${this._afterSwap}
+      ></dl-swap-wizard>
       <dl-plan-dialog
         .hass=${this.hass}
         .api=${this.api}
@@ -123,6 +144,16 @@ export class DeviceLinksDevices extends DeviceLinksView {
   private _renderList(): TemplateResult {
     const devices = this._filtered();
     return html`
+      <button
+        type="button"
+        class="outlined"
+        style="margin-bottom: 8px"
+        @click=${() => {
+          this._swapping = "";
+        }}
+      >
+        Replace a device that has gone
+      </button>
       <label class="field" style="margin-bottom: 8px">
         <span>Search</span>
         <input
@@ -210,6 +241,15 @@ export class DeviceLinksDevices extends DeviceLinksView {
           </button>
           <button type="button" class="outlined" ?disabled=${this._busy} @click=${() => this._refresh(true)}>
             Deep verify
+          </button>
+          <button
+            type="button"
+            class="outlined"
+            @click=${() => {
+              this._swapping = device.identity;
+            }}
+          >
+            Replace device
           </button>
         </div>
       </div>
@@ -661,6 +701,27 @@ export class DeviceLinksDevices extends DeviceLinksView {
     this._planRemove = [link.fingerprint];
     this._planHeading = `Remove a link from ${this._detail?.device.name ?? "this device"}`;
     this._planOpen = true;
+  }
+
+  private _closeSwap(): void {
+    this._swapping = null;
+  }
+
+  /**
+   * After a swap, everything on this screen is about a device that may no longer be named.
+   *
+   * The rules now point at the replacement, so the device list, the selected device's own
+   * detail and the incoming index are all stale. Reloading the lot is cheap and is the only
+   * way this view cannot show a link claiming an owner that has moved.
+   */
+  private _afterSwap(): void {
+    this._swapping = null;
+    this._linkIndex = [];
+    this._incomingState = "idle";
+    void this._load();
+    if (this._selectedId !== null) {
+      void this._select(this._selectedId);
+    }
   }
 
   private _closePlan(): void {

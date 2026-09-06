@@ -13,6 +13,16 @@ and no error. Every entry is validated on load, and the test suite cross-checks 
 number it names against `tests/fixtures/z2_associations.json`, the byte-for-byte capture of
 the real devices.
 
+Phase 2 added a second shape. A Zigbee entry describes different hardware, so it says
+different things: an emitter names the **endpoint** it drives from and its actions name
+**clusters**, because that is what a Zigbee binding is made of, and a settings adapter names
+an MQTT property rather than a configuration parameter. Which shape an entry has is decided
+by its `backend` key, which is absent on every entry written before Phase 2 and means Z-Wave
+when it is, so no existing file changed. The two are validated separately and looked up
+separately (`lookup` and `lookup_zigbee`), because a caller always knows which protocol it
+is asking about and a signature that could answer with either would make every caller narrow
+it again.
+
 This module is pure: it imports no Home Assistant and does no file I/O. It is handed
 already-read text keyed by filename, so the caller owns reading files and this stays
 testable without a filesystem. Validation is hand written rather than delegated to
@@ -26,7 +36,12 @@ from dataclasses import dataclass
 import json
 from typing import Final
 
-from custom_components.device_links.models import Feature, SettingsAdapter, ZWaveFingerprint
+from custom_components.device_links.models import (
+    Feature,
+    SettingsAdapter,
+    ZigbeeFingerprint,
+    ZWaveFingerprint,
+)
 
 # Keys each object in a profile file may carry. They are frozensets rather than inline
 # literals because `tests/test_profile_db.py` compares them against `profiles_db/schema.json`,
@@ -34,10 +49,35 @@ from custom_components.device_links.models import Feature, SettingsAdapter, ZWav
 TOP_REQUIRED_KEYS: Final = frozenset({"devices"})
 TOP_OPTIONAL_KEYS: Final = frozenset({"$schema", "notes"})
 DEVICE_REQUIRED_KEYS: Final = frozenset({"model", "manufacturer", "fingerprints", "emitters"})
-DEVICE_OPTIONAL_KEYS: Final = frozenset({"settings", "wake_instruction", "notes"})
+DEVICE_OPTIONAL_KEYS: Final = frozenset({"backend", "settings", "wake_instruction", "notes"})
 FINGERPRINT_REQUIRED_KEYS: Final = frozenset({"manufacturer_id", "product_type", "product_id"})
 EMITTER_REQUIRED_KEYS: Final = frozenset({"emitter_id", "label", "kind", "actions"})
-EMITTER_OPTIONAL_KEYS: Final = frozenset({"capacity_override", "semantics"})
+EMITTER_OPTIONAL_KEYS: Final = frozenset(
+    {"capacity_override", "semantics", "scene_id", "indicator_id"}
+)
+
+# The same three things for a Zigbee entry, which describes a different kind of hardware and
+# so has a different shape. An emitter names the **endpoint** it lives on, because that is
+# what a Zigbee binding is written from, and its actions name **clusters** rather than
+# association group numbers. A settings adapter names an MQTT property rather than a
+# configuration parameter, because that is how Zigbee2MQTT is written to.
+ZIGBEE_DEVICE_REQUIRED_KEYS: Final = frozenset(
+    {"backend", "model", "manufacturer", "fingerprints", "emitters"}
+)
+ZIGBEE_DEVICE_OPTIONAL_KEYS: Final = frozenset({"settings", "wake_instruction", "notes"})
+ZIGBEE_FINGERPRINT_REQUIRED_KEYS: Final = frozenset({"vendor", "model"})
+ZIGBEE_EMITTER_REQUIRED_KEYS: Final = frozenset(
+    {"emitter_id", "label", "kind", "endpoint", "actions"}
+)
+ZIGBEE_EMITTER_OPTIONAL_KEYS: Final = frozenset({"semantics"})
+ZIGBEE_ADAPTER_REQUIRED_KEYS: Final = frozenset({"property", "values", "payloads"})
+
+# Which protocol an entry describes. Absent means Z-Wave, because every entry written before
+# Phase 2 is one and a default that rewrote history would be worse than a default that
+# matches it.
+BACKEND_ZWAVE: Final = "zwave"
+BACKEND_ZIGBEE2MQTT: Final = "zigbee2mqtt"
+PROFILE_BACKENDS: Final = frozenset({BACKEND_ZWAVE, BACKEND_ZIGBEE2MQTT})
 # `bitmask` is required and nullable rather than optional: a missing bitmask silently
 # meaning "the whole parameter" is exactly the ambiguity this database exists to remove.
 ADAPTER_REQUIRED_KEYS: Final = frozenset({"parameter", "bitmask", "values"})
@@ -90,6 +130,13 @@ class ProfileEmitter:
     `actions` maps a feature to the association group that carries it, which is what makes
     the Inovelli paddle one control instead of three. `semantics` is set when something about
     what this control sends is not established; see `SEMANTICS_MARKERS`.
+
+    `scene_id` and `indicator_id` are the two facts a hybrid leg needs and nothing else in
+    this integration uses (PRD Section 6.7): the Central Scene number this control reports
+    when it is pressed, and the Indicator CC id of the little light on it. They are curated
+    rather than derived because neither is discoverable by reading a device: association
+    group information carries neither, and a guessed scene number is a leg that fires on
+    somebody else's button.
     """
 
     emitter_id: str
@@ -98,6 +145,8 @@ class ProfileEmitter:
     actions: Mapping[Feature, str]
     capacity_override: int | None = None
     semantics: str | None = None
+    scene_id: int | None = None
+    indicator_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,10 +161,80 @@ class ProfileEntry:
 
 
 @dataclass(frozen=True, slots=True)
+class ZigbeeProfileFingerprint:
+    """The model identity a Zigbee entry matches on: the converter's vendor and model.
+
+    Zigbee2MQTT's `definition` is what decides how a device is driven, so it is what an
+    entry is keyed by, and it is stable across firmware in the way the device's own
+    `model_id` is not.
+    """
+
+    vendor: str
+    model: str
+
+    @classmethod
+    def of(cls, fingerprint: ZigbeeFingerprint) -> ZigbeeProfileFingerprint:
+        """Return the model identity of a device the bridge reported."""
+        return cls(vendor=fingerprint.manufacturer, model=fingerprint.model)
+
+
+@dataclass(frozen=True, slots=True)
+class ZigbeeProfileEmitter:
+    """One physical control on a Zigbee device, as a curated entry describes it.
+
+    `endpoint` is what a binding is written from, and `actions` maps a feature to the
+    **cluster** that carries it. Two features can name one cluster, because `genLevelCtrl`
+    really does carry both setting a level and holding to dim.
+    """
+
+    emitter_id: str
+    label: str
+    kind: str
+    endpoint: int
+    actions: Mapping[Feature, str]
+    semantics: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ZigbeeSettingsAdapter:
+    """How to reach one named setting over MQTT, and what the two ends call its values.
+
+    Zigbee2MQTT is written to by publishing `{property: payload}` to a device's `set` topic,
+    and the payloads are its own labels ("Disabled", "Enabled") rather than numbers. The
+    `Backend` protocol carries settings as integers, because that is what a configuration
+    parameter is, so an adapter has to hold both: `values` maps a choice name to the integer
+    the rest of the system uses, and `payloads` maps the same choice name to the string the
+    bridge expects. The two must name exactly the same choices, which `load_profiles`
+    enforces, because a choice with a number and no payload could be asked for and not sent.
+    """
+
+    property_name: str
+    values: Mapping[str, int]
+    payloads: Mapping[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class ZigbeeProfileEntry:
+    """Everything the curated database knows about one Zigbee device model."""
+
+    fingerprints: tuple[ZigbeeProfileFingerprint, ...]
+    emitters: tuple[ZigbeeProfileEmitter, ...]
+    settings: Mapping[str, ZigbeeSettingsAdapter]
+    wake_instruction: str | None
+    notes: str
+
+
+@dataclass(frozen=True, slots=True)
 class ProfileDatabase:
-    """Every curated entry that was loaded, and the lookup over them."""
+    """Every curated entry that was loaded, and the lookups over them.
+
+    Two collections and two lookups rather than one of each with a union return type: a
+    caller always knows which protocol it is asking about, and a signature that could
+    answer with either kind would make every caller narrow it again.
+    """
 
     entries: tuple[ProfileEntry, ...]
+    zigbee_entries: tuple[ZigbeeProfileEntry, ...] = ()
 
     def lookup(self, fingerprint: ZWaveFingerprint) -> ProfileEntry | None:
         """Return the entry describing this device model, or None when none does.
@@ -125,6 +244,14 @@ class ProfileDatabase:
         """
         wanted = ProfileFingerprint.of(fingerprint)
         for entry in self.entries:
+            if wanted in entry.fingerprints:
+                return entry
+        return None
+
+    def lookup_zigbee(self, fingerprint: ZigbeeFingerprint) -> ZigbeeProfileEntry | None:
+        """Return the Zigbee entry describing this device model, or None when none does."""
+        wanted = ZigbeeProfileFingerprint.of(fingerprint)
+        for entry in self.zigbee_entries:
             if wanted in entry.fingerprints:
                 return entry
         return None
@@ -139,31 +266,53 @@ def load_profiles(files: Mapping[str, str]) -> ProfileDatabase:
     prevent. Files are read in name order, so an error is the same one every run.
     """
     entries: list[ProfileEntry] = []
-    claimed: dict[ProfileFingerprint, str] = {}
+    zigbee_entries: list[ZigbeeProfileEntry] = []
+    claimed: dict[object, str] = {}
     for filename in sorted(files):
         for entry, where in _entries_in(filename, files[filename]):
             for fingerprint in entry.fingerprints:
                 claimed_by = claimed.get(fingerprint)
                 if claimed_by is not None:
                     raise ValueError(
-                        f"{where}: fingerprint {fingerprint.manufacturer_id}:"
-                        f"{fingerprint.product_type}:{fingerprint.product_id} is already "
-                        f"claimed by {claimed_by}, and two entries matching one device would "
-                        "make the lookup ambiguous"
+                        f"{where}: fingerprint {_named(fingerprint)} is already claimed by "
+                        f"{claimed_by}, and two entries matching one device would make the "
+                        "lookup ambiguous"
                     )
                 claimed[fingerprint] = where
-            entries.append(entry)
-    return ProfileDatabase(entries=tuple(entries))
+            if isinstance(entry, ZigbeeProfileEntry):
+                zigbee_entries.append(entry)
+            else:
+                entries.append(entry)
+    return ProfileDatabase(entries=tuple(entries), zigbee_entries=tuple(zigbee_entries))
 
 
-def _entries_in(filename: str, text: str) -> Iterator[tuple[ProfileEntry, str]]:
-    """Yield each entry in one file, with the label error messages should use for it."""
+def _named(fingerprint: ProfileFingerprint | ZigbeeProfileFingerprint) -> str:
+    """Return a model identity in the form the protocol that owns it is written in."""
+    if isinstance(fingerprint, ZigbeeProfileFingerprint):
+        return f"{fingerprint.vendor} {fingerprint.model}"
+    return f"{fingerprint.manufacturer_id}:{fingerprint.product_type}:{fingerprint.product_id}"
+
+
+def _entries_in(
+    filename: str, text: str
+) -> Iterator[tuple[ProfileEntry | ZigbeeProfileEntry, str]]:
+    """Yield each entry in one file, with the label error messages should use for it.
+
+    Which shape an entry has is decided by its `backend` key, which is absent on every entry
+    written before Phase 2 and means Z-Wave when it is. A file may hold both.
+    """
     document = _document(filename, text)
     for position, raw in enumerate(_list(f"{filename}: 'devices'", document["devices"])):
         device = _object(f"{filename} device {position}", raw)
         model = device.get("model")
         where = f"{filename} {model}" if isinstance(model, str) and model else filename
-        yield _entry(where, device), where
+        backend = _one_of(
+            f"{where}: 'backend'", device.get("backend", BACKEND_ZWAVE), PROFILE_BACKENDS
+        )
+        if backend == BACKEND_ZIGBEE2MQTT:
+            yield _zigbee_entry(where, device), where
+        else:
+            yield _entry(where, device), where
 
 
 def _document(filename: str, text: str) -> Mapping[str, object]:
@@ -201,6 +350,138 @@ def _entry(where: str, device: Mapping[str, object]) -> ProfileEntry:
     )
 
 
+def _zigbee_entry(where: str, device: Mapping[str, object]) -> ZigbeeProfileEntry:
+    """Validate one Zigbee device object and turn it into an entry.
+
+    The same shape of validation as the Z-Wave path and deliberately not shared with it:
+    the two describe different hardware, and a validator written to cover both would have
+    to accept a key for one protocol on an entry for the other.
+    """
+    _checked_keys(where, device, ZIGBEE_DEVICE_REQUIRED_KEYS, ZIGBEE_DEVICE_OPTIONAL_KEYS)
+    _text(f"{where}: 'model'", device["model"])
+    _text(f"{where}: 'manufacturer'", device["manufacturer"])
+    fingerprints = tuple(
+        _zigbee_fingerprint(f"{where} fingerprint {position}", raw)
+        for position, raw in enumerate(_list(f"{where}: 'fingerprints'", device["fingerprints"]))
+    )
+    emitters = tuple(
+        _zigbee_emitter(where, raw) for raw in _list(f"{where}: 'emitters'", device["emitters"])
+    )
+    _reject_repeated_emitter_ids(where, emitters)
+    return ZigbeeProfileEntry(
+        fingerprints=fingerprints,
+        emitters=emitters,
+        settings=_zigbee_settings(where, device.get("settings")),
+        wake_instruction=_optional_text(
+            f"{where}: 'wake_instruction'", device.get("wake_instruction")
+        ),
+        notes=_optional_text(f"{where}: 'notes'", device.get("notes")) or "",
+    )
+
+
+def _zigbee_fingerprint(where: str, raw: object) -> ZigbeeProfileFingerprint:
+    """Validate one Zigbee model identity, which is the converter's vendor and model."""
+    mapping = _object(where, raw)
+    _checked_keys(where, mapping, ZIGBEE_FINGERPRINT_REQUIRED_KEYS, frozenset())
+    return ZigbeeProfileFingerprint(
+        vendor=_text(f"{where}: 'vendor'", mapping["vendor"]),
+        model=_text(f"{where}: 'model'", mapping["model"]),
+    )
+
+
+def _zigbee_emitter(where: str, raw: object) -> ZigbeeProfileEmitter:
+    """Validate one Zigbee emitter object."""
+    mapping = _object(f"{where} emitter", raw)
+    _checked_keys(
+        f"{where} emitter", mapping, ZIGBEE_EMITTER_REQUIRED_KEYS, ZIGBEE_EMITTER_OPTIONAL_KEYS
+    )
+    emitter_id = _text(f"{where} emitter: 'emitter_id'", mapping["emitter_id"])
+    named = f"{where} emitter {emitter_id!r}"
+    semantics = mapping.get("semantics")
+    return ZigbeeProfileEmitter(
+        emitter_id=emitter_id,
+        label=_text(f"{named}: 'label'", mapping["label"]),
+        kind=_one_of(f"{named}: 'kind'", mapping["kind"], EMITTER_KINDS),
+        endpoint=_integer(f"{named}: 'endpoint'", mapping["endpoint"], minimum=1),
+        actions=_zigbee_actions(named, mapping["actions"]),
+        semantics=(
+            None
+            if semantics is None
+            else _one_of(f"{named}: 'semantics'", semantics, SEMANTICS_MARKERS)
+        ),
+    )
+
+
+def _zigbee_actions(where: str, raw: object) -> Mapping[Feature, str]:
+    """Validate the feature to cluster map, which is the part that reaches the bridge."""
+    mapping = _object(f"{where}: 'actions'", raw)
+    if not mapping:
+        raise ValueError(f"{where}: 'actions' must name at least one feature")
+    actions: dict[Feature, str] = {}
+    for name, raw_cluster in mapping.items():
+        if name not in _FEATURE_NAMES:
+            known = ", ".join(sorted(_FEATURE_NAMES))
+            raise ValueError(f"{where}: {name!r} is not a feature; known features are {known}")
+        actions[Feature(name)] = _cluster(f"{where}: '{name}'", raw_cluster)
+    return actions
+
+
+def _cluster(where: str, raw: object) -> str:
+    """Validate one Zigbee cluster name.
+
+    Structural only. Whether the cluster is one Device Links can bind, and whether it can
+    carry the feature the entry claims for it, is decided against the device's own reported
+    output clusters in `zigbee_protocol.resolve_emitters`: the device is a better authority
+    than a list in this module would be, and this module must not import that one.
+    """
+    if not isinstance(raw, str):
+        raise _wrong_type(where, "a cluster name to be a string", raw)
+    if not raw or not raw.isascii() or not raw.isalnum():
+        raise ValueError(f"{where}: {raw!r} is not a cluster name Zigbee2MQTT could report")
+    return raw
+
+
+def _zigbee_settings(where: str, raw: object) -> Mapping[str, ZigbeeSettingsAdapter]:
+    """Validate the named Zigbee settings adapters, of which a device may have none."""
+    if raw is None:
+        return {}
+    mapping = _object(f"{where}: 'settings'", raw)
+    return {
+        name: _zigbee_adapter(f"{where}: setting {name!r}", value)
+        for name, value in mapping.items()
+    }
+
+
+def _zigbee_adapter(where: str, raw: object) -> ZigbeeSettingsAdapter:
+    """Validate one Zigbee settings adapter, and that its two value maps agree.
+
+    A choice with an integer and no payload is a choice the compiler could ask for and the
+    adapter could not send, which would fail at the bridge rather than at load.
+    """
+    mapping = _object(where, raw)
+    _checked_keys(where, mapping, ZIGBEE_ADAPTER_REQUIRED_KEYS, frozenset())
+    values = _values(f"{where}: 'values'", mapping["values"])
+    payloads = _payloads(f"{where}: 'payloads'", mapping["payloads"])
+    if set(values) != set(payloads):
+        raise ValueError(
+            f"{where}: 'values' names {sorted(values)} and 'payloads' names "
+            f"{sorted(payloads)}; every choice needs both"
+        )
+    return ZigbeeSettingsAdapter(
+        property_name=_text(f"{where}: 'property'", mapping["property"]),
+        values=values,
+        payloads=payloads,
+    )
+
+
+def _payloads(where: str, raw: object) -> Mapping[str, str]:
+    """Validate the strings Zigbee2MQTT is written with, one per named choice."""
+    mapping = _object(where, raw)
+    if not mapping:
+        raise ValueError(f"{where}: must name at least one value")
+    return {name: _text(f"{where}: {name!r}", value) for name, value in mapping.items()}
+
+
 def _fingerprint(where: str, raw: object) -> ProfileFingerprint:
     """Validate one fingerprint triple."""
     mapping = _object(where, raw)
@@ -220,6 +501,8 @@ def _emitter(where: str, raw: object) -> ProfileEmitter:
     named = f"{where} emitter {emitter_id!r}"
     capacity_override = mapping.get("capacity_override")
     semantics = mapping.get("semantics")
+    scene_id = mapping.get("scene_id")
+    indicator_id = mapping.get("indicator_id")
     return ProfileEmitter(
         emitter_id=emitter_id,
         label=_text(f"{named}: 'label'", mapping["label"]),
@@ -234,6 +517,14 @@ def _emitter(where: str, raw: object) -> ProfileEmitter:
             None
             if semantics is None
             else _one_of(f"{named}: 'semantics'", semantics, SEMANTICS_MARKERS)
+        ),
+        scene_id=(
+            None if scene_id is None else _integer(f"{named}: 'scene_id'", scene_id, minimum=1)
+        ),
+        indicator_id=(
+            None
+            if indicator_id is None
+            else _integer(f"{named}: 'indicator_id'", indicator_id, minimum=1)
         ),
     )
 
@@ -297,7 +588,9 @@ def _values(where: str, raw: object) -> Mapping[str, int]:
     return {name: _integer(f"{where}: {name!r}", value) for name, value in mapping.items()}
 
 
-def _reject_repeated_emitter_ids(where: str, emitters: Sequence[ProfileEmitter]) -> None:
+def _reject_repeated_emitter_ids(
+    where: str, emitters: Sequence[ProfileEmitter | ZigbeeProfileEmitter]
+) -> None:
     """Two emitters with one id would make the rule's `emitter_id` ambiguous."""
     seen: set[str] = set()
     for emitter in emitters:

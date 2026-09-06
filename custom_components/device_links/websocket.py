@@ -32,7 +32,7 @@ its connection survives a reload and is the leak nobody finds.
 from __future__ import annotations
 
 from collections.abc import Callable, Coroutine
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import logging
 from typing import TYPE_CHECKING, Any, Final
 from uuid import uuid4
@@ -49,11 +49,22 @@ import voluptuous as vol
 
 from .const import DOMAIN, EVENT_JOB_FINISHED
 from .coordinator import PlanScope
+from .diff import diff_against_links, diff_profiles
 from .executor import JobRunningError
-from .models import Plan, PlanOp, Profile, Rule, Template
+from .models import (
+    DeviceHandle,
+    Link,
+    ObservedLink,
+    Plan,
+    PlanOp,
+    Profile,
+    Rule,
+    Template,
+)
 from .rule_entity import async_handle_of_device
 from .serialize import Serializer
-from .services import NOTHING_TO_DO, refuse_unknown_devices
+from .services import NOTHING_TO_DO, async_relist_if_unscoped, refuse_unknown_devices
+from .swap import SwapProposal, find_replacements, propose
 from .yaml_io import (
     ProfileFormatError,
     devices_to_data,
@@ -64,14 +75,13 @@ from .yaml_io import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Iterable, Mapping, Sequence
 
     from homeassistant.components.websocket_api.connection import ActiveConnection
 
     from . import DeviceLinksConfigEntry, DeviceLinksRuntimeData
     from .coordinator import DeviceLinksCoordinator
-    from .models import DeviceHandle
-    from .storage import StoredState
+    from .storage import Snapshot, StoredState
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -95,14 +105,6 @@ DEFERRED_COMMANDS: Final = frozenset(
         # Adopting an unmanaged link means writing a per-link ownership record, which is a
         # storage schema change and therefore a migration (open item T11).
         "unmanaged/adopt",
-        # Device swap is Phase 2 (FR-S1 to FR-S4), and there is no second backend to swap
-        # between yet.
-        "swap/candidates",
-        "swap/preview",
-        "swap/apply",
-        # Rollback re-applies a snapshot as a plan, which is Phase 2 alongside the swap
-        # flow that needs it. The snapshots themselves are taken and listed today.
-        "snapshots/rollback",
     }
 )
 
@@ -315,19 +317,75 @@ async def _profiles_list(
 async def _profiles_get(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Return one profile with each of its rules and what that rule is doing."""
+    """Return one profile with each of its rules and what that rule is doing.
+
+    The loops (FR-R7) come with it, and only for the active profile, because that is the
+    only one whose links are on the devices: reporting a loop in a profile nobody has
+    activated would be a warning about a house that does not exist. The rule editor asks
+    the same question with a draft rule folded in; this is the answer for the surfaces that
+    change a profile without opening the editor, which is every toggle in the rules table.
+    """
     entry, runtime = _runtime(hass)
-    profile = _profile(runtime.coordinator, msg["profile_id"])
+    coordinator = runtime.coordinator
+    profile = _profile(coordinator, msg["profile_id"])
     serializer = Serializer(hass, entry)
+    active = profile.id == coordinator.state.active_profile_id
     connection.send_result(
         msg["id"],
         {
             "profile": serializer.profile(
-                profile, active_profile_id=runtime.coordinator.state.active_profile_id
+                profile, active_profile_id=coordinator.state.active_profile_id
             ),
             "rules": [serializer.rule(rule) for rule in profile.rules],
+            "loops": [serializer.loop(loop) for loop in coordinator.find_loops()] if active else [],
         },
     )
+
+
+@_command(
+    "profiles/diff",
+    {
+        vol.Required("profile_id"): str,
+        vol.Optional("other_profile_id"): str,
+        vol.Optional("snapshot_id"): str,
+    },
+)
+async def _profiles_diff(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Compare one profile with another, or with a snapshot of what the devices held (FR-P4).
+
+    Exactly one of the two right-hand sides, because they answer different questions and a
+    call that named both would have to be told which one it meant. A profile against a
+    profile is rule by rule and link by link; a snapshot has no rules in it, so that
+    comparison is link by link over the devices the snapshot actually covers.
+
+    Both sides are compiled against the devices as they are now, which is the only honest
+    reading: a profile is intent, and what it produces depends on the hardware it meets.
+    """
+    entry, runtime = _runtime(hass)
+    coordinator = runtime.coordinator
+    profile = _profile(coordinator, msg["profile_id"])
+    other_id = msg.get("other_profile_id")
+    snapshot_id = msg.get("snapshot_id")
+    if (other_id is None) == (snapshot_id is None):
+        raise ServiceValidationError(
+            "a diff compares a profile with exactly one other thing: another profile or a "
+            "snapshot, and this asked for neither or both",
+            translation_domain=DOMAIN,
+            translation_key="diff_needs_one_other_side",
+        )
+    if other_id is not None:
+        diff = diff_profiles(profile, _profile(coordinator, other_id), coordinator.capabilities)
+    else:
+        snapshot = _snapshot(coordinator, str(snapshot_id))
+        diff = diff_against_links(
+            profile,
+            list(snapshot.links),
+            coordinator.capabilities,
+            devices=list(snapshot.devices),
+        )
+    connection.send_result(msg["id"], Serializer(hass, entry).profile_diff(diff))
 
 
 @_command("profiles/create", {vol.Required("profile"): dict})
@@ -405,7 +463,12 @@ async def _profiles_activate(
     runtime.pending_plan = plan
     connection.send_result(
         msg["id"],
-        {"profile_id": msg["profile_id"], "plan": Serializer(hass, entry).plan(plan)},
+        {
+            "profile_id": msg["profile_id"],
+            # Every enabled rule of the profile that is now in force, which is what
+            # activating one is about.
+            "plan": Serializer(hass, entry).plan(plan, frozenset()),
+        },
     )
 
 
@@ -445,7 +508,10 @@ async def _profiles_export(
     )
 
 
-@_command("profiles/import", {vol.Required("yaml"): str})
+@_command(
+    "profiles/import",
+    {vol.Required("yaml"): str, vol.Optional("allow_missing_devices"): bool},
+)
 async def _profiles_import(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
@@ -461,7 +527,9 @@ async def _profiles_import(
     # exported, fingerprint included, and that record is what a later release compares
     # against to notice that a node id now answers as a different model (E20). Re-resolving
     # would quietly adopt whatever is at that address today and lose the difference.
-    refuse_unknown_devices(coordinator, profile)
+    missing = refuse_unknown_devices(
+        coordinator, profile, allow_missing=msg.get("allow_missing_devices", False)
+    )
     coordinator.async_update_state(
         replace(coordinator.state, profiles=_stored_with(coordinator.state, profile))
     )
@@ -469,8 +537,10 @@ async def _profiles_import(
     result = _saved(hass, entry, profile)
     if is_active:
         runtime.pending_plan = await coordinator.async_plan()
-        result["plan"] = Serializer(hass, entry).plan(runtime.pending_plan)
-    connection.send_result(msg["id"], {**result, "is_active": is_active})
+        result["plan"] = Serializer(hass, entry).plan(runtime.pending_plan, frozenset())
+    connection.send_result(
+        msg["id"], {**result, "is_active": is_active, "missing_devices": list(missing)}
+    )
 
 
 def _saved(hass: HomeAssistant, entry: DeviceLinksConfigEntry, profile: Profile) -> dict[str, Any]:
@@ -498,11 +568,23 @@ async def _rules_validate(
     read-only and deliberately answers with warnings and errors rather than raising: a rule
     the compiler refuses is the answer to "will this work?", and an error reply would leave
     the panel with a failure where it wanted a reason.
+
+    The loops (FR-R7) are here rather than in the compiler for the reason `loops.py` opens
+    with: one rule cannot loop, and whether this one closes a loop is a question about the
+    whole profile with this rule folded into it. It is a warning and never a block (E30),
+    so it rides alongside the compilation rather than turning into an error.
     """
     entry, runtime = _runtime(hass)
-    rule = _read_rule(runtime.coordinator, msg["rule"])
-    compiled = runtime.coordinator.compile_rule(rule)
-    connection.send_result(msg["id"], Serializer(hass, entry).compiled(compiled))
+    coordinator = runtime.coordinator
+    rule = _read_rule(coordinator, msg["rule"])
+    serializer = Serializer(hass, entry)
+    connection.send_result(
+        msg["id"],
+        {
+            **serializer.compiled(coordinator.compile_rule(rule)),
+            "loops": [serializer.loop(loop) for loop in coordinator.find_loops(rule)],
+        },
+    )
 
 
 @_command("rules/upsert", {vol.Optional("profile_id"): str, vol.Required("rule"): dict})
@@ -669,10 +751,11 @@ async def _templates_list(
 async def _plan(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return what applying this scope would do, without doing any of it."""
     entry, runtime = _runtime(hass)
+    scope = _scope(hass, entry, msg)
     plan = await runtime.coordinator.async_plan(
-        _scope(hass, entry, msg), remove_unmanaged=frozenset(msg.get("remove_unmanaged", []))
+        scope, remove_unmanaged=frozenset(msg.get("remove_unmanaged", []))
     )
-    connection.send_result(msg["id"], Serializer(hass, entry).plan(plan))
+    connection.send_result(msg["id"], Serializer(hass, entry).plan(plan, scope.rule_ids))
 
 
 @_command(
@@ -709,12 +792,13 @@ async def _apply(hass: HomeAssistant, connection: ActiveConnection, msg: dict[st
     connection.send_result(msg["id"], {"job_id": job_id, "status": "running"})
 
 
-async def _run_job(
+async def _run_job(  # noqa: PLR0913, PLR0917
     runtime: DeviceLinksRuntimeData,
     plan: Plan,
     scope: PlanScope,
     remove_unmanaged: frozenset[str],
     job_id: str,
+    desired: Sequence[Link] | None = None,
 ) -> None:
     """Run one apply outside the connection that asked for it.
 
@@ -726,7 +810,11 @@ async def _run_job(
     """
     try:
         await runtime.runner.async_apply(
-            plan, scope=scope, remove_unmanaged=remove_unmanaged, job_id=job_id
+            plan,
+            scope=scope,
+            remove_unmanaged=remove_unmanaged,
+            desired=desired,
+            job_id=job_id,
         )
     except HomeAssistantError:
         _LOGGER.warning("job %s was refused by the runner after it was accepted", job_id)
@@ -758,6 +846,7 @@ async def _verify(hass: HomeAssistant, connection: ActiveConnection, msg: dict[s
     entry, runtime = _runtime(hass)
     coordinator = runtime.coordinator
     scope = _scope(hass, entry, msg)
+    await async_relist_if_unscoped(coordinator, scope)
     identities = sorted(coordinator.identities_in_scope(scope))
     for identity in identities:
         handle = coordinator.handle_for(identity)
@@ -972,12 +1061,509 @@ async def _snapshots_list(
     )
 
 
+@_command(
+    "snapshots/rollback",
+    {
+        vol.Required("snapshot_id"): str,
+        vol.Optional("plan_token"): str,
+        vol.Optional("remove_unmanaged"): [str],
+    },
+)
+async def _snapshots_rollback(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Put back what a snapshot's devices held, as a plan the user confirms (FR-P3).
+
+    **Without `plan_token` this writes nothing**: it answers with the plan, what the
+    snapshot covers, and what the rollback would undo. With one, the token has to match
+    that plan, and only then is anything applied. The safe direction is the default, so a
+    caller that forgot the token gets a preview rather than a write.
+
+    **A rollback really rolls back**, which means it removes as well as adds: a snapshot is
+    taken *before* an apply, so undoing that apply is exactly what somebody asking for one
+    usually wants (PRD scenario S10), and a rollback that only added would do nothing at
+    all in that case. What must never happen is a removal nobody saw, so every one of them
+    is in the plan, on the device it is about, like every other removal in this product.
+
+    **The removals that a rule still wants are named separately**, in
+    `returns_on_next_apply`. A rollback restores the devices and does not touch the rules,
+    so a link some enabled rule still asks for comes back the next time that rule is
+    applied, and the rule reads as drifted in between. That is honest rather than a fault,
+    and it is not something to discover afterwards: a user who wants those links gone for
+    good disables the rule first. Unmanaged links are untouched either way (Decision D9)
+    unless the user ticks one, which is the same per-link opt-in every other plan takes.
+    """
+    entry, runtime = _runtime(hass)
+    remove_unmanaged = frozenset(msg.get("remove_unmanaged", []))
+    rollback = await _build_rollback(hass, entry, msg["snapshot_id"], remove_unmanaged)
+    payload = _rollback_payload(hass, entry, rollback)
+    if "plan_token" not in msg:
+        connection.send_result(msg["id"], {**payload, "job_id": None, "status": "preview"})
+        return
+    if runtime.runner.progress is not None:
+        raise JobRunningError(
+            "an apply is already running, so this rollback was refused rather than queued "
+            "behind a plan that will be out of date by the time it runs",
+            translation_domain=DOMAIN,
+            translation_key="job_running",
+        )
+    _check_token(rollback.plan, msg["plan_token"])
+    if rollback.plan.is_empty:
+        connection.send_result(msg["id"], {**payload, "job_id": None, "status": NOTHING_TO_DO})
+        return
+    # In a background task, for the reason `apply` gives: a rollback can be a whole house,
+    # and awaiting it here would tie writes that are already reaching somebody's mesh to
+    # the life of a browser tab. The panel follows it through `jobs/subscribe` with the id
+    # this hands back.
+    job_id = uuid4().hex
+    entry.async_create_background_task(
+        hass,
+        _run_job(
+            runtime, rollback.plan, rollback.scope, remove_unmanaged, job_id, rollback.desired
+        ),
+        name=f"{DOMAIN} rollback {job_id}",
+    )
+    connection.send_result(msg["id"], {**payload, "job_id": job_id, "status": "running"})
+
+
+@dataclass(frozen=True, slots=True)
+class _Rollback:
+    """One snapshot re-proposed as a plan, with what it leaves alone."""
+
+    snapshot: Snapshot
+    plan: Plan
+    scope: PlanScope
+    desired: tuple[Link, ...]
+    returning: tuple[ObservedLink, ...]
+    unreadable: tuple[str, ...]
+
+
+async def _build_rollback(
+    hass: HomeAssistant,
+    entry: DeviceLinksConfigEntry,
+    snapshot_id: str,
+    remove_unmanaged: frozenset[str],
+) -> _Rollback:
+    """Return the plan one snapshot implies, and what applying it would cost.
+
+    The desired state is the snapshot's **managed** links and nothing else, which is what
+    makes this a restore of that moment rather than a merge with this one: what has gone
+    since is added back, and what has arrived since and is ours is removed. Unmanaged links
+    are in neither half and are untouched, as everywhere else (Decision D9), unless the user
+    ticked one by fingerprint. A system link is never in either half and never removable:
+    the snapshot keeps `is_system` for exactly that reason, so a rollback cannot plan
+    against the entry that is how a device reports to Home Assistant at all.
+    """
+    coordinator = entry.runtime_data.coordinator
+    snapshot = _snapshot(coordinator, snapshot_id)
+    scope = PlanScope(device_identities=frozenset(snapshot.devices))
+    desired = tuple(link for link in snapshot.links if link.managed_by is not None)
+    plan = await coordinator.async_plan(
+        scope, remove_unmanaged=remove_unmanaged, desired=list(desired)
+    )
+    return _Rollback(
+        snapshot=snapshot,
+        plan=plan,
+        scope=scope,
+        desired=desired,
+        returning=_returning_links(coordinator, plan),
+        unreadable=tuple(sorted(set(snapshot.devices) - coordinator.identities_in_scope(scope))),
+    )
+
+
+def _returning_links(coordinator: DeviceLinksCoordinator, plan: Plan) -> tuple[ObservedLink, ...]:
+    """Return the links this rollback removes that an enabled rule will put straight back.
+
+    The whole of the "what happens to what was added since" answer, made visible rather
+    than absorbed. A rollback restores devices and leaves the rules alone, so a link an
+    enabled rule still wants is removed now, reads as drift, and returns the next time that
+    rule is applied. A disabled rule's links are not in here: nothing will re-add those, so
+    taking them off is permanent and is what the plan already says it is.
+    """
+    return tuple(
+        item.link
+        for item in plan.items
+        if item.op is PlanOp.REMOVE
+        and isinstance(item.link, ObservedLink)
+        and item.link.rule_id is not None
+        and coordinator.is_rule_enabled(item.link.rule_id, default=False)
+    )
+
+
+def _snapshot(coordinator: DeviceLinksCoordinator, snapshot_id: str) -> Snapshot:
+    """Return the snapshot with this id, or say there is none kept."""
+    for snapshot in coordinator.state.snapshots:
+        if snapshot.id == snapshot_id:
+            return snapshot
+    raise ServiceValidationError(
+        f"no snapshot with the id {snapshot_id} is kept",
+        translation_domain=DOMAIN,
+        translation_key="unknown_snapshot",
+        translation_placeholders={"snapshot": snapshot_id},
+    )
+
+
+def _rollback_payload(
+    hass: HomeAssistant, entry: DeviceLinksConfigEntry, rollback: _Rollback
+) -> dict[str, Any]:
+    """Return one rollback as the dialog shows it, before anything is decided."""
+    serializer = Serializer(hass, entry)
+    return {
+        "snapshot": serializer.snapshot(rollback.snapshot),
+        "plan": serializer.plan(rollback.plan),
+        "returns_on_next_apply": [serializer.link(link) for link in rollback.returning],
+        "unreadable_devices": list(rollback.unreadable),
+    }
+
+
+# --------------------------------------------------------------------------------------
+# Device swap
+# --------------------------------------------------------------------------------------
+
+
+@_command("swap/candidates")
+async def _swap_candidates(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """List the devices the active profile names that are not there, and what could replace them.
+
+    The same question the Repairs issue asks, with one difference: this one answers even
+    when nothing on the network looks like the device that has gone. Somebody who opened
+    this screen has already decided something is wrong, and the swap that really happened
+    on this network (node 13, a VZW31-SN, replaced by node 42, a VZW32-SN) is precisely one
+    that no same-model match would have volunteered. The unprompted Repairs issue keeps the
+    stricter bar; see `swap.find_replacements` for why.
+    """
+    entry, runtime = _runtime(hass)
+    coordinator = runtime.coordinator
+    profile = coordinator.active_profile
+    replacements = (
+        ()
+        if profile is None
+        else find_replacements(
+            rules=profile.rules,
+            listed=coordinator.devices,
+            answering=[
+                backend_id
+                for backend_id, available in coordinator.backend_availability.items()
+                if available
+            ],
+            require_candidate=False,
+        )
+    )
+    serializer = Serializer(hass, entry)
+    connection.send_result(
+        msg["id"],
+        {"replacements": [serializer.replacement(found) for found in replacements]},
+    )
+
+
+@_command(
+    "swap/preview",
+    {
+        vol.Required("old_identity"): str,
+        vol.Required("new_device_id"): str,
+        vol.Optional("mapping"): {str: str},
+    },
+)
+async def _swap_preview(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Return everything the swap would do, and do none of it (FR-S2).
+
+    Every rule before and after, the control mapping with the reason each was pre-filled,
+    what would be lost, and the full plan: the removals on the old device if it can still
+    be reached and the adds on the replacement. Nothing is stored and nothing is written.
+
+    This is the safety property the whole flow is arranged around. A swap rewrites a user's
+    entire configuration in one move, so there is no path that does it without this having
+    been asked first: `swap/apply` takes the plan token this answers with, and a token can
+    only come from here.
+    """
+    entry, _runtime_data = _runtime(hass)
+    swap = await _build_swap(hass, entry, msg)
+    connection.send_result(msg["id"], _swap_payload(hass, entry, swap))
+
+
+@_command(
+    "swap/apply",
+    {
+        vol.Required("old_identity"): str,
+        vol.Required("new_device_id"): str,
+        vol.Optional("mapping"): {str: str},
+        vol.Required("plan_token"): str,
+        vol.Optional("accept_lossy"): bool,
+    },
+)
+async def _swap_apply(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Rewrite the rules and apply the plan, once the user has confirmed what they saw.
+
+    In this order, and the order is the whole of it: refuse, verify the token, store the
+    rewritten rules, plan again from what is now stored, write. Storing first is not
+    optional. Ownership is derived from what the active profile compiles to (open item
+    T11), so the moment the rules point at the replacement, the links on the old device
+    stop being claimed by anything and become unmanaged. They are therefore carried into
+    the apply as an explicit per-link selection by fingerprint, which is exactly the opt-in
+    Decision D9 and CLAUDE.md Section 3 rule 5 require, and exactly the links the preview
+    showed as removals.
+    """
+    entry, runtime = _runtime(hass)
+    if runtime.runner.progress is not None:
+        raise JobRunningError(
+            "an apply is already running, so this swap was refused rather than queued "
+            "behind a plan that will be out of date by the time it runs",
+            translation_domain=DOMAIN,
+            translation_key="job_running",
+        )
+    swap = await _build_swap(hass, entry, msg)
+    _refuse_unapplicable(runtime.coordinator, swap)
+    _check_token(swap.plan, msg["plan_token"])
+    if not msg.get("accept_lossy", False) and swap.proposal.is_lossy:
+        raise ServiceValidationError(
+            "this swap would leave some of what the rules asked for unwritten, so it was "
+            "not applied; look at what the preview says is lost and confirm it",
+            translation_domain=DOMAIN,
+            translation_key="swap_would_lose_work",
+            translation_placeholders={"rules": _lossy_rules(swap)},
+        )
+
+    coordinator = runtime.coordinator
+    profile = _active(coordinator)
+    updated = replace(profile, rules=swap.proposal.rules_after(profile.rules))
+    coordinator.async_update_state(
+        replace(coordinator.state, profiles=_stored_with(coordinator.state, updated))
+    )
+    plan = await coordinator.async_plan(swap.scope, remove_unmanaged=swap.stale)
+    _refuse_a_different_plan(swap.plan, plan)
+    if plan.is_empty:
+        connection.send_result(
+            msg["id"],
+            {"job_id": None, "status": NOTHING_TO_DO, "rules_rewritten": _rewritten(swap)},
+        )
+        return
+    job_id = uuid4().hex
+    entry.async_create_background_task(
+        hass,
+        _run_job(runtime, plan, swap.scope, swap.stale, job_id),
+        name=f"{DOMAIN} swap {job_id}",
+    )
+    connection.send_result(
+        msg["id"], {"job_id": job_id, "status": "running", "rules_rewritten": _rewritten(swap)}
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _Swap:
+    """One proposed swap, with the plan it would produce and the links it would take off."""
+
+    proposal: SwapProposal
+    plan: Plan
+    scope: PlanScope
+    stale: frozenset[str]
+
+
+async def _build_swap(
+    hass: HomeAssistant, entry: DeviceLinksConfigEntry, msg: Mapping[str, Any]
+) -> _Swap:
+    """Return the proposal and the plan for one swap, writing and storing nothing.
+
+    Built the same way for the preview and for the apply, from one function, because a
+    preview that was computed differently from what is applied is a preview of something
+    else. The apply's token check is what turns that into a guarantee.
+    """
+    coordinator = entry.runtime_data.coordinator
+    profile = _active(coordinator)
+    old = _referenced_handle(profile, msg["old_identity"])
+    new = _handle_of_device(hass, entry, msg["new_device_id"])
+    proposal = propose(
+        old=old,
+        new=new,
+        rules=profile.rules,
+        capabilities=coordinator.capabilities,
+        chosen=msg.get("mapping"),
+    )
+    after = proposal.rules_after(profile.rules)
+    stale = _link_fingerprints(coordinator, profile.rules) - _link_fingerprints(coordinator, after)
+    desired = [
+        link for rule in after if rule.enabled for link in coordinator.compile_rule(rule).links
+    ]
+    scope = PlanScope(device_identities=_touched(coordinator, proposal))
+    plan = await coordinator.async_plan(scope, remove_unmanaged=stale, desired=desired)
+    return _Swap(proposal=proposal, plan=plan, scope=scope, stale=stale)
+
+
+def _touched(coordinator: DeviceLinksCoordinator, proposal: SwapProposal) -> frozenset[str]:
+    """Return the devices this swap writes to, and no others.
+
+    The pair being swapped, plus every device that holds a link belonging to a rule the
+    swap rewrites, before or after: a rule that drove the old device holds its links on
+    some third device, and the swap has to move them there.
+
+    Narrow on purpose. The desired state handed to the planner is the **whole** rewritten
+    profile, so another rule's links on these devices are seen, counted against group
+    capacity and never mistaken for something nobody wants; the scope is what stops the
+    swap doing that rule's outstanding work as well. "Swap this switch for that one" that
+    quietly also applied a pending change elsewhere in the house would be a plan the user
+    did not ask for, however visible it was in the dialog.
+    """
+    return frozenset(
+        {proposal.old.identity, proposal.new.identity}
+        | {
+            link.source.identity
+            for rewrite in proposal.rewrites
+            for rule in (rewrite.before, rewrite.after)
+            for link in coordinator.compile_rule(rule.with_enabled(True)).links
+        }
+    )
+
+
+def _link_fingerprints(
+    coordinator: DeviceLinksCoordinator, rules: Iterable[Rule]
+) -> frozenset[str]:
+    """Return every link these rules claim, enabled or not.
+
+    Forced enabled, exactly as the coordinator's ownership index does it: a disabled rule
+    still owns what it wrote, so a swap has to carry its links across too rather than
+    orphaning them on a device that is being retired.
+    """
+    return frozenset(
+        link.fingerprint
+        for rule in rules
+        for link in coordinator.compile_rule(rule.with_enabled(True)).links
+    )
+
+
+def _referenced_handle(profile: Profile, identity: str) -> DeviceHandle:
+    """Return the handle the profile's rules know by this identity, or refuse.
+
+    The old device is named by identity rather than by Home Assistant device id, because
+    the usual reason for a swap is that it has no device id any more: it is gone from the
+    network and from the registry with it. What keeps that from being an address a caller
+    could invent is that it has to be one the active profile's own rules already name.
+    """
+    for rule in profile.rules:
+        for handle in (rule.source.device, *(target.device for target in rule.targets)):
+            if handle.identity == identity:
+                return handle
+    raise ServiceValidationError(
+        f"no rule of the active profile refers to the device {identity}",
+        translation_domain=DOMAIN,
+        translation_key="swap_unknown_old_device",
+        translation_placeholders={"device": identity},
+    )
+
+
+def _refuse_unapplicable(coordinator: DeviceLinksCoordinator, swap: _Swap) -> None:
+    """Refuse a swap that has not been decided yet, or that cannot be made at all."""
+    proposal = swap.proposal
+    if not coordinator.is_available(proposal.new.identity):
+        # Nothing is planned for a device that cannot be read (E1), so a swap onto one
+        # would remove every link from the old switch and write none to the new: the
+        # rules would point at the replacement and neither device would do anything.
+        raise ServiceValidationError(
+            f"{proposal.new.name_at_authoring} is not answering, so nothing can be written "
+            "to it and this swap was not applied",
+            translation_domain=DOMAIN,
+            translation_key="swap_replacement_unavailable",
+            translation_placeholders={"device": proposal.new.name_at_authoring},
+        )
+    if proposal.unmapped:
+        raise ServiceValidationError(
+            "this swap has controls with nothing chosen to take over from them, so it was "
+            "not applied",
+            translation_domain=DOMAIN,
+            translation_key="swap_mapping_incomplete",
+            translation_placeholders={"controls": ", ".join(proposal.unmapped)},
+        )
+    if not proposal.is_applicable:
+        raise ServiceValidationError(
+            "this swap cannot be made",
+            translation_domain=DOMAIN,
+            translation_key="swap_not_possible",
+            translation_placeholders={
+                "reasons": ", ".join(error.translation_key for error in proposal.errors)
+            },
+        )
+
+
+def _refuse_a_different_plan(shown: Plan, writing: Plan) -> None:
+    """Refuse to write anything that is not what the token was checked against.
+
+    The plan the user confirmed is built before the rewritten rules are stored, and the one
+    that is written is built after, because storing is what moves ownership onto the
+    replacement (open items T11 and T61). The two are the same work by construction and
+    that is not something to rely on: this is the only write in the product whose plan is
+    not the object the token belongs to, so the two are compared item for item instead.
+
+    A mismatch is `plan_out_of_date`, the same answer a stale token gets, because it means
+    the same thing to the user: what would happen now is not what they looked at. The rules
+    stay rewritten, which is the state they asked for; only the writing is refused, and the
+    next plan says what is left to do.
+    """
+    if writing.items != shown.items:
+        _LOGGER.warning(
+            "a swap's plan changed when its rules were stored, so nothing was written: "
+            "%s items were shown and %s would be written",
+            len(shown.items),
+            len(writing.items),
+        )
+        raise ServiceValidationError(
+            "storing the rewritten rules changed what this swap would write, so nothing "
+            "was written; the rules are saved, and planning again says what is left to do",
+            translation_domain=DOMAIN,
+            translation_key="plan_out_of_date",
+        )
+
+
+def _lossy_rules(swap: _Swap) -> str:
+    """Return the names of the rules this swap would leave doing less than they asked."""
+    return ", ".join(
+        sorted(rewrite.before.name for rewrite in swap.proposal.rewrites if rewrite.is_lossy)
+    )
+
+
+def _rewritten(swap: _Swap) -> list[str]:
+    """Return the ids of the rules this swap rewrote."""
+    return [rewrite.rule_id for rewrite in swap.proposal.rewrites]
+
+
+def _swap_payload(
+    hass: HomeAssistant, entry: DeviceLinksConfigEntry, swap: _Swap
+) -> dict[str, Any]:
+    """Return one swap as the wizard shows it: the proposal, the plan, and what is unread.
+
+    `old_reachable` is separate from the plan on purpose. FR-S2 removes the stale links on
+    the old device *if it is still reachable*, and a device that is gone simply has none of
+    its work in the plan. Without this flag that reads as a swap with nothing to clean up,
+    which is a different and much more comfortable claim than the true one: those entries
+    are still in a device somewhere, and nobody can take them off.
+    """
+    coordinator = entry.runtime_data.coordinator
+    serializer = Serializer(hass, entry)
+    old = swap.proposal.old
+    return {
+        "proposal": serializer.proposal(swap.proposal),
+        "plan": serializer.plan(swap.plan),
+        "old_listed": coordinator.handle_for(old.identity) is not None,
+        "old_reachable": coordinator.is_available(old.identity),
+        # The replacement's half of the same question, and it is the more dangerous one:
+        # a device that cannot be read has nothing planned for it (E1), so a swap onto one
+        # is a plan that strips the old switch and writes nothing to the new. The apply
+        # refuses it; this is what lets the preview say why before anybody presses.
+        "new_reachable": coordinator.is_available(swap.proposal.new.identity),
+        "removes": sorted(swap.stale),
+    }
+
+
 # Every handler, in the order they are defined above. Built once here rather than
 # collected by scanning the module, so a handler that is written and never registered is
 # a missing line rather than something that depends on how a decorator was spelled.
 _HANDLERS: Final[tuple[_Handler, ...]] = (
     _profiles_list,
     _profiles_get,
+    _profiles_diff,
     _profiles_create,
     _profiles_update,
     _profiles_delete,
@@ -1003,6 +1589,10 @@ _HANDLERS: Final[tuple[_Handler, ...]] = (
     _unmanaged_ignore,
     _unmanaged_remove,
     _snapshots_list,
+    _snapshots_rollback,
+    _swap_candidates,
+    _swap_preview,
+    _swap_apply,
 )
 
 __all__ = ["COMMANDS", "DEFERRED_COMMANDS", "async_register_commands"]

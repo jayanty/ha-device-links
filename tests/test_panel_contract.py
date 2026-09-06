@@ -38,14 +38,19 @@ from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 from zwave_js_server.model.association import AssociationAddress
 
 from custom_components.device_links.coordinator import RuleState
+from custom_components.device_links.diff import ChangeKind
 from custom_components.device_links.executor import JobStatus, LinkOutcome
 from custom_components.device_links.models import (
     Backend,
     Diagnostic,
     Direction,
     Feature,
+    HybridKind,
     MirrorChoice,
     PlanOp,
+    Rule,
+    RuleSource,
+    RuleTarget,
     SettingWrite,
     Template,
 )
@@ -218,6 +223,8 @@ def assert_shape(payload: Any, interface: str, path: str = "") -> None:
         ("TemplateId", Template),
         ("Direction", Direction),
         ("MirrorChoice", MirrorChoice),
+        ("HybridKind", HybridKind),
+        ("ChangeKind", ChangeKind),
         ("PlanOp", PlanOp),
         ("RuleState", RuleState),
         ("JobStatus", JobStatus),
@@ -364,6 +371,27 @@ async def test_a_device_detail_matches_the_device_detail_interface(
     assert detail["emitters"], "the controller reported no emitters, so nothing was checked"
 
 
+async def test_a_hybrid_leg_matches_the_hybrid_leg_row_interface(
+    hass: HomeAssistant, loaded: MockConfigEntry
+) -> None:
+    """The one payload the panel must never render as a link (PRD Section 6.7)."""
+    rule = Rule(
+        id="hybrid",
+        name="Button 2, off only",
+        template=Template.SCENE_BUTTON,
+        backend=Backend.ZWAVE,
+        source=RuleSource(device=handle(CONTROLLER), endpoint=0, emitter_id="g7"),
+        targets=(RuleTarget(device=handle(MAIN_LIGHTS), endpoint=None),),
+        features=frozenset({Feature.ON_OFF}),
+        hybrid=frozenset({HybridKind.OFF_ONLY}),
+    )
+    compiled = loaded.runtime_data.coordinator.compile_rule(rule)
+    payload = serializer(hass, loaded).compiled(compiled)
+
+    assert_shape(payload, "CompiledRule")
+    assert payload["hybrid_legs"], "the rule compiled no HA-executed leg, so nothing was checked"
+
+
 def test_a_setting_write_matches_the_setting_write_interface() -> None:
     assert_shape(
         Serializer.setting(
@@ -424,9 +452,21 @@ def test_every_command_the_panel_sends_is_one_the_backend_registers() -> None:
 
 
 def test_the_panel_never_sends_a_deliberately_deferred_command() -> None:
-    """`unmanaged/adopt` and the swap commands are Phase 2. Calling one can only fail."""
+    """`unmanaged/adopt` is the one left. Calling a deferred command can only fail.
+
+    The swap commands were here until Phase 2B implemented them; they are now uncalled on
+    purpose instead, which `UNCALLED_ON_PURPOSE` above says and this no longer covers.
+    """
     deferred = {f"device_links/{command}" for command in DEFERRED_COMMANDS}
     assert not _commands_the_panel_sends() & deferred
+
+
+# Commands the backend serves that the panel deliberately does not call yet, each with the
+# reason. Named rather than allowed by loosening the assertion, so a command that is
+# uncalled by oversight still fails this test. Empty since the swap wizard closed T59,
+# which is the state this should be kept in: a command with no caller is either a gap in
+# the panel or dead code in the backend.
+UNCALLED_ON_PURPOSE: set[str] = set()
 
 
 def test_the_panel_uses_every_command_the_backend_implements() -> None:
@@ -437,8 +477,9 @@ def test_the_panel_uses_every_command_the_backend_implements() -> None:
     loosening the assertion.
     """
     unused = {f"device_links/{command}" for command in COMMANDS} - _commands_the_panel_sends()
-    assert unused == set(), (
-        f"the backend implements commands the panel never calls: {sorted(unused)}"
+    assert unused == UNCALLED_ON_PURPOSE, (
+        f"the backend implements commands the panel never calls: "
+        f"{sorted(unused - UNCALLED_ON_PURPOSE)}"
     )
 
 
@@ -492,6 +533,70 @@ async def test_profiles_list_matches_the_profile_list_interface(client: Any) -> 
 
 async def test_profiles_get_matches_the_profile_detail_interface(client: Any) -> None:
     assert_shape(await call(client, "profiles/get", profile_id="bedroom"), "ProfileDetail")
+
+
+@pytest.mark.parametrize(
+    ("against", "interface"),
+    [({"other_profile_id": "bedroom"}, "ProfileDiff")],
+)
+async def test_profiles_diff_matches_the_profile_diff_interface(
+    client: Any, against: dict[str, str], interface: str
+) -> None:
+    """FR-P4's payload, all the way down: rule rows, link changes and the counts."""
+    payload = await call(client, "profiles/diff", profile_id="bedroom", **against)
+
+    assert_shape(payload, interface)
+    assert payload["rules"], "the profile has no rules, so nothing was checked"
+    for rule in payload["rules"]:
+        assert_shape(rule, "RuleDiffRow")
+    for change in payload["links"]:
+        assert_shape(change, "LinkChange")
+
+
+async def test_rules_validate_matches_the_rule_validation_interface(client: Any) -> None:
+    """The loops ride alongside the compilation, so the whole answer has to be checked."""
+    exported = await call(client, "profiles/export")
+    assert exported
+    listing = await call(client, "profiles/get", profile_id="bedroom")
+    rule = listing["rules"][0]["rule"]
+
+    assert_shape(await call(client, "rules/validate", rule=rule), "RuleValidation")
+
+
+async def test_a_loop_is_reported_by_both_surfaces_that_can_show_one(
+    hass: HomeAssistant, loaded: MockConfigEntry, client: Any
+) -> None:
+    """FR-R7 before the save and after it, in the two payloads the panel renders."""
+    from dataclasses import replace as _replace  # noqa: PLC0415
+
+    coordinator = loaded.runtime_data.coordinator
+    profile = coordinator.active_profile
+    assert profile is not None
+    looping = _replace(
+        profile,
+        rules=(
+            _replace(profile.rules[0], mirror_source=MirrorChoice.ON),
+            _replace(
+                a_rule(
+                    "back", source_node=MAIN_LIGHTS, emitter_id="paddle", target_node=CONTROLLER
+                ),
+                mirror_source=MirrorChoice.ON,
+            ),
+        ),
+    )
+    coordinator.async_update_state(
+        _replace(coordinator.state, profiles=(looping,), active_profile_id=looping.id)
+    )
+    await hass.async_block_till_done()
+
+    detail = await call(client, "profiles/get", profile_id=looping.id)
+    assert_shape(detail, "ProfileDetail")
+    assert detail["loops"], "the profile forms a loop and the listing did not say so"
+    for loop in detail["loops"]:
+        assert_shape(loop, "LoopWarning")
+
+    validated = await call(client, "rules/validate", rule=detail["rules"][0]["rule"])
+    assert validated["loops"], "the rule closes a loop and validating it did not say so"
 
 
 async def test_profiles_export_matches_the_profile_export_interface(client: Any) -> None:

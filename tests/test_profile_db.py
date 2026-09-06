@@ -9,9 +9,11 @@ from typing import Any
 import pytest
 
 from custom_components.device_links import profile_db
+from custom_components.device_links.backends import zigbee_protocol
 from custom_components.device_links.backends.zwave_protocol import features_of_group
-from custom_components.device_links.models import Feature, ZWaveFingerprint
+from custom_components.device_links.models import Feature, ZigbeeFingerprint, ZWaveFingerprint
 from custom_components.device_links.profile_db import ProfileDatabase, load_profiles
+from tests.factories import profiles, zigbee_devices
 
 PROFILES_DIR = Path("custom_components/device_links/profiles_db")
 FIXTURE = Path(__file__).parent / "fixtures" / "z2_associations.json"
@@ -494,3 +496,297 @@ def test_a_device_with_no_model_still_names_its_file_in_the_error() -> None:
     """The label an error uses is best effort, so a broken entry still points somewhere."""
     with pytest.raises(ValueError, match=r"^broken\.json: missing required key"):
         load_profiles({"broken.json": json.dumps({"devices": [{}]})})
+
+
+# --- Zigbee entries, validated against the Stage 0 G1 capture ------------------------------
+
+
+def _zigbee_entries() -> tuple[Any, ...]:
+    return profiles().zigbee_entries
+
+
+def _matching_devices(entry: Any) -> list[Any]:
+    """Return every device in the G1 capture this entry's fingerprints claim."""
+    return [
+        device
+        for device in zigbee_devices().values()
+        if zigbee_protocol.fingerprint_of(device)
+        in [ZigbeeFingerprint(manufacturer=f.vendor, model=f.model) for f in entry.fingerprints]
+    ]
+
+
+def test_the_shipped_zigbee_entries_are_the_two_models_in_the_capture() -> None:
+    """VZM35-SN is deliberately absent: nothing of that model is on this network.
+
+    A curated entry writes a binding to the endpoint it names with complete confidence and
+    no error, so an entry nobody could check against hardware is exactly the entry not to
+    ship. Adding it is a job for whoever has one to capture.
+    """
+    models = {f.model for entry in _zigbee_entries() for f in entry.fingerprints}
+
+    assert models == {"VZM31-SN", "VZM32-SN"}
+
+
+def test_every_zigbee_entry_claims_a_device_that_is_really_on_this_network() -> None:
+    for entry in _zigbee_entries():
+        assert _matching_devices(entry), f"no device in the capture matches {entry.fingerprints}"
+
+
+def test_every_endpoint_a_zigbee_entry_names_exists_on_a_real_device() -> None:
+    """The check that stops a curated entry writing a binding to an endpoint that is not there.
+
+    "On a real device" rather than "on every device of the model", because the capture shows
+    the difference is real: two of the nine VZM31-SN switches are on software 2.00 and report
+    no endpoint 3. What must be true is that nothing here was invented, so every emitter has
+    to be demonstrable on at least one device the bridge actually reported.
+    """
+    for entry in _zigbee_entries():
+        devices = _matching_devices(entry)
+        for emitter in entry.emitters:
+            supported = [
+                device
+                for device in devices
+                if zigbee_protocol.endpoint_of(device, emitter.endpoint) is not None
+            ]
+            assert supported, (
+                f"{entry.fingerprints[0].model} emitter {emitter.emitter_id!r} names endpoint "
+                f"{emitter.endpoint}, which no device of that model reports"
+            )
+
+
+def test_every_cluster_a_zigbee_entry_claims_is_driven_by_that_endpoint() -> None:
+    """A cluster an endpoint does not drive is a binding that is written and does nothing."""
+    for entry in _zigbee_entries():
+        for emitter in entry.emitters:
+            for feature, cluster in emitter.actions.items():
+                supported = [
+                    device
+                    for device in _matching_devices(entry)
+                    if zigbee_protocol.emits(device, emitter.endpoint, cluster)
+                ]
+                assert supported, (
+                    f"{entry.fingerprints[0].model} emitter {emitter.emitter_id!r} maps "
+                    f"{feature} to {cluster} on endpoint {emitter.endpoint}, which no device "
+                    "of that model drives from there"
+                )
+                assert feature in zigbee_protocol.features_of_cluster(cluster), (
+                    f"{cluster} cannot carry {feature}"
+                )
+
+
+def test_a_curated_zigbee_entry_survives_resolution_on_the_devices_it_describes() -> None:
+    """The end-to-end version: the entry and the hardware agree, device by device."""
+    for entry in _zigbee_entries():
+        for device in _matching_devices(entry):
+            warnings: list[str] = []
+            controls = zigbee_protocol.resolve_emitters(device, entry, warnings=warnings)
+
+            assert controls, f"{device['friendly_name']} was left with no controls at all"
+            for control in controls:
+                assert zigbee_protocol.endpoint_of(device, control.endpoint) is not None
+                for cluster in control.group_ids:
+                    assert zigbee_protocol.emits(device, control.endpoint, cluster)
+
+
+def test_the_two_older_switches_lose_the_config_button_and_keep_the_paddle() -> None:
+    """The one place in the capture where a shipped entry and a real device disagree."""
+    entry = next(e for e in _zigbee_entries() if e.fingerprints[0].model == "VZM31-SN")
+    older = [
+        device
+        for device in _matching_devices(entry)
+        if zigbee_protocol.endpoint_of(device, 3) is None
+    ]
+
+    assert [device["friendly_name"] for device in older] == [
+        "Hallway Side Lights",
+        "House Front Lights",
+    ]
+    for device in older:
+        controls = zigbee_protocol.resolve_emitters(device, entry)
+        assert [control.endpoint for control in controls] == [2]
+        assert controls[0].label == "Paddle"
+
+
+def test_the_config_button_is_marked_as_not_established() -> None:
+    """Same treatment as the Zooz small button (A3): the pessimistic case, carried forward.
+
+    Nobody has observed what an Inovelli config button sends on a press, so Off-all must not
+    compile silently onto it. The compiler warns instead.
+    """
+    for entry in _zigbee_entries():
+        button = next(e for e in entry.emitters if e.emitter_id == "config_button")
+        assert button.semantics == profile_db.SEMANTICS_UNKNOWN
+
+
+def test_the_zigbee_settings_adapters_name_the_same_choices_on_both_sides() -> None:
+    """`values` is what the compiler asks for and `payloads` is what the bridge is sent.
+
+    The property names and the payload labels are the one thing in these entries the G1
+    capture could not confirm: it trimmed `definition.exposes`, which is where Zigbee2MQTT
+    describes them. Nothing writes them today and the adapter says so, so what this can
+    check is that they are internally complete. See docs/open-items.md T45.
+    """
+    for entry in _zigbee_entries():
+        assert set(entry.settings) == {
+            "smart_bulb_mode",
+            "local_protection",
+            "remote_protection",
+            "binding_off_to_on_sync_level",
+        }
+        for adapter in entry.settings.values():
+            assert set(adapter.values) == set(adapter.payloads)
+            assert adapter.property_name
+
+
+def test_the_load_endpoint_is_receivable_without_being_curated() -> None:
+    """Endpoint 1 is what a rule targets, and the device already says what it can act on."""
+    for entry in _zigbee_entries():
+        for device in _matching_devices(entry):
+            assert Feature.ON_OFF in zigbee_protocol.receivable_features(device)
+            assert zigbee_protocol.accepts(device, 1, zigbee_protocol.GEN_ON_OFF)
+
+
+# --- the Zigbee half of the schema, and the validator it documents -------------------------
+
+
+def test_the_shipped_schema_documents_the_zigbee_shapes_too() -> None:
+    """Same reasoning as the Z-Wave half: the schema documents, profile_db.py enforces."""
+    defs = _schema()["$defs"]
+
+    def keys(node: dict[str, Any]) -> tuple[set[str], set[str]]:
+        return set(node["properties"]), set(node.get("required", []))
+
+    assert keys(defs["zigbee_device"]) == (
+        profile_db.ZIGBEE_DEVICE_REQUIRED_KEYS | profile_db.ZIGBEE_DEVICE_OPTIONAL_KEYS,
+        set(profile_db.ZIGBEE_DEVICE_REQUIRED_KEYS),
+    )
+    assert keys(defs["zigbee_fingerprint"]) == (
+        set(profile_db.ZIGBEE_FINGERPRINT_REQUIRED_KEYS),
+        set(profile_db.ZIGBEE_FINGERPRINT_REQUIRED_KEYS),
+    )
+    assert keys(defs["zigbee_emitter"]) == (
+        profile_db.ZIGBEE_EMITTER_REQUIRED_KEYS | profile_db.ZIGBEE_EMITTER_OPTIONAL_KEYS,
+        set(profile_db.ZIGBEE_EMITTER_REQUIRED_KEYS),
+    )
+    assert keys(defs["zigbee_settings_adapter"]) == (
+        set(profile_db.ZIGBEE_ADAPTER_REQUIRED_KEYS),
+        set(profile_db.ZIGBEE_ADAPTER_REQUIRED_KEYS),
+    )
+    assert set(defs["zigbee_actions"]["propertyNames"]["enum"]) == {str(f) for f in Feature}
+    assert {
+        defs["device"]["properties"]["backend"]["const"],
+        defs["zigbee_device"]["properties"]["backend"]["const"],
+    } == profile_db.PROFILE_BACKENDS
+
+
+# --- validation: what a contributor's Zigbee mistake must do -------------------------------
+
+
+def _zigbee_emitter(**overrides: Any) -> dict[str, Any]:
+    return {
+        "emitter_id": "paddle",
+        "label": "Paddle",
+        "kind": "paddle",
+        "endpoint": 2,
+        "actions": {"on_off": "genOnOff"},
+        **overrides,
+    }
+
+
+def _zigbee_device(**overrides: Any) -> dict[str, Any]:
+    return {
+        "backend": "zigbee2mqtt",
+        "model": "Test model",
+        "manufacturer": "Test",
+        "fingerprints": [{"vendor": "Test", "model": "Test model"}],
+        "emitters": [_zigbee_emitter()],
+        **overrides,
+    }
+
+
+def test_a_minimal_zigbee_entry_loads() -> None:
+    database = load_profiles(_files(_zigbee_device()))
+
+    assert database.entries == ()
+    assert len(database.zigbee_entries) == 1
+    assert database.zigbee_entries[0].emitters[0].endpoint == 2
+    assert database.zigbee_entries[0].settings == {}
+
+
+def test_an_entry_with_no_backend_is_still_a_zwave_entry() -> None:
+    """Every entry written before Phase 2 is one, and a default that rewrote history
+    would be worse than one that matches it.
+    """
+    database = load_profiles(_files(_device()))
+
+    assert len(database.entries) == 1
+    assert database.zigbee_entries == ()
+
+
+def test_a_zigbee_device_is_looked_up_by_its_converter_definition() -> None:
+    database = load_profiles(_files(_zigbee_device()))
+
+    assert database.lookup_zigbee(ZigbeeFingerprint(manufacturer="Test", model="Test model"))
+    assert database.lookup_zigbee(ZigbeeFingerprint(manufacturer="Test", model="Other")) is None
+
+
+def test_two_zigbee_entries_claiming_one_model_are_refused() -> None:
+    """At most one entry may match a device, or the lookup depends on iteration order."""
+    with pytest.raises(ValueError, match="already claimed"):
+        load_profiles(_files(_zigbee_device(), _zigbee_device()))
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"backend": "matter"}, "'backend': 'matter' is not one of"),
+        ({"backend": 5}, "'backend': expected a string"),
+        ({"capacity_override": 3}, "unknown key"),
+        ({"fingerprints": [{"vendor": "Test"}]}, "missing required key"),
+        ({"fingerprints": [{"vendor": "Test", "model": ""}]}, "'model': must not be empty"),
+        (
+            {"emitters": [_zigbee_emitter(endpoint=0)]},
+            "'endpoint': expected an integer of at least 1",
+        ),
+        ({"emitters": [_zigbee_emitter(endpoint="2")]}, "'endpoint': expected an integer"),
+        ({"emitters": [_zigbee_emitter(actions={})]}, "must name at least one feature"),
+        ({"emitters": [_zigbee_emitter(actions={"nope": "genOnOff"})]}, "is not a feature"),
+        (
+            {"emitters": [_zigbee_emitter(actions={"on_off": "gen OnOff"})]},
+            "is not a cluster name",
+        ),
+        ({"emitters": [_zigbee_emitter(actions={"on_off": 6})]}, "expected a cluster name"),
+        ({"emitters": [_zigbee_emitter(capacity_override=3)]}, "unknown key"),
+        ({"emitters": [_zigbee_emitter(semantics="maybe")]}, "'semantics': 'maybe' is not"),
+        (
+            {"settings": {"a": {"property": "p", "values": {"on": 1}}}},
+            "missing required key\\(s\\) 'payloads'",
+        ),
+        (
+            {"settings": {"a": {"property": "p", "values": {"on": 1}, "payloads": {"off": "No"}}}},
+            "every choice needs both",
+        ),
+        (
+            {"settings": {"a": {"property": "", "values": {"on": 1}, "payloads": {"on": "Yes"}}}},
+            "'property': must not be empty",
+        ),
+        (
+            {"settings": {"a": {"property": "p", "values": {"on": 1}, "payloads": {"on": 3}}}},
+            "'on': expected a string",
+        ),
+        (
+            {"settings": {"a": {"property": "p", "values": {"on": 1}, "payloads": {}}}},
+            "must name at least one value",
+        ),
+    ],
+)
+def test_a_malformed_zigbee_entry_is_rejected(overrides: dict[str, Any], message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        load_profiles(_files(_zigbee_device(**overrides)))
+
+
+def test_two_zigbee_emitters_with_one_id_are_refused() -> None:
+    with pytest.raises(ValueError, match="appears twice"):
+        load_profiles(
+            _files(_zigbee_device(emitters=[_zigbee_emitter(), _zigbee_emitter(endpoint=3)]))
+        )

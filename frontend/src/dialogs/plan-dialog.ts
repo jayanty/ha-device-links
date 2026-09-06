@@ -37,6 +37,7 @@ import {
 import "../components/dialog";
 import {
   backendLabel,
+  describeHybridLeg,
   describeLink,
   jobStatusLabel,
   jobStatusTone,
@@ -51,6 +52,7 @@ import { sharedStyles } from "../styles";
 import type {
   JobFinished,
   JobProgress,
+  JobStarted,
   LinkOutcome,
   Plan,
   PlanDevice,
@@ -60,6 +62,34 @@ import type {
 
 /** What the dialog is doing, which decides what fills it and what the buttons say. */
 type Phase = "loading" | "plan" | "applying" | "finished";
+
+/**
+ * How this dialog plans and applies, for a caller whose work is not a plain apply.
+ *
+ * The rollback is the one that needs it: it plans from a snapshot and applies through
+ * `snapshots/rollback`, and everything else about the dialog (the token, the unmanaged
+ * ticks, the progress subscription, the result) is identical. Giving it a seam rather
+ * than a second dialog is what keeps "no write without a plan somebody confirmed" a
+ * property of one component instead of a convention two of them share.
+ *
+ * `notices` are shown above the plan, in the plan, because a consequence a caller wants
+ * the user to weigh has to be where the decision is made and not on the screen behind it.
+ */
+export interface PlanFlow {
+  plan(removeUnmanaged: readonly string[]): Promise<Plan>;
+  apply(planToken: string, removeUnmanaged: readonly string[]): Promise<JobStarted>;
+  notices?(plan: Plan): string[];
+  /**
+   * Whether this flow acts on the unmanaged links the user ticks. True unless it says so.
+   *
+   * The swap is the flow that says no: it already carries the exact links it would take
+   * off the old device, computed from the rules it is rewriting, and letting the ticks add
+   * to that would let a swap remove associations nobody connected it to. A tick box that
+   * did nothing would be worse than none, so the dialog reports those links and offers no
+   * box rather than offering one it will ignore.
+   */
+  acceptsUnmanaged?: boolean;
+}
 
 /** What a caller learns when a job this dialog started has ended. */
 export interface PlanAppliedDetail {
@@ -117,6 +147,15 @@ export class DeviceLinksPlanDialog extends LitElement {
    * their plan to cancel, and the token still describes exactly this work.
    */
   @property({ attribute: false }) initialRemoveUnmanaged: readonly string[] = [];
+
+  /**
+   * How to plan and apply, when this is not a plain apply of the active profile.
+   *
+   * Null is the ordinary case and means `api.plan` and `api.apply` with this dialog's own
+   * scope. Anything else is a caller that has its own pair, and the dialog does not know
+   * or care which: the token it confirms is still the token of the plan on screen.
+   */
+  @property({ attribute: false }) flow: PlanFlow | null = null;
 
   @state() private _plan: Plan | null = null;
 
@@ -286,6 +325,7 @@ export class DeviceLinksPlanDialog extends LitElement {
     }
     if (plan.is_empty && plan.counts.unmanaged === 0) {
       return html`
+        ${this._renderNotices(plan)}
         <p>Nothing to do. Every link this covers is already on the devices.</p>
         ${
           plan.unchanged_count > 0
@@ -297,8 +337,55 @@ export class DeviceLinksPlanDialog extends LitElement {
       `;
     }
     return html`
-      ${this._renderSummary(plan)}
+      ${this._renderNotices(plan)} ${this._renderSummary(plan)}
       ${plan.devices.map((device) => this._renderDevice(device))}
+      ${this._renderHybridLegs(plan)}
+    `;
+  }
+
+  /**
+   * The parts of these rules that Home Assistant carries, listed and not applied.
+   *
+   * PRD Section 6.7 asks the plan to say so rather than leaving somebody to find out that
+   * half of a rule stops when Home Assistant does. Under its own heading and never in a
+   * device's section, because a leg is not written to a device: it is already running, and
+   * pressing Apply does not change it.
+   */
+  private _renderHybridLegs(plan: Plan): TemplateResult | typeof nothing {
+    if (plan.hybrid_legs.length === 0) {
+      return nothing;
+    }
+    return html`
+      <section class="device">
+        <header>
+          <h3>Run by Home Assistant</h3>
+          <span class="chip warn">HA-executed</span>
+        </header>
+        <p class="secondary">
+          Already running, and not part of this apply. These stop working while Home
+          Assistant is off; everything above is written into the devices and does not.
+        </p>
+        ${plan.hybrid_legs.map((leg) => html`<div class="item">${describeHybridLeg(leg)}</div>`)}
+      </section>
+    `;
+  }
+
+  /**
+   * What the caller wants weighed alongside the plan, above the plan.
+   *
+   * The rollback's "these removals come back the next time that rule is applied" is the
+   * one this exists for. It is a consequence of confirming rather than an operation in the
+   * plan, and a consequence shown on the screen behind the dialog is one nobody reads.
+   */
+  private _renderNotices(plan: Plan): TemplateResult | typeof nothing {
+    const notices = this.flow?.notices?.(plan) ?? [];
+    if (notices.length === 0) {
+      return nothing;
+    }
+    return html`
+      <div class="notice warn" role="note">
+        ${notices.map((notice) => html`<p>${notice}</p>`)}
+      </div>
     `;
   }
 
@@ -347,6 +434,16 @@ export class DeviceLinksPlanDialog extends LitElement {
     const selectable = this._selectableUnmanaged(plan);
     if (selectable.length === 0) {
       return nothing;
+    }
+    if (!this._acceptsUnmanaged()) {
+      return html`
+        <div class="notice">
+          <p>
+            ${plural(selectable.length, "link")} on these devices belong to no rule. This
+            job does not touch them, so they are listed and left exactly as they are.
+          </p>
+        </div>
+      `;
     }
     const selected = this._removeUnmanaged.length;
     return html`
@@ -476,6 +573,14 @@ export class DeviceLinksPlanDialog extends LitElement {
         </div>
       `;
     }
+    if (!this._acceptsUnmanaged()) {
+      return html`
+        <div class="unmanaged-item">
+          <span class="chip muted">Left alone</span>
+          <span>${describeLink(link)}</span>
+        </div>
+      `;
+    }
     const checked = this._removeUnmanaged.includes(link.fingerprint);
     return html`
       <label class="unmanaged-item">
@@ -590,6 +695,11 @@ export class DeviceLinksPlanDialog extends LitElement {
   // Loading, applying, and following the job.
   // ------------------------------------------------------------------------------------
 
+  /** Whether this dialog's ticks reach the work. See `PlanFlow.acceptsUnmanaged`. */
+  private _acceptsUnmanaged(): boolean {
+    return this.flow === null || this.flow.acceptsUnmanaged !== false;
+  }
+
   /** What one press of Apply would actually write. Blocked and pending are neither. */
   private _changeCount(plan: Plan): number {
     return plan.counts.add + plan.counts.remove + plan.counts.set_param;
@@ -664,7 +774,10 @@ export class DeviceLinksPlanDialog extends LitElement {
     this._phase = "loading";
     this._error = null;
     try {
-      this._plan = await this.api.plan(this.scope, this._removeUnmanaged);
+      this._plan =
+        this.flow === null
+          ? await this.api.plan(this.scope, this._removeUnmanaged)
+          : await this.flow.plan(this._removeUnmanaged);
       this._phase = "plan";
     } catch (error) {
       this._fail(error);
@@ -683,11 +796,14 @@ export class DeviceLinksPlanDialog extends LitElement {
     // two still reports its result here rather than only in the Activity view.
     this._subscribe();
     try {
-      const started = await this.api.apply({
-        planToken: plan.token,
-        ...(this.scope === undefined ? {} : { scope: this.scope }),
-        removeUnmanaged: this._removeUnmanaged,
-      });
+      const started =
+        this.flow === null
+          ? await this.api.apply({
+              planToken: plan.token,
+              ...(this.scope === undefined ? {} : { scope: this.scope }),
+              removeUnmanaged: this._removeUnmanaged,
+            })
+          : await this.flow.apply(plan.token, this._removeUnmanaged);
       this._jobId = started.job_id;
       if (started.job_id === null) {
         this._unsubscribe();

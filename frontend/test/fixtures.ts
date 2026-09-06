@@ -17,6 +17,7 @@ import type {
   ProfileRow,
   RuleData,
   RuleRow,
+  Snapshot,
   UnmanagedLink,
 } from "../src/types";
 
@@ -34,6 +35,8 @@ export function deviceRow(overrides: Partial<DeviceRow> = {}): DeviceRow {
     links: 2,
     emitters: 2,
     is_long_range: false,
+    // Z-Wave: a link lands on the node, not on an endpoint of it.
+    receiving_endpoint: null,
     ...overrides,
   };
 }
@@ -42,6 +45,7 @@ export function emitter(overrides: Partial<Emitter> = {}): Emitter {
   return {
     emitter_id: "button_2",
     label: "Button 2",
+    endpoint: 0,
     group_ids: ["7", "8"],
     actions: { on_off: "7", level_hold: "8" },
     capacity: 5,
@@ -49,6 +53,10 @@ export function emitter(overrides: Partial<Emitter> = {}): Emitter {
     is_lifeline: false,
     grouping: "button",
     semantics: "unknown",
+    // The two facts only a curated device profile can supply, and the reason the hybrid
+    // opt-ins are offered for this control at all.
+    scene_id: 2,
+    indicator_id: 68,
     ...overrides,
   };
 }
@@ -62,6 +70,10 @@ export function lifelineEmitter(): Emitter {
     is_lifeline: true,
     grouping: "lifeline",
     semantics: null,
+    // A lifeline is not a button, so it has neither a scene number nor an LED, and no
+    // hybrid opt-in may ever be offered for it.
+    scene_id: null,
+    indicator_id: null,
   });
 }
 
@@ -132,7 +144,8 @@ export function ruleData(overrides: Partial<RuleData> = {}): RuleData {
     direction: "one_way",
     mirror_source: "off",
     features: ["on_off"],
-    source: { device: SOURCE, endpoint: null, emitter_id: "button_2" },
+    hybrid: [],
+    source: { device: SOURCE, endpoint: 0, emitter_id: "button_2" },
     targets: [{ device: TARGET, endpoint: null }],
     ...overrides,
   };
@@ -174,6 +187,7 @@ export function plan(overrides: Partial<Plan> = {}): Plan {
     is_empty: false,
     unchanged_count: 4,
     counts: { add: 1, remove: 0, set_param: 1, blocked: 1, pending: 1, unmanaged: 2 },
+    hybrid_legs: [],
     devices: [
       planDevice({
         add: [
@@ -260,6 +274,18 @@ export function job(overrides: Partial<Job> = {}): Job {
         reason: "ZWaveError: Timeout while waiting for an ACK",
       },
     ],
+    ...overrides,
+  };
+}
+
+/** One pre-apply snapshot, as `snapshots/list` describes it. Its id is its job's id. */
+export function snapshot(overrides: Partial<Snapshot> = {}): Snapshot {
+  return {
+    id: "job-1",
+    created_at: new Date().toISOString(),
+    reason: "before_apply",
+    devices: [SOURCE],
+    links: 4,
     ...overrides,
   };
 }

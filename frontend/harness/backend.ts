@@ -15,7 +15,6 @@
  */
 
 import type {
-  CompiledRule,
   Job,
   JobEvent,
   Plan,
@@ -23,6 +22,7 @@ import type {
   PlanItem,
   RuleData,
   RuleRow,
+  RuleValidation,
   UnmanagedLink,
 } from "../src/types";
 import {
@@ -125,7 +125,34 @@ export class HarnessBackend {
       case "profiles/list":
         return { active_profile_id: "profile-main", profiles: PROFILES };
       case "profiles/get":
-        return { profile: PROFILES[0], rules: this.rules };
+        // No loop in the harness's house: every rule here leaves the mirror setting
+        // alone, so no device relays what it receives and no cycle can run away.
+        return { profile: PROFILES[0], rules: this.rules, loops: [] };
+      case "swap/candidates":
+        // Every device the harness's rules name is on its network, so nothing needs
+        // replacing. That is the ordinary state of a house and the empty list the wizard
+        // has to render honestly rather than as a loading spinner that never ends.
+        return { replacements: [] };
+      case "profiles/diff":
+        // The harness holds one set of rules under two profile names, so the honest
+        // answer is that nothing differs: what this exercises is the empty case, which
+        // is the one a user meets most often and the easiest to render wrongly.
+        return {
+          is_empty: true,
+          counts: {},
+          devices: [],
+          rules: this.rules.map((row) => ({
+            rule_id: row.rule.id,
+            name: row.rule.name,
+            kind: "unchanged",
+            fields: [],
+            writes_nothing_new: true,
+            links_added: [],
+            links_removed: [],
+            links_unchanged: 0,
+          })),
+          links: [],
+        };
       case "profiles/activate":
         return { profile_id: message.profile_id, plan: this.plan([]) };
       case "profiles/export":
@@ -219,7 +246,7 @@ export class HarnessBackend {
     };
   }
 
-  private compile(rule: RuleData): CompiledRule {
+  private compile(rule: RuleData): RuleValidation {
     const source = DEVICES.find((device) => device.identity === rule.source.device);
     const detail = source?.device_id === null ? null : deviceDetail(source?.device_id ?? "");
     const emitter = detail?.emitters.find(
@@ -279,6 +306,10 @@ export class HarnessBackend {
     }
     return {
       links,
+      // The harness compiles no HA-executed legs: the option is off in it, which is the
+      // shipped default, so what it renders is what a user sees before they opt in.
+      hybrid_legs: [],
+      loops: [],
       settings:
         rule.mirror_source === "leave"
           ? []
@@ -367,6 +398,8 @@ export class HarnessBackend {
       unchanged_count: 7,
       counts,
       devices,
+      // The harness's option is off, which is the shipped default, so no leg exists.
+      hybrid_legs: [],
     };
   }
 

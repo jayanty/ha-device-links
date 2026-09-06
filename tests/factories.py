@@ -16,6 +16,8 @@ import json
 from pathlib import Path
 from typing import Any, Final
 
+from custom_components.device_links.backends.zigbee_protocol import Device as ZigbeeDevice
+from custom_components.device_links.backends.zigbee_protocol import handle_of as zigbee_handle_of
 from custom_components.device_links.backends.zwave_protocol import (
     AssociationGroup,
     resolve_emitters,
@@ -43,6 +45,24 @@ HOME_ID = "3538613642"
 # pure-core tests are written against.
 ZEN35_FINGERPRINT = ZWaveFingerprint(
     manufacturer_id=634, product_type=28672, product_id=40984, firmware="1.40.0"
+)
+
+# Node 13, "Ceiling Lights Old", the swap fixture PRD scenario S7 is written around. It is
+# not in the Z2 capture and never could be: it was already dead and had been replaced by
+# node 42 before Stage 0 ran, which is exactly what makes it the real artifact to test
+# against. What is known about it is what PRD Section 3.1 recorded, an Inovelli VZW31-SN.
+# Inovelli's manufacturer id is from the capture; the product type and id are not, because
+# nothing on this network can be asked for them any more, so they are named here as unknown
+# rather than invented into a fixture that would look captured. Nothing in the swap depends
+# on the values: what matters is that they differ from node 42's VZW32-SN (798, 23, 1),
+# which is what makes this a different-model swap.
+UNKNOWN_PRODUCT: Final = 0
+CEILING_LIGHTS_OLD = 13
+CEILING_LIGHTS_OLD_FINGERPRINT = ZWaveFingerprint(
+    manufacturer_id=798,
+    product_type=UNKNOWN_PRODUCT,
+    product_id=UNKNOWN_PRODUCT,
+    firmware="1.0.0",
 )
 
 # A fingerprint no shipped profile entry claims, so a test can exercise the path where the
@@ -121,6 +141,15 @@ def _spec(node_id: int) -> _NodeSpec:
     if node_id in known:
         return known[node_id]
     zen35 = known[36]
+    if node_id == CEILING_LIGHTS_OLD:
+        # A dead node keeps the group layout its model had, which is the VZW32-SN's: the
+        # two are the same generation of the same Inovelli switch. Nothing reads these,
+        # because the device is gone; they are here so a handle for it can be built at all.
+        return _NodeSpec(
+            fingerprint=CEILING_LIGHTS_OLD_FINGERPRINT,
+            groups=known[42].groups,
+            name="Ceiling Lights Old",
+        )
     if node_id == UNCURATED_NODE_ID:
         return _NodeSpec(
             fingerprint=UNCURATED_FINGERPRINT, groups=zen35.groups, name="Uncurated Model"
@@ -250,3 +279,56 @@ def group_capacities(node_id: int) -> dict[str, int]:
     needs the raw numbers rather than the capabilities view of them.
     """
     return {group_id: group["max_nodes"] for group_id, group in _spec(node_id).groups.items()}
+
+
+# --------------------------------------------------------------------------------------
+# Zigbee, from the Stage 0 G1 capture of the real bridge
+# --------------------------------------------------------------------------------------
+
+G1_FIXTURE = Path(__file__).parent / "fixtures" / "g1_bridge.json"
+
+# The coordinator's masked IEEE address, which every binding on the network today targets.
+COORDINATOR_IEEE = "<redacted:...fd4a>"
+
+# The pair Stage 0 item G2 would have bound, confirmed unbound by the capture. Scenario S8
+# is written against exactly these two, so they are named once here.
+AUX_IEEE = "<redacted:...4340>"  # Entrance Inside Lights Aux, VZM31-SN, paddle on ep2
+LIGHT_IEEE = "<redacted:...64ce>"  # Entrance Inside Lights, VZM32-SN, load on ep1
+SECOND_LIGHT_IEEE = "<redacted:...f7f8>"  # Kitchen Lights, VZM31-SN, load on ep1
+OLD_FIRMWARE_IEEE = "<redacted:...9536>"  # Hallway Side Lights, VZM31-SN sw 2.00, no ep3
+
+
+@cache
+def g1_bridge() -> dict[str, Any]:
+    """Return the whole G1 capture payload, read once for the session."""
+    data: dict[str, Any] = json.loads(G1_FIXTURE.read_text())["data"]
+    return data
+
+
+def zigbee_devices() -> dict[str, ZigbeeDevice]:
+    """Return every device the bridge reported, keyed by IEEE address."""
+    return {device["ieee_address"]: device for device in g1_bridge()["devices"]}
+
+
+def zigbee_device(ieee: str) -> ZigbeeDevice:
+    """Return one device from the capture by its IEEE address."""
+    return zigbee_devices()[ieee]
+
+
+def zigbee_handle(ieee: str) -> DeviceHandle:
+    """Return the handle the Zigbee adapter would build for a captured device.
+
+    Built through the adapter's own path rather than by hand, so a rule in a test names the
+    device the same way `async_devices` does. A handle assembled independently could agree
+    by luck and diverge the moment the real one changed.
+    """
+    return zigbee_handle_of(zigbee_device(ieee))
+
+
+def zigbee_devices_of(model: str) -> list[ZigbeeDevice]:
+    """Return every device in the capture whose converter matched this model."""
+    return [
+        device
+        for device in zigbee_devices().values()
+        if (device.get("definition") or {}).get("model") == model
+    ]

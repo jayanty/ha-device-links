@@ -21,6 +21,7 @@ const A_RULE: RuleData = {
   direction: "one_way",
   mirror_source: "leave",
   features: ["on_off", "level_set"],
+  hybrid: [],
   source: { device: "zwave:0xd4f2a1b3:36", endpoint: 0, emitter_id: "g2" },
   targets: [{ device: "zwave:0xd4f2a1b3:37", endpoint: null }],
 };

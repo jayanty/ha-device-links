@@ -23,6 +23,7 @@ import "../components/dialog";
 import "../dialogs/plan-dialog";
 import "../dialogs/rule-editor";
 import { renderIcon } from "../components/icon";
+import { renderLoops } from "../components/loops";
 import type { PlanClosedDetail } from "../dialogs/plan-dialog";
 import type { RuleSavedDetail } from "../dialogs/rule-editor";
 import {
@@ -40,6 +41,7 @@ import { sharedStyles } from "../styles";
 import type {
   Backend,
   DeviceRow,
+  LoopWarning,
   ProfileRow,
   RuleData,
   RuleRow,
@@ -80,6 +82,9 @@ export class DeviceLinksRules extends DeviceLinksView {
   @state() private _profile: ProfileRow | null = null;
 
   @state() private _rules: RuleRow[] = [];
+
+  /** What the active profile's rules, together, can make chase each other (FR-R7). */
+  @state() private _loops: LoopWarning[] = [];
 
   @state() private _devices: DeviceRow[] = [];
 
@@ -140,6 +145,7 @@ export class DeviceLinksRules extends DeviceLinksView {
             ? nothing
             : html`<div class="notice error" role="alert">${this._error}</div>`
         }
+        ${renderLoops(this._loops)}
         <div class="card">
           ${this._renderToolbar()}
           ${this._renderBody()}
@@ -155,6 +161,7 @@ export class DeviceLinksRules extends DeviceLinksView {
         .devices=${this._devices}
         .rule=${this._editing}
         .initialTemplate=${this._editorTemplate}
+        .hybridAllowed=${this.hybridAllowed}
         @dl-editor-closed=${this._closeEditor}
         @dl-rule-saved=${this._onSaved}
       ></dl-rule-editor>
@@ -503,7 +510,12 @@ export class DeviceLinksRules extends DeviceLinksView {
       }
       const active = (profiles.profiles ?? []).find((profile) => profile.is_active) ?? null;
       this._profile = active;
-      this._rules = active === null ? [] : ((await this.api.getProfile(active.id)).rules ?? []);
+      const detail = active === null ? null : await this.api.getProfile(active.id);
+      this._rules = detail?.rules ?? [];
+      // Answered for the active profile as it now stands, so enabling a rule from the
+      // table shows the loop it closes. The rule editor asks the same question with the
+      // rule being edited folded in, which is the earlier of the two answers (FR-R7).
+      this._loops = detail?.loops ?? [];
       this._error = null;
       void this._loadEmitterLabels();
     } catch (error) {

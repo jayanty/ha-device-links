@@ -27,7 +27,6 @@
 import type { HassErrorPayload, HomeAssistant } from "./hass";
 import { fillPlaceholders, lookupMessage } from "./messages";
 import type {
-  CompiledRule,
   DeviceDetail,
   DeviceRow,
   Job,
@@ -37,6 +36,7 @@ import type {
   Plan,
   ProfileActivation,
   ProfileDetail,
+  ProfileDiff,
   ProfileExport,
   ProfileImport,
   ProfileList,
@@ -44,7 +44,12 @@ import type {
   RuleData,
   RuleEnabled,
   RuleRow,
+  RuleValidation,
   Snapshot,
+  SnapshotRollback,
+  SwapApplied,
+  SwapPreview,
+  SwapReplacement,
   TemplateRow,
   VerifyResult,
 } from "./types";
@@ -64,6 +69,7 @@ export const COMMANDS = {
   profilesDelete: "device_links/profiles/delete",
   profilesActivate: "device_links/profiles/activate",
   profilesDuplicate: "device_links/profiles/duplicate",
+  profilesDiff: "device_links/profiles/diff",
   profilesExport: "device_links/profiles/export",
   profilesImport: "device_links/profiles/import",
   rulesValidate: "device_links/rules/validate",
@@ -84,6 +90,10 @@ export const COMMANDS = {
   unmanagedIgnore: "device_links/unmanaged/ignore",
   unmanagedRemove: "device_links/unmanaged/remove",
   snapshotsList: "device_links/snapshots/list",
+  snapshotsRollback: "device_links/snapshots/rollback",
+  swapCandidates: "device_links/swap/candidates",
+  swapPreview: "device_links/swap/preview",
+  swapApply: "device_links/swap/apply",
 } as const;
 
 /** The part of a plan or an apply that says which rules and devices it is about. */
@@ -261,6 +271,25 @@ export class DeviceLinksApi {
     return result.profile;
   }
 
+  /**
+   * Compare a profile with another profile, or with a snapshot (FR-P4).
+   *
+   * Exactly one other side, because the two answer different questions: a profile has
+   * rules and a snapshot is a photograph of hardware. The backend refuses a call that
+   * names both or neither rather than choosing for the caller.
+   */
+  async diffProfile(
+    profileId: string,
+    other: { profileId: string } | { snapshotId: string },
+  ): Promise<ProfileDiff> {
+    return this.send<ProfileDiff>(COMMANDS.profilesDiff, {
+      profile_id: profileId,
+      ...("profileId" in other
+        ? { other_profile_id: other.profileId }
+        : { snapshot_id: other.snapshotId }),
+    });
+  }
+
   /** Export a profile as YAML. With no id, the active profile. */
   async exportProfile(profileId?: string): Promise<ProfileExport> {
     return this.send<ProfileExport>(COMMANDS.profilesExport, {
@@ -281,8 +310,8 @@ export class DeviceLinksApi {
    * rule the compiler refuses is the answer to "will this work?", and the editor shows the
    * reason beside the rule the user is still editing.
    */
-  async validateRule(rule: RuleData): Promise<CompiledRule> {
-    return this.send<CompiledRule>(COMMANDS.rulesValidate, { rule });
+  async validateRule(rule: RuleData): Promise<RuleValidation> {
+    return this.send<RuleValidation>(COMMANDS.rulesValidate, { rule });
   }
 
   async upsertRule(rule: RuleData, profileId?: string): Promise<RuleRow> {
@@ -487,6 +516,82 @@ export class DeviceLinksApi {
   async listSnapshots(): Promise<Snapshot[]> {
     const result = await this.send<{ snapshots: Snapshot[] }>(COMMANDS.snapshotsList);
     return result.snapshots;
+  }
+
+  /**
+   * Put a snapshot's devices back as they were (FR-P3).
+   *
+   * Without `planToken` this writes nothing and answers with the plan, which is what the
+   * dialog is opened on. With one, the token has to be the token of that plan, so the
+   * work applied is the work somebody looked at. Never send a token from anywhere else.
+   */
+  async rollbackSnapshot(
+    snapshotId: string,
+    options: { planToken?: string; removeUnmanaged?: readonly string[] } = {},
+  ): Promise<SnapshotRollback> {
+    return this.send<SnapshotRollback>(COMMANDS.snapshotsRollback, {
+      snapshot_id: snapshotId,
+      ...(options.planToken === undefined ? {} : { plan_token: options.planToken }),
+      ...(options.removeUnmanaged?.length
+        ? { remove_unmanaged: [...options.removeUnmanaged] }
+        : {}),
+    });
+  }
+
+  // Device swap (FR-S2).
+
+  /**
+   * List the devices the active profile names that are not there, and what could replace them.
+   *
+   * Answers even when nothing on the network looks like the device that has gone, which is
+   * the difference between this and the unprompted Repairs issue: somebody who opened this
+   * screen has already decided something is wrong.
+   */
+  async swapCandidates(): Promise<SwapReplacement[]> {
+    const result = await this.send<{ replacements: SwapReplacement[] }>(COMMANDS.swapCandidates);
+    return result.replacements;
+  }
+
+  /**
+   * Return everything the swap would do, and do none of it.
+   *
+   * The plan this answers with carries the token `swapApply` has to be given, and a token
+   * can only come from here. That is the mechanism behind "a swap rewrites a whole
+   * configuration and cannot happen without somebody having looked at it first".
+   */
+  async swapPreview(options: {
+    oldIdentity: string;
+    newDeviceId: string;
+    mapping?: Record<string, string>;
+  }): Promise<SwapPreview> {
+    return this.send<SwapPreview>(COMMANDS.swapPreview, {
+      old_identity: options.oldIdentity,
+      new_device_id: options.newDeviceId,
+      ...(options.mapping === undefined ? {} : { mapping: options.mapping }),
+    });
+  }
+
+  /**
+   * Rewrite the rules and apply the plan, once the user has confirmed what they saw.
+   *
+   * `acceptLossy` is not a formality. The backend refuses a swap that would leave a rule
+   * doing less than it was asked to unless this is set, so it must only ever be true
+   * because a person ticked a box next to a list of what is lost.
+   */
+  async swapApply(options: {
+    oldIdentity: string;
+    newDeviceId: string;
+    planToken: string;
+    mapping?: Record<string, string>;
+    acceptLossy?: boolean;
+  }): Promise<SwapApplied> {
+    return this.send<SwapApplied>(COMMANDS.swapApply, {
+      old_identity: options.oldIdentity,
+      new_device_id: options.newDeviceId,
+      plan_token: options.planToken,
+      ...(options.mapping === undefined ? {} : { mapping: options.mapping }),
+      ...(options.acceptLossy ? { accept_lossy: true } : {}),
+    });
   }
 
   /** Send one command, and turn whatever it rejects with into a `DeviceLinksApiError`. */

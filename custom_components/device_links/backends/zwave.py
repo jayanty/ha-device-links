@@ -37,6 +37,7 @@ from custom_components.device_links.backends.base import (
     ObservedDevice,
     SettingResult,
     SettingValue,
+    SystemScope,
 )
 from custom_components.device_links.backends.zwave_accessor import ZWaveAccessorError
 from custom_components.device_links.models import Backend as BackendId
@@ -56,7 +57,7 @@ if TYPE_CHECKING:
     from zwave_js_server.model.association import AssociationAddress, AssociationGroup
     from zwave_js_server.model.driver import Driver
     from zwave_js_server.model.node import Node
-    from zwave_js_server.model.value import ConfigurationValue
+    from zwave_js_server.model.value import ConfigurationValue, Value
 
     from custom_components.device_links.profile_db import ProfileDatabase, ProfileEntry
 
@@ -66,6 +67,17 @@ _LOGGER = logging.getLogger(__name__)
 # reported there. Endpoint-addressed emitters are a Phase 2 concern; the observed state
 # below already reads whatever endpoints a device reports.
 _ROOT_ENDPOINT: Final = 0
+
+# Indicator CC property 2 is the binary "is this light on" value, which is the one
+# `tests/fixtures/z8_led_path.json` found writeable per button on node 36 (ids 67 to 71).
+# Property 1 is the multilevel form and property 3 the on/off period, neither of which a
+# leg mirroring a light's state has anything to say about.
+INDICATION_PROPERTY_BINARY: Final = 2
+
+# The device registry namespace this protocol's devices live in: the upstream integration's
+# own domain, never ours. Inventing a `device_links`-namespaced identifier is precisely how
+# an orphan device page gets made (Stage 0 item P2, and `rule_entity`'s module docstring).
+UPSTREAM_DOMAIN: Final = "zwave_js"
 
 # What a Z-Wave association target can be made to do by an association. The driver reports
 # a per-node command class list that would narrow this per device, but the Stage 0 capture
@@ -508,6 +520,74 @@ class ZWaveBackend:
             ),
         )
 
+    # Button indications, which only a hybrid leg of kind (c) ever asks about.
+
+    async def async_read_indication(self, handle: DeviceHandle, emitter_id: str) -> bool | None:
+        """Return whether this button's own LED is lit, or None when nothing can say.
+
+        Indicator CC rather than the LED-mode configuration parameters, and Stage 0 is why:
+        `tests/fixtures/z8_led_path.json` measured both at 33 ms and found that an indicator
+        set does not write device NVM. A leg mirroring a light would otherwise put a flash
+        write on a finite-endurance device every time that light changed.
+        """
+        value = await self._indication_value(handle, emitter_id)
+        return None if value is None or value.value is None else bool(value.value)
+
+    async def async_write_indication(
+        self, handle: DeviceHandle, emitter_id: str, lit: bool
+    ) -> bool:
+        """Light or unlight this button's own LED, and say whether the write went out."""
+        value = await self._indication_value(handle, emitter_id)
+        if value is None:
+            return False
+        try:
+            await self._node(handle).async_set_value(value, lit)
+        # One leg firing. What a caller does with a failure is count it, not raise it at a
+        # user who is standing in a room pressing a button.
+        except Exception as err:
+            _LOGGER.debug(
+                "the indication for %s on %s was not written: %s", emitter_id, handle.identity, err
+            )
+            return False
+        return True
+
+    async def _indication_value(self, handle: DeviceHandle, emitter_id: str) -> Value | None:
+        """Return the node value that is this control's own indicator, or None.
+
+        The emitter is resolved through `async_capabilities` rather than by reading the
+        curated entry directly, and that is not a detail: a curated emitter that covers
+        exactly the groups a derived one covered keeps the **derived** id, so the entry
+        calls this control `button_2` while every rule in the profile calls it `g7`. Asking
+        the same path the rest of the integration asks is the only way the two agree.
+
+        Two ways to get None, both of them real: nothing says which indicator belongs to
+        this control (which is most models, because nothing discoverable says so), or the
+        device has not reported that indicator at all.
+        """
+        # Imported inside the function, not at module scope: see the module docstring.
+        from zwave_js_server.const import CommandClass  # noqa: PLC0415
+
+        node = self._node(handle)
+        capabilities = await self.async_capabilities(handle)
+        indicator_id = next(
+            (
+                emitter.indicator_id
+                for emitter in capabilities.emitters
+                if emitter.emitter_id == emitter_id
+            ),
+            None,
+        )
+        if indicator_id is None:
+            return None
+        for value in node.values.values():
+            if (
+                int(value.command_class) == CommandClass.INDICATOR
+                and _as_int(value.property_) == indicator_id
+                and _as_int(value.property_key) == INDICATION_PROPERTY_BINARY
+            ):
+                return value
+        return None
+
     def _adapter_of(self, node: Node, capability: str) -> SettingsAdapter:
         """Return where this named setting lives on this model, or say it does not."""
         entry = self._entry_of(node)
@@ -587,6 +667,36 @@ class ZWaveBackend:
         """Return how a user wakes this device, or None when it is always listening."""
         entry = self._entry_of(self._node(handle))
         return None if entry is None else entry.wake_instruction
+
+    def system_scope(self) -> SystemScope:
+        """Report that a Z-Wave lifeline group is reserved whole rather than entry by entry.
+
+        An association group has one purpose, so the group is the unit and not the entry.
+
+        A Z-Wave group holding the controller is the lifeline, and nothing else may ever go
+        into it: the group is the unit, not the entry in it. `_local_refusal` says the same
+        thing one layer lower down for the write itself.
+        """
+        return SystemScope.SLOT
+
+    def registry_identifier(self, handle: DeviceHandle) -> tuple[str, str] | None:
+        """Return the `zwave_js` device registry identifier for this node.
+
+        The short `<home id>-<node id>` form, which is what `zwave_js`'s own
+        `helpers.get_device_id` builds and what Stage 0 item P2 captured off the real
+        registry. The longer fingerprint-bearing form is deliberately not used: it changes
+        when a node is replaced by a different model, which is the signal FR-S3 wants and
+        the last thing an attachment lookup should depend on.
+
+        A handle whose address is not `<home id>:<node id>` gets None rather than a guess.
+        Nothing this adapter builds is shaped any other way, so reaching that means a
+        handle arrived from a file somebody edited, and a near miss here makes an orphan
+        device rather than an error (see `rule_entity`).
+        """
+        home_id, separator, node_id = handle.protocol_id.partition(":")
+        if not separator or not home_id or not node_id:
+            return None
+        return (UPSTREAM_DOMAIN, f"{home_id}-{node_id}")
 
     # Devices and their identity.
 
@@ -771,6 +881,19 @@ def _feature_of(groups: Mapping[str, zwave_protocol.AssociationGroup], group: st
     if reported is None:
         return Feature.STATUS_REPORT
     return zwave_protocol.feature_of_group(reported)
+
+
+def _as_int(value: object) -> int | None:
+    """Return this property or property key as a number, or None when it is not one.
+
+    The driver types both as `int | str | None`, and the strings it uses are names rather
+    than digits, so anything unparseable is simply not the indicator being looked for.
+    """
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.lstrip("-").isdigit():
+        return int(value)
+    return None
 
 
 def _value_for(

@@ -77,6 +77,14 @@ export interface PanelConfig {
   cache_key?: string | null;
   /** The URL the running backend serves the bundle from. */
   bundle_url?: string | null;
+  /**
+   * Whether this Home Assistant allows HA-executed legs at all (FR-H1).
+   *
+   * Off by default and absent on an older backend, which reads the same way: the rule
+   * editor offers no hybrid opt-in, because a checkbox whose effect the backend would
+   * never register is a promise the product does not keep.
+   */
+  hybrid_legs?: boolean | null;
 }
 
 /** The route Home Assistant sets on a panel, which the shell turns into a tab. */

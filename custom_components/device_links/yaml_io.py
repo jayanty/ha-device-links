@@ -51,6 +51,7 @@ from custom_components.device_links.models import (
     DeviceHandle,
     Direction,
     Feature,
+    HybridKind,
     LinkTarget,
     MatterFingerprint,
     MirrorChoice,
@@ -66,10 +67,22 @@ from custom_components.device_links.models import (
 
 SCHEMA_VERSION: Final = 1
 
+# What every exported profile begins with, **without the schema version**. Named because
+# it is load-bearing beyond documentation: the YAML mirror deletes a file only when it
+# starts with this, so "is this file one of ours" is a fact about the file rather than
+# about what somebody remembers writing, and a mirror pointed at the wrong directory
+# cannot delete anything else.
+#
+# The version is deliberately not in it. A file this integration wrote at schema version 1
+# is still a file this integration wrote when the schema goes to 2, and a prefix carrying
+# the version would make every existing mirror file unrecognisable, and therefore
+# unprunable, on the day it changes.
+HEADER_PREFIX: Final = "# Device Links profile, schema version "
+
 # The header is fixed text, so it costs the export nothing in determinism, and it is the
 # only place the file can explain itself to somebody reading a pull request.
 _HEADER: Final = f"""\
-# Device Links profile, schema version {SCHEMA_VERSION}.
+{HEADER_PREFIX}{SCHEMA_VERSION}.
 #
 # A device is identified by its `protocol_id`, the address it has on its own network
 # ("<home id>:<node id>" for Z-Wave). The `name` on each device is informational: it is
@@ -301,6 +314,9 @@ def _rule_to_data(rule: Rule) -> dict[str, object]:
         "direction": str(rule.direction),
         "mirror_source": str(rule.mirror_source),
         "features": sorted(str(feature) for feature in rule.features),
+        # Always written, even when empty, so a file says out loud that this rule asks
+        # nothing of Home Assistant rather than leaving it to be inferred from silence.
+        "hybrid": sorted(str(kind) for kind in rule.hybrid),
         "source": {
             "device": rule.source.device.identity,
             "endpoint": rule.source.endpoint,
@@ -403,6 +419,13 @@ def _rule_from_data(value: object, index: int, devices: Mapping[str, DeviceHandl
                 MirrorChoice, fields.get("mirror_source"), f"{label} mirror choice"
             ),
             enabled=_require_bool(fields.get("enabled"), f"{label} enabled flag"),
+            # Absent means none, which is what every file written before hybrid legs
+            # existed means: the schema version does not move for a key whose absence has
+            # exactly one honest reading (PRD Section 6.7, Decision D3).
+            hybrid=frozenset(
+                _enum(HybridKind, kind, f"{label} hybrid leg")
+                for kind in _require_sequence(fields.get("hybrid", []), f"{label} hybrid legs")
+            ),
         )
     except ValueError as error:
         if isinstance(error, ProfileFormatError):

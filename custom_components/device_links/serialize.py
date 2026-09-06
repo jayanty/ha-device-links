@@ -22,12 +22,13 @@ could not be localised at all.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from homeassistant.core import HomeAssistant, callback
 
+from .compiler import CompiledRule
 from .coordinator import RuleState
-from .models import Diagnostic, Link, ObservedLink, PlanOp
+from .models import Diagnostic, HybridLeg, Link, ObservedLink, PlanOp
 from .rule_entity import async_upstream_device
 from .yaml_io import rule_to_data
 
@@ -35,7 +36,8 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from . import DeviceLinksConfigEntry
-    from .compiler import CompiledRule
+    from .diff import ProfileDiff
+    from .loops import Loop
     from .models import (
         DeviceCapabilities,
         DeviceHandle,
@@ -47,6 +49,13 @@ if TYPE_CHECKING:
         SettingWrite,
     )
     from .storage import JobSummary, Snapshot
+    from .swap import EmitterMapping, Replacement, RuleRewrite, SwapProposal
+
+
+# What `compiled_for` answers with for a rule the active profile does not hold, so the
+# comprehension above can ask for its legs without a second branch. Built once, because it
+# is immutable and empty.
+_NO_LEGS: Final = CompiledRule()
 
 
 class Serializer:
@@ -89,7 +98,13 @@ class Serializer:
 
     @callback
     def device(self, handle: DeviceHandle) -> dict[str, Any]:
-        """Return one device as a list row: what it is, and how much is on it."""
+        """Return one device as a list row: what it is, and how much is on it.
+
+        `receiving_endpoint` is here rather than only on the device detail because it is
+        what the rule editor needs while a target is being ticked, and the targets step
+        holds the device list and nothing else. Reading a detail per candidate would be one
+        command per device to fill in a number the list already knows (open item T50).
+        """
         observed = self._coordinator.observed_for(handle)
         capabilities = self._coordinator.capabilities_for(handle.identity)
         return {
@@ -102,6 +117,7 @@ class Serializer:
             "links": 0 if observed is None else len(observed.links),
             "emitters": 0 if capabilities is None else len(capabilities.emitters),
             "is_long_range": capabilities is not None and capabilities.is_long_range,
+            "receiving_endpoint": None if capabilities is None else capabilities.receiving_endpoint,
         }
 
     @callback
@@ -111,10 +127,16 @@ class Serializer:
 
     @staticmethod
     def _emitter(emitter: Emitter) -> dict[str, Any]:
-        """Return one control, including why it may need care (`semantics`)."""
+        """Return one control, including why it may need care (`semantics`).
+
+        `endpoint` is where the control drives from, and the rule editor puts it straight
+        on the rule it saves: a rule's source endpoint is not something a client can guess,
+        because it is 0 on the Z-Wave root and 2 on an Inovelli Blue paddle (open item T50).
+        """
         return {
             "emitter_id": emitter.emitter_id,
             "label": emitter.label,
+            "endpoint": emitter.endpoint,
             "group_ids": list(emitter.group_ids),
             "actions": {str(feature): group for feature, group in emitter.actions.items()},
             "capacity": emitter.capacity,
@@ -122,6 +144,11 @@ class Serializer:
             "is_lifeline": emitter.is_lifeline,
             "grouping": emitter.grouping,
             "semantics": emitter.semantics,
+            # What a hybrid leg on this control would need. The rule editor reads them to
+            # decide which of the three checkboxes it may offer at all, so that a user is
+            # never shown an opt-in the compiler will refuse (PRD Section 6.7).
+            "scene_id": emitter.scene_id,
+            "indicator_id": emitter.indicator_id,
         }
 
     # Links.
@@ -167,13 +194,26 @@ class Serializer:
     # Plans.
 
     @callback
-    def plan(self, plan: Plan) -> dict[str, Any]:
+    def plan(self, plan: Plan, rule_ids: frozenset[str] | None = None) -> dict[str, Any]:
         """Return a plan grouped by device, with one list per kind of work.
 
         Every device the plan says anything about is here, including one that has only
         unmanaged links on it: "nothing to do here, and these four entries are not mine"
         is a thing the user has to be able to see, and a device that vanished from the list
         because it had no work would read as a device nobody looked at.
+
+        `rule_ids` exists only for the HA-executed legs: PRD Section 6.7 asks that the plan
+        list them rather than leaving them to be discovered, and which of them belong to
+        this plan is a question about rules rather than about devices. An empty set means
+        every enabled rule of the profile, which is what an unscoped plan is about; None
+        means none at all, which is the honest answer for the two plans that are about
+        devices rather than about rules. A rollback puts hardware back and a swap moves
+        rules from one address to another, and neither starts, stops or changes a listener
+        inside Home Assistant, so listing legs beside either would be padding a decision
+        with things it does not affect.
+
+        Legs are never part of the plan's token and are not applied by pressing anything,
+        which is exactly what the panel says beside them.
         """
         devices: dict[str, dict[str, Any]] = {}
         for item in plan.items:
@@ -194,7 +234,26 @@ class Serializer:
             "devices": sorted(
                 devices.values(), key=lambda entry: (entry["name"], entry["identity"])
             ),
+            "hybrid_legs": self._hybrid_legs(rule_ids),
         }
+
+    def _hybrid_legs(self, rule_ids: frozenset[str] | None) -> list[dict[str, Any]]:
+        """Return the HA-executed legs this plan's rules ask for, or none.
+
+        Empty while the global option is off, because no leg is running then and listing
+        one would be describing something that is not happening. Nothing here is applied:
+        a leg starts the moment its rule is saved and enabled, which is why the panel puts
+        these under their own heading and says the apply does not touch them.
+        """
+        profile = self._coordinator.active_profile
+        if rule_ids is None or profile is None or not self._coordinator.hybrid_allowed:
+            return []
+        return [
+            self.hybrid_leg(leg)
+            for rule in profile.rules
+            if rule.enabled and (not rule_ids or rule.id in rule_ids)
+            for leg in (self._coordinator.compiled_for(rule.id) or _NO_LEGS).hybrid_legs
+        ]
 
     def _bucket(self, devices: dict[str, dict[str, Any]], identity: str) -> dict[str, Any]:
         """Return the entry one device's work goes into, building it the first time."""
@@ -246,8 +305,41 @@ class Serializer:
         return {
             "links": [self.link(link) for link in compiled.links],
             "settings": [self.setting(setting) for setting in compiled.settings],
+            "hybrid_legs": [self.hybrid_leg(leg) for leg in compiled.hybrid_legs],
             "warnings": [diagnostic(warning) for warning in compiled.warnings],
             "errors": [diagnostic(error) for error in compiled.errors],
+        }
+
+    @callback
+    def hybrid_leg(self, leg: HybridLeg) -> dict[str, Any]:
+        """Return one HA-executed leg, said as what it is rather than as a link.
+
+        A separate shape from `link` on purpose, and the reason is the product's honesty
+        rather than the data: a leg is not written to a device, it is a listener inside
+        Home Assistant, and rendering one in the same list as the association entries would
+        blur exactly the boundary Decision D3 says has to stay visible. Every screen that
+        shows one of these labels it HA-executed, and it can only do that if the payload
+        never let it be mistaken for a device write in the first place.
+        """
+        return {
+            "identity": leg.identity,
+            "kind": str(leg.kind),
+            "rule_id": leg.rule_id,
+            "feature": str(leg.feature),
+            "emitter_id": leg.emitter_id,
+            "source": {
+                "identity": leg.source.identity,
+                "name": leg.source.name_at_authoring,
+                "device_id": self.device_id(leg.source),
+            },
+            "target": {
+                "identity": leg.target.handle.identity,
+                "name": leg.target.handle.name_at_authoring,
+                "device_id": self.device_id(leg.target.handle),
+                "endpoint": leg.target.endpoint,
+            },
+            "scene_id": leg.scene_id,
+            "indicator_id": leg.indicator_id,
         }
 
     @callback
@@ -277,6 +369,123 @@ class Serializer:
             "rules": len(profile.rules),
             "enabled_rules": sum(1 for rule in profile.rules if rule.enabled),
             "is_active": profile.id == active_profile_id,
+        }
+
+    # Profile diff (FR-P4).
+
+    @callback
+    def profile_diff(self, diff: ProfileDiff) -> dict[str, Any]:
+        """Return one comparison at both levels, with the counts already worked out.
+
+        The counts are computed here rather than left to the client for the reason every
+        other derived field in this module is: two clients deriving the same summary is two
+        chances to derive it differently, and this one is what a user reads before deciding
+        to rewrite their whole configuration.
+        """
+        return {
+            "is_empty": diff.is_empty,
+            "counts": diff.counts(),
+            "devices": list(diff.devices),
+            "rules": [
+                {
+                    "rule_id": rule.rule_id,
+                    "name": rule.name,
+                    "kind": str(rule.kind),
+                    "fields": list(rule.fields),
+                    "writes_nothing_new": rule.writes_nothing_new,
+                    "links_added": [self.link(link) for link in rule.links_added],
+                    "links_removed": [self.link(link) for link in rule.links_removed],
+                    "links_unchanged": rule.links_unchanged,
+                }
+                for rule in diff.rules
+            ],
+            "links": [
+                {"kind": str(change.kind), "link": self.link(change.link)} for change in diff.links
+            ],
+        }
+
+    # Loops (FR-R7).
+
+    @callback
+    def loop(self, loop: Loop) -> dict[str, Any]:
+        """Return one loop as the devices on it and the rules that join them.
+
+        The rules are what makes this something a user can do anything about: "these three
+        devices form a loop" is a fact about a house, and "and it is the Virtual 3-way rule
+        that closes it" is a rule they can go and open.
+        """
+        return {
+            "devices": [
+                {
+                    "identity": device.identity,
+                    "name": device.name_at_authoring,
+                    "device_id": self.device_id(device),
+                }
+                for device in loop.devices
+            ],
+            "rule_ids": list(loop.rule_ids),
+            "rule_names": list(loop.rule_names),
+        }
+
+    # Swaps.
+
+    @callback
+    def replacement(self, replacement: Replacement) -> dict[str, Any]:
+        """Return one device that looks replaced, with what could take over from it."""
+        return {
+            "old": self.device(replacement.old),
+            "changed_in_place": replacement.changed_in_place,
+            "rule_ids": list(replacement.rule_ids),
+            "candidates": [self.device(handle) for handle in replacement.candidates],
+        }
+
+    @callback
+    def proposal(self, proposal: SwapProposal) -> dict[str, Any]:
+        """Return everything one swap would do, before any of it is done.
+
+        The whole of it, every rule before and after: a swap rewrites a user's entire
+        configuration in one move, and a summary would be asking them to confirm a count.
+        `is_lossy` and `is_applicable` are computed rather than left to the client, because
+        the same two answers gate `swap/apply` and a client deriving its own could offer a
+        button the backend will refuse.
+        """
+        return {
+            "old": self.device(proposal.old),
+            "new": self.device(proposal.new),
+            "same_model": proposal.same_model,
+            "is_lossy": proposal.is_lossy,
+            "is_applicable": proposal.is_applicable,
+            "unmapped": list(proposal.unmapped),
+            "errors": [diagnostic(error) for error in proposal.errors],
+            "mappings": [self._mapping(mapping) for mapping in proposal.mappings],
+            "rewrites": [self._rewrite(rewrite) for rewrite in proposal.rewrites],
+        }
+
+    @staticmethod
+    def _mapping(mapping: EmitterMapping) -> dict[str, Any]:
+        """Return one control on the old device and what would take over from it."""
+        return {
+            "old_emitter_id": mapping.old_emitter_id,
+            "new_emitter_id": mapping.new_emitter_id,
+            "new_label": mapping.new_label,
+            "new_endpoint": mapping.new_endpoint,
+            "basis": str(mapping.basis),
+            "features_needed": [str(feature) for feature in mapping.features_needed],
+            "features_carried": [str(feature) for feature in mapping.features_carried],
+        }
+
+    @callback
+    def _rewrite(self, rewrite: RuleRewrite) -> dict[str, Any]:
+        """Return one rule as it stands and as the swap would leave it."""
+        return {
+            "rule_id": rewrite.rule_id,
+            "name": rewrite.before.name,
+            "before": rule_to_data(rewrite.before),
+            "after": rule_to_data(rewrite.after),
+            "is_lossy": rewrite.is_lossy,
+            "losses": [diagnostic(loss) for loss in rewrite.losses],
+            "notes": [diagnostic(note) for note in rewrite.notes],
+            "errors": [diagnostic(error) for error in rewrite.errors],
         }
 
     # History.

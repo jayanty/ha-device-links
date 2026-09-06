@@ -38,7 +38,7 @@ removed from it while we cannot see it (E1).
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
@@ -50,10 +50,12 @@ from homeassistant.helpers.event import async_call_later
 
 from custom_components.device_links.backends.base import Backend, ObservedDevice
 from custom_components.device_links.compiler import CompiledRule, compile_rule
+from custom_components.device_links.loops import Loop, find_loops, forwarding_devices
 from custom_components.device_links.models import Backend as BackendId
 from custom_components.device_links.models import (
     DeviceCapabilities,
     DeviceHandle,
+    HybridLeg,
     Link,
     ObservedLink,
     Plan,
@@ -119,12 +121,20 @@ class DeviceLinksCoordinator:
         backends: Mapping[BackendId, Backend],
         store: DeviceLinksStore,
         refresh_debounce_seconds: float = REFRESH_DEBOUNCE_SECONDS,
+        hybrid_allowed: bool = False,
     ) -> None:
-        """Hold what the coordinator needs, and read nothing yet."""
+        """Hold what the coordinator needs, and read nothing yet.
+
+        `hybrid_allowed` is the global option (FR-H1), and it is here for one question
+        only: whether a rule that compiles to nothing but HA-executed legs is doing its job
+        or is switched off at the wall. It cannot change under a running coordinator,
+        because changing an option reloads the config entry.
+        """
         self._hass = hass
         self._backends = dict(backends)
         self._store = store
         self._debounce_seconds = refresh_debounce_seconds
+        self._hybrid_allowed = hybrid_allowed
 
         self._state = StoredState()
         self._handles: dict[str, DeviceHandle] = {}
@@ -305,6 +315,15 @@ class DeviceLinksCoordinator:
         """Return what this device can do, as it was last read, or None if never read."""
         return self._capabilities.get(identity)
 
+    @property
+    def capabilities(self) -> Mapping[str, DeviceCapabilities]:
+        """Return what every device that has been read can do, by identity.
+
+        A copy, because this is what the compiler and the swap flow are handed and neither
+        may end up holding a view of a cache that moves under them mid-decision.
+        """
+        return dict(self._capabilities)
+
     def compiled_for(self, rule_id: str) -> CompiledRule | None:
         """Return what one rule of the active profile compiled to, disabled or not."""
         return self._compiled.get(rule_id)
@@ -417,6 +436,26 @@ class DeviceLinksCoordinator:
 
     # Reading.
 
+    async def async_relist(self) -> None:
+        """Ask every backend which devices are on its network, and take the answer whole.
+
+        The only path that can notice a device has **left**. A per-device read cannot: it
+        asks about a device we already know of, so a node that has been excluded reads as
+        one that did not answer. Asking for the listing again is what tells "unreachable"
+        from "gone", which is what E19 and the swap flow (FR-S3) are decided on.
+
+        Deliberately not on a timer. It re-reads every device on the network, so a schedule
+        would be radio traffic for a question whose answer changes when a person changes it;
+        `async_setup` asks it once, and an unscoped Verify asks it again, which is the
+        surface somebody uses precisely when they think the picture is out of date.
+
+        The read it does is shallow, which is what makes it cheap enough to sit in front of
+        a Verify's own deep pass: on Z-Wave a shallow read is the driver's cache and on
+        Zigbee it is the retained bridge state, so neither costs a radio conversation. Only
+        the deep pass that follows reaches the devices themselves.
+        """
+        await self.async_refresh()
+
     async def async_refresh(
         self, handle: DeviceHandle | None = None, *, deep: bool = False
     ) -> ObservedDevice | None:
@@ -455,6 +494,44 @@ class DeviceLinksCoordinator:
             for device in devices:
                 self._handles[device.handle.identity] = device.handle
                 await self._read_device(device.handle, deep=deep)
+            self._forget_unlisted(backend_id, {device.handle.identity for device in devices})
+
+    def _forget_unlisted(self, backend_id: BackendId, listed: set[str]) -> None:
+        """Drop what this backend no longer lists, so a removed device stops being current.
+
+        A device that has left the network is not the same as one that did not answer, and
+        this is the only place the difference is visible: the backend answered, with a list
+        that no longer has it in. Keeping it would leave a device that is physically gone
+        reading as merely unavailable for the life of the process, and FR-S3 (which offers
+        a swap when a device rules reference disappears) could never fire while Home
+        Assistant kept running.
+
+        **An empty listing never prunes.** Zigbee2MQTT republishes `bridge/devices` while it
+        restarts, and a momentarily empty list would otherwise take every Zigbee device off
+        this network at once, which is a mass event nobody caused. A backend that has
+        listed devices before and lists none now is treated as one that did not really
+        answer: the cache stands and the next listing settles it.
+
+        What is dropped is only the cache. The stored rules are untouched, so a rule
+        naming the device still exists and still says what the user wanted; it simply reads
+        as `unknown` rather than as `drift`, which is what E4 asks for.
+        """
+        known = {
+            identity for identity, handle in self._handles.items() if handle.backend is backend_id
+        }
+        gone = known - listed
+        if not listed or not gone:
+            return
+        _LOGGER.info(
+            "the %s backend no longer lists %s, so what was cached about them is dropped",
+            backend_id,
+            ", ".join(sorted(gone)),
+        )
+        for identity in gone:
+            self._handles.pop(identity, None)
+            self._capabilities.pop(identity, None)
+            self._observed.pop(identity, None)
+            self._unavailable.discard(identity)
 
     async def _read_device(self, handle: DeviceHandle, *, deep: bool) -> ObservedDevice | None:
         """Read one device, keeping what is cached when it does not answer.
@@ -601,6 +678,7 @@ class DeviceLinksCoordinator:
         scope: PlanScope | None = None,
         *,
         remove_unmanaged: frozenset[str] = frozenset(),
+        desired: Sequence[Link] | None = None,
     ) -> Plan:
         """Return what would happen if this scope were applied, from what was last read.
 
@@ -608,13 +686,24 @@ class DeviceLinksCoordinator:
         when a read is worth the radio time, and a plan whose token was computed from state
         the caller never saw is a plan they cannot reason about. The executor refreshes and
         then plans.
+
+        `desired` answers "what would happen if *this* were what the profile wanted", which
+        is what a device swap and a snapshot rollback both need: both propose a state that
+        is not stored yet, and both must be previewable in full before anything is written.
+        **Ownership is deliberately not overridden with it.** `managed_by` is a record of
+        what Device Links put on a device, not of what somebody now wants there, so the
+        stored profile keeps claiming its links and they are correctly planned for removal
+        when the proposed state no longer wants them. Overriding both halves would make a
+        proposal that claims links it never wrote, which is how a preview comes to offer to
+        delete somebody else's associations.
         """
         identities = self.identities_in_scope(scope)
         observed: list[ObservedLink] = []
         for identity in sorted(identities):
             observed.extend(self._observed[identity].links)
+        wanted = self._desired if desired is None else desired
         plan = build_plan(
-            desired=[link for link in self._desired if link.source.identity in identities],
+            desired=[link for link in wanted if link.source.identity in identities],
             observed=observed,
             capabilities=self._capabilities,
             remove_unmanaged=remove_unmanaged,
@@ -684,6 +773,48 @@ class DeviceLinksCoordinator:
         compiled = self._compiled.get(rule_id)
         return () if compiled is None else compiled.links
 
+    def _hybrid_legs_of(self, rule_id: str) -> tuple[HybridLeg, ...]:
+        """Return the HA-executed legs one rule of the active profile asks for."""
+        compiled = self._compiled.get(rule_id)
+        return () if compiled is None else compiled.hybrid_legs
+
+    @property
+    def hybrid_allowed(self) -> bool:
+        """Say whether the option that lets a hybrid leg run at all is on (FR-H1)."""
+        return self._hybrid_allowed
+
+    # Loops (FR-R7).
+
+    def find_loops(self, draft: Rule | None = None) -> tuple[Loop, ...]:
+        """Return the loops the active profile forms, with a rule being edited folded in.
+
+        The scope decision this method is: **the active profile, plus the one rule the user
+        is holding, across every backend.** A loop can span rules, which is why one rule's
+        compilation cannot answer this; it cannot span profiles, because only one profile's
+        links are ever on the devices (Decision D10); and it can certainly span protocols,
+        so nothing here asks which backend a link belongs to.
+
+        `draft` is the rule as the editor currently has it, which is what makes the answer
+        arrive before the save rather than after it. It replaces a stored rule of the same
+        id, so editing the rule that closes a loop shows the loop going away.
+
+        What the devices already hold counts as well as what the profile wants: a mirror
+        setting somebody turned on in Z-Wave JS UI years ago is half of a loop, and a rule
+        written today can be the other half without any rule of ours ever asking for it.
+        """
+        profile = self.active_profile
+        rules = list(profile.rules) if profile is not None else []
+        compiled = dict(self._compiled)
+        if draft is not None:
+            rules = [rule for rule in rules if rule.id != draft.id] + [draft]
+            compiled[draft.id] = compile_rule(draft.with_enabled(True), self._capabilities)
+        observed = {
+            identity: device.settings
+            for identity, device in self._observed.items()
+            if self.is_available(identity)
+        }
+        return find_loops(compiled, rules, forwarding=forwarding_devices(rules, observed))
+
     # Drift.
 
     def drift_state(self) -> Mapping[str, RuleState]:
@@ -724,7 +855,15 @@ class DeviceLinksCoordinator:
             return RuleState.UNKNOWN
         wanted = self._links_of(rule.id)
         if not wanted:
-            return RuleState.BLOCKED
+            # A rule that compiles to nothing but hybrid legs is not blocked, it is
+            # HA-executed: there is nothing on a device for it to be in sync with, and the
+            # legs are either running or the global option is off, which is the one case
+            # where "this rule is not doing anything" is the true answer (PRD Section 6.7).
+            return (
+                RuleState.IN_SYNC
+                if self._hybrid_allowed and self._hybrid_legs_of(rule.id)
+                else RuleState.BLOCKED
+            )
         if all(link.fingerprint in self._present for link in wanted):
             return RuleState.IN_SYNC
         if rule.id not in self._state.applied_rule_ids:

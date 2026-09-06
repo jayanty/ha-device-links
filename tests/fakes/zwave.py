@@ -51,6 +51,7 @@ from zwave_js_server.exceptions import FailedZWaveCommand, NotFoundError
 from zwave_js_server.model.association import AssociationAddress, AssociationGroup
 from zwave_js_server.model.value import SetValueResult
 
+from custom_components.device_links.backends.zwave import INDICATION_PROPERTY_BINARY
 from custom_components.device_links.models import ZWaveFingerprint
 from tests.factories import HOME_ID, profiles
 
@@ -150,7 +151,8 @@ class FakeNode(EventBase):
         # the subject of every pending_wakeup test.
         self.status = NodeStatus.ALIVE if spec.is_listening else NodeStatus.ASLEEP
         self.values: dict[str, FakeValue] = {
-            value.value_id: value for value in _config_values_for(spec)
+            value.value_id: value
+            for value in (*_config_values_for(spec), *_indicator_values_for(spec))
         }
 
     def get_configuration_values(self) -> dict[str, FakeValue]:
@@ -242,6 +244,13 @@ class FakeController(EventBase):
         # Set to an int to make every check return it, including a value no current driver
         # returns, so an adapter can be shown to fail closed on one.
         self.force_check_result: int | None = None
+        # Node ids that are on the network and will not answer a read. A node that has been
+        # excluded leaves `nodes` entirely; this is the other state, and the one nothing
+        # could reproduce before: listed, and silent. It is what an unreachable device
+        # really looks like to the coordinator (E1), and it is what a swap onto a device
+        # that stopped answering has to be tested against.
+        self.unreadable: set[int] = set()
+
         # How many times a CC value refresh was asked for.
         self.refresh_count = 0
         # How long the device takes to answer a refresh.
@@ -254,6 +263,9 @@ class FakeController(EventBase):
         # parameter -> the (bitmask, value) pairs written to it. Keyed by parameter so a
         # test can say `19 not in written_parameters` (Decision D4).
         self.written_parameters: dict[int, list[tuple[int | None, int]]] = {}
+        # Every Indicator CC write, in order, as `(indicator id, value)`. What a test about
+        # hybrid leg write hygiene counts: each of these is one radio frame.
+        self.written_indicators: list[tuple[int, bool]] = []
 
         self._refresh_tasks: set[asyncio.Task[None]] = set()
 
@@ -266,6 +278,7 @@ class FakeController(EventBase):
 
         Two levels. The associations call below is three. See the module docstring.
         """
+        self._require_answering(node.node_id)
         return self.get_all_association_groups_sync(node.node_id)
 
     async def async_get_all_associations(
@@ -276,7 +289,17 @@ class FakeController(EventBase):
         Three levels, one deeper than the groups call. Reading this at the groups call's
         depth yields plausible empty groups instead of an error.
         """
+        self._require_answering(node.node_id)
         return self.get_all_associations_sync(node.node_id)
+
+    def _require_answering(self, node_id: int) -> None:
+        """Raise the way a node that is on the network and silent makes a read raise."""
+        if node_id in self.unreadable:
+            raise FailedZWaveCommand(
+                "controller.get_all_association_groups",
+                201,
+                f"node {node_id} did not respond",
+            )
 
     async def async_get_association_groups(
         self, source: AssociationAddress
@@ -511,7 +534,15 @@ class FakeController(EventBase):
 
         Keyed by parameter rather than by value id so a test can assert that a parameter
         was never touched: `19 not in written_parameters` is Decision D4 in one line.
+
+        Indicator writes are counted separately and not here, because they are the other
+        half of the same Stage 0 finding: an indicator set does not touch device NVM and a
+        configuration write does, so a test about hybrid leg write hygiene has to be able
+        to count the frames without the count meaning "this many flash writes".
         """
+        if value.command_class == CommandClass.INDICATOR:
+            self.written_indicators.append((int(value.property_), bool(new_value)))
+            return
         if value.command_class != CommandClass.CONFIGURATION:
             return
         parameter = int(value.property_)
@@ -640,6 +671,38 @@ def _config_values_for(spec: NodeSpec) -> list[FakeValue]:
             )
         )
     return values
+
+
+def _indicator_values_for(spec: NodeSpec) -> list[FakeValue]:
+    """Return the per-button indicator values this model reports, per the curated entry.
+
+    The Z8 capture found these on node 36: one writeable Indicator CC value per button,
+    ids 67 to 71 on property 2, all reading false. They are here rather than in the
+    association capture because the association capture did not record node values at all,
+    and the entry is the only place that says which id belongs to which button.
+    """
+    entry = profiles().lookup(
+        ZWaveFingerprint(
+            manufacturer_id=spec.manufacturer_id,
+            product_type=spec.product_type,
+            product_id=spec.product_id,
+            firmware=spec.firmware_version,
+        )
+    )
+    if entry is None:
+        return []
+    return [
+        FakeValue(
+            node_id=spec.node_id,
+            command_class=CommandClass.INDICATOR,
+            property_=emitter.indicator_id,
+            property_key=INDICATION_PROPERTY_BINARY,
+            endpoint=ROOT_ENDPOINT,
+            value=0,
+        )
+        for emitter in entry.emitters
+        if emitter.indicator_id is not None
+    ]
 
 
 @cache

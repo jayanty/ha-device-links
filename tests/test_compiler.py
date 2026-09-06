@@ -330,6 +330,69 @@ def test_the_reverse_leg_uses_the_targets_own_primary_control() -> None:
     assert {link.emitter_group for link in reverse} == {"2", "4"}
 
 
+def _two_way_between(source: int, target: int) -> Rule:
+    """A two-way rule from one node's paddle onto another node, for the tests below."""
+    return _rule(
+        template=Template.VIRTUAL_3WAY,
+        source=RuleSource(device=handle(source), endpoint=0, emitter_id="paddle"),
+        targets=(RuleTarget(device=handle(target), endpoint=None),),
+        features=frozenset({Feature.ON_OFF}),
+        direction=Direction.TWO_WAY,
+    )
+
+
+def test_the_reverse_leg_is_written_from_the_control_that_carries_it() -> None:
+    """Open item T48, the pure half: neither end of a reverse leg is assumed any more.
+
+    It used to be written from endpoint 0 onto `rule.source.endpoint`, which are the Z-Wave
+    root and the Z-Wave "whole node" target. On a protocol that puts its controls on
+    endpoints, both were wrong and neither was reported, so the leg was refused at apply time
+    while the plan looked clean.
+    """
+    caps = capabilities_for(37, 35)
+    target = caps[handle(35).identity]
+    caps[handle(35).identity] = replace(
+        target, emitters=tuple(replace(e, endpoint=2) for e in target.emitters)
+    )
+    caps[handle(37).identity] = replace(caps[handle(37).identity], receiving_endpoint=1)
+
+    result = compile_rule(_two_way_between(37, 35), caps)
+
+    reverse = [link for link in result.links if link.source.identity == handle(35).identity]
+    assert reverse
+    assert {link.source_endpoint for link in reverse} == {2}
+    assert {link.target.endpoint for link in reverse} == {1}
+
+
+def test_a_zwave_reverse_leg_is_still_written_from_the_root_onto_the_whole_node() -> None:
+    """The other half of T48: Z-Wave answers 0 and None, which is what was hardcoded."""
+    result = compile_rule(_two_way_between(37, 35), capabilities_for(37, 35))
+
+    reverse = [link for link in result.links if link.source.identity == handle(35).identity]
+    assert reverse
+    assert {link.source_endpoint for link in reverse} == {0}
+    assert {link.target.endpoint for link in reverse} == {None}
+
+
+def test_a_zwave_reverse_leg_keeps_targeting_the_endpoint_the_rule_named() -> None:
+    """A multi-endpoint Z-Wave source still gets its reverse leg on the endpoint it named.
+
+    `receiving_endpoint` is None for Z-Wave, so this falls through to `rule.source.endpoint`
+    exactly as it always did. Pinned because "Z-Wave behaves identically" is the constraint
+    T48's fix was made under, and this is the one Z-Wave case where the value is not 0.
+    """
+    rule = replace(
+        _two_way_between(37, 35),
+        source=RuleSource(device=handle(37), endpoint=2, emitter_id="paddle"),
+    )
+
+    result = compile_rule(rule, capabilities_for(37, 35))
+
+    reverse = [link for link in result.links if link.source.identity == handle(35).identity]
+    assert reverse
+    assert {link.target.endpoint for link in reverse} == {2}
+
+
 def test_an_adapter_that_cannot_express_the_choice_warns_like_a_missing_one() -> None:
     """A setting whose values do not include the one asked for is not available either."""
     caps = capabilities_for(37, 38)

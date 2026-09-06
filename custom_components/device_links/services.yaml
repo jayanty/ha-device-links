@@ -76,6 +76,11 @@ import_profile:
       selector:
         text:
           multiline: true
+    allow_missing_devices:
+      required: false
+      default: false
+      selector:
+        boolean:
 
 # The advanced services below exist only while the "raw Z-Wave services" option is on
 # (Decision D14). They write to an association group directly, with no rule and no plan

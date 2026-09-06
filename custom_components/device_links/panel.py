@@ -142,6 +142,11 @@ async def async_register_panel(hass: HomeAssistant, entry: DeviceLinksConfigEntr
         "version": runtime.version,
         "cache_key": key,
         "bundle_url": module_url,
+        # Whether the rule editor may offer the HA-executed opt-ins at all (FR-H1). It is
+        # here rather than in a command because it cannot change without the config entry
+        # reloading, which re-registers this panel with the new answer, and because a
+        # checkbox the backend would refuse is worse than no checkbox.
+        "hybrid_legs": runtime.coordinator.hybrid_allowed,
     }
     frontend.async_remove_panel(hass, PANEL_URL_PATH, warn_if_unknown=False)
     await panel_custom.async_register_panel(

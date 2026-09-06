@@ -62,7 +62,12 @@ from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 
-from custom_components.device_links.backends.base import Backend, LinkResult, LinkResultStatus
+from custom_components.device_links.backends.base import (
+    Backend,
+    LinkResult,
+    LinkResultStatus,
+    SystemScope,
+)
 from custom_components.device_links.const import DOMAIN
 from custom_components.device_links.coordinator import DeviceLinksCoordinator, PlanScope
 from custom_components.device_links.models import (
@@ -396,12 +401,17 @@ class JobRunner:
         *,
         scope: PlanScope | None = None,
         remove_unmanaged: frozenset[str] = frozenset(),
+        desired: Sequence[Link] | None = None,
         job_id: str | None = None,
     ) -> JobReport:
         """Apply this plan and return what happened to every item in it.
 
-        `scope` and `remove_unmanaged` must be the ones the plan was built with: they are
-        how the plan is rebuilt to find out whether it is still current (E15).
+        `scope`, `remove_unmanaged` and `desired` must be the ones the plan was built with:
+        they are how the plan is rebuilt to find out whether it is still current (E15).
+        `desired` is only ever supplied by a caller that proposed a state which is not the
+        stored one, which today is the snapshot rollback: rebuilding its plan from the
+        stored profile instead would compare a rollback against the rules it is not about
+        and call every device stale.
 
         `job_id` lets a caller that cannot await this job name it before it starts. The
         WebSocket API applies in a background task, so that closing the panel does not
@@ -437,7 +447,7 @@ class JobRunner:
         # `applying` and stays saying it until something else happens to change.
         self._coordinator.async_update_listeners()
         try:
-            return await self._run(job, plan, scope, remove_unmanaged)
+            return await self._run(job, plan, scope, remove_unmanaged, desired)
         finally:
             self._job = None
             job.finished.set()
@@ -499,6 +509,7 @@ class JobRunner:
         plan: Plan,
         scope: PlanScope | None,
         remove_unmanaged: frozenset[str],
+        desired: Sequence[Link] | None = None,
     ) -> JobReport:
         """Refuse, hold, re-read, snapshot, write, verify, record. In that order, always.
 
@@ -519,7 +530,7 @@ class JobRunner:
         release = self._coordinator.async_hold_refresh(sorted(handles))
         try:
             await self._reread(handles)
-            stale = await self._stale_devices(plan, scope, remove_unmanaged, by_device)
+            stale = await self._stale_devices(plan, scope, remove_unmanaged, desired, by_device)
             _mark(stale, by_device, LinkOutcome.STALE_PLAN, self._stale_reason)
             self._take_snapshot(
                 job, {identity: handles[identity] for identity in handles if identity not in stale}
@@ -634,18 +645,59 @@ class JobRunner:
         wrong as an invariant: the next backend that forgets its guard would get nothing
         from the layer that calls itself the last one before a write.
 
-        So an addition is answered from what the device itself reported: a group holding an
-        entry the backend marked `is_system` is a system group, whatever we are trying to
-        put in it. Every Z-Wave lifeline holds the controller, so the group answers even
-        though the new entry does not exist. A device this coordinator has never read
-        answers nothing here and is left to the adapter, which is defence in depth rather
-        than a hole: the two guards are independent and both would have to fail.
+        So an addition is answered from what the device itself reported, where the protocol
+        allows that question to be asked at all: on a protocol whose slots hold one purpose,
+        a slot holding an entry the backend marked `is_system` is a system slot, whatever we
+        are trying to put in it. Every Z-Wave lifeline holds the controller, so the group
+        answers even though the new entry does not exist. A device this coordinator has never
+        read answers nothing here and is left to the adapter, which is defence in depth
+        rather than a hole: the two guards are independent and both would have to fail.
+
+        **The group is identified by its endpoint as well as by its name**, which is not a
+        detail. `emitter_group` names the writable slot within an endpoint, not within a
+        device: Z-Wave endpoint 2 can have an association group 1 of its own, and on Zigbee
+        the slot is a cluster, so the reporting bindings Zigbee2MQTT puts on a switch's load
+        endpoint carry the very cluster names a rule binds from its paddle endpoint. Asking
+        by group alone made every Zigbee link the coordinator also reports look like a
+        system link, and blocked the lot. Adding the endpoint is protocol-neutral and is a
+        better question in both protocols.
+
+        **Whether a system entry reserves its whole slot is a fact about the protocol**, and
+        it is the backend that says which (`base.SystemScope`), not this module guessing and
+        not core branching on a backend id. Two sentences, one per protocol:
+
+        - **Z-Wave**: an association group has one purpose, so a group holding the controller
+          is a lifeline and nothing else may ever go into it, whatever we are trying to put
+          there. The slot is the unit and is refused whole.
+        - **Zigbee**: an endpoint's cluster is a table of independent bindings, so a reporting
+          binding to the coordinator protects itself and nothing beside it.
+
+        This asked by slot for every protocol until open item T49 was closed. That was right
+        for Z-Wave and false on Zigbee, where Zigbee2MQTT puts a reporting binding on exactly
+        the endpoint and cluster a button's presses come from: every rule from the first
+        Zigbee remote added to a network was refused here, with no way out from the UI.
+
+        For Z-Wave the slot question gives up one thing: an add to endpoint 2's group 1 on a
+        multi-endpoint device passes this layer. The Z-Wave adapter still refuses it, because
+        a group a device does not report falls back to "group 1 is the lifeline", and
+        `tests/test_executor.py` asserts both halves together for that reason. Zigbee's own
+        second guard is `_absolute_refusal`, which refuses any binding to the coordinator
+        whatever this layer says, so narrowing here took nothing off the coordinator.
         """
         if isinstance(link, ObservedLink) and link.is_system:
             return True
+        backend = self._coordinator.backend_for(link.source)
+        if backend is None or backend.system_scope() is not SystemScope.SLOT:
+            # No adapter (a device this coordinator cannot reach) is left to the adapter that
+            # will eventually be asked to write it, exactly as an unread device is: the two
+            # guards are independent and both would have to fail.
+            return False
         device = self._coordinator.observed_for(link.source)
         return device is not None and any(
-            entry.is_system and entry.emitter_group == link.emitter_group for entry in device.links
+            entry.is_system
+            and entry.source_endpoint == link.source_endpoint
+            and entry.emitter_group == link.emitter_group
+            for entry in device.links
         )
 
     def _resolve_devices(self, job: _Job) -> tuple[dict[str, DeviceHandle], dict[str, Backend]]:
@@ -695,6 +747,7 @@ class JobRunner:
         plan: Plan,
         scope: PlanScope | None,
         remove_unmanaged: frozenset[str],
+        desired: Sequence[Link] | None,
         by_device: Mapping[str, Sequence[_Write]],
     ) -> set[str]:
         """Return the devices whose work is no longer the work the user approved (E15).
@@ -719,7 +772,9 @@ class JobRunner:
         would also refuse when the fresh plan grew work nobody has approved, which is not a
         reason to withhold the work they did approve.
         """
-        fresh = await self._coordinator.async_plan(scope, remove_unmanaged=remove_unmanaged)
+        fresh = await self._coordinator.async_plan(
+            scope, remove_unmanaged=remove_unmanaged, desired=desired
+        )
         if fresh.token == plan.token:
             return set()
         current = {

@@ -2,10 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/jayanty/ha-device-links/profiles_db/schema.json",
   "title": "Device Links curated device profile",
-  "description": "Documentation for contributors, and the schema an editor validates a profile file against while it is being written. It is NOT executed at runtime: the integration ships no JSON Schema validator, and profile_db.py must not import one, so profile_db.py enforces these rules with hand written checks instead. The two cannot drift apart silently: tests/test_profile_db.py compares this document's key sets and enums against the constants profile_db.py validates with, and fails when they disagree.",
+  "description": "Documentation for contributors, and the schema an editor validates a profile file against while it is being written. An entry describes either a Z-Wave model or a Zigbee one, chosen by its 'backend' key, which is absent on every entry written before Phase 2 and means zwave when it is. It is NOT executed at runtime: the integration ships no JSON Schema validator, and profile_db.py must not import one, so profile_db.py enforces these rules with hand written checks instead. The two cannot drift apart silently: tests/test_profile_db.py compares this document's key sets and enums against the constants profile_db.py validates with, and fails when they disagree.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["devices"],
+  "required": [
+    "devices"
+  ],
   "properties": {
     "$schema": {
       "type": "string",
@@ -18,14 +20,28 @@
     "devices": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "#/$defs/device" }
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/device"
+          },
+          {
+            "$ref": "#/$defs/zigbee_device"
+          }
+        ]
+      }
     }
   },
   "$defs": {
     "device": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["model", "manufacturer", "fingerprints", "emitters"],
+      "required": [
+        "model",
+        "manufacturer",
+        "fingerprints",
+        "emitters"
+      ],
       "properties": {
         "model": {
           "type": "string",
@@ -41,46 +57,80 @@
           "type": "array",
           "minItems": 1,
           "description": "Every model identity this entry describes. Two entries may not claim the same identity: the loader refuses it, so at most one entry can ever match a device.",
-          "items": { "$ref": "#/$defs/fingerprint" }
+          "items": {
+            "$ref": "#/$defs/fingerprint"
+          }
         },
         "emitters": {
           "type": "array",
           "minItems": 1,
           "description": "The physical controls on the device. A curated entry overrides the generic derivation from Association Group Information, so this list must describe every control a user should be offered.",
-          "items": { "$ref": "#/$defs/emitter" }
+          "items": {
+            "$ref": "#/$defs/emitter"
+          }
         },
         "settings": {
           "type": "object",
           "description": "Named device settings the compiler can write, keyed by the capability name it asks for (for example mirror_hub_commands).",
-          "additionalProperties": { "$ref": "#/$defs/settings_adapter" }
+          "additionalProperties": {
+            "$ref": "#/$defs/settings_adapter"
+          }
         },
         "wake_instruction": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "minLength": 1,
           "description": "How a user wakes this device so a pending write completes, for battery powered models. Plain English, like the group labels the device itself reports, because a contributor extensible database cannot ship translations for every device. Record only a sequence that has actually been observed."
         },
         "notes": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "minLength": 1,
           "description": "Why this entry says what it says: which fixture the group numbers came from, and which vendor label is wrong."
+        },
+        "backend": {
+          "const": "zwave",
+          "description": "Which protocol this entry describes. Absent means zwave, which is what every entry written before Phase 2 is."
         }
       }
     },
     "fingerprint": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["manufacturer_id", "product_type", "product_id"],
+      "required": [
+        "manufacturer_id",
+        "product_type",
+        "product_id"
+      ],
       "description": "One exact model identity. Firmware is deliberately absent, so an entry covers every firmware of a model. There are no wildcards and no ranges: an entry overrides what the hardware reports about itself, so a wildcard would spread one mistake across a whole catalogue.",
       "properties": {
-        "manufacturer_id": { "type": "integer", "minimum": 0 },
-        "product_type": { "type": "integer", "minimum": 0 },
-        "product_id": { "type": "integer", "minimum": 0 }
+        "manufacturer_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "product_type": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "product_id": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "emitter": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["emitter_id", "label", "kind", "actions"],
+      "required": [
+        "emitter_id",
+        "label",
+        "kind",
+        "actions"
+      ],
       "properties": {
         "emitter_id": {
           "type": "string",
@@ -94,19 +144,51 @@
         },
         "kind": {
           "type": "string",
-          "enum": ["button", "config_button", "gesture", "paddle"],
+          "enum": [
+            "button",
+            "config_button",
+            "gesture",
+            "paddle"
+          ],
           "description": "What sort of control this is, for icons and wording."
         },
-        "actions": { "$ref": "#/$defs/actions" },
+        "actions": {
+          "$ref": "#/$defs/actions"
+        },
         "capacity_override": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1,
           "description": "How many targets this control accepts, when the device reports a max_nodes its association groups cannot really honour. Leave it out unless a device has been observed failing below its reported capacity."
         },
         "semantics": {
-          "type": ["string", "null"],
-          "enum": ["unknown", null],
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "unknown",
+            null
+          ],
           "description": "Set to 'unknown' when what this control sends on a press is not established as a fixed OFF, which makes the Off-all template unsafe on it. See Stage 0 item Z7. This set is closed because each marker needs matching compiler support."
+        },
+        "scene_id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "The Central Scene number this control reports over the lifeline when it is pressed. Needed only by hybrid legs of kinds (a) and (b), which trigger on a press; a control without one refuses those legs rather than firing on a guessed number. Curated, because association group information does not carry it."
+        },
+        "indicator_id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "The Indicator CC id of this control's own little light, property 2 (binary). Needed only by hybrid leg kind (c), which makes a scene button's LED follow a light in another room. Indicator sets do not touch device NVM, which is why they are used rather than the LED-mode configuration parameters (tests/fixtures/z8_led_path.json)."
         }
       }
     },
@@ -115,18 +197,31 @@
       "minProperties": 1,
       "description": "Which association group carries which feature. This is the part that reaches the device: a wrong group number here writes an association to the wrong place with complete confidence and no error, so every number must come from a capture of the real hardware. Group ids are plain decimal strings with no leading zero, exactly as the driver reports them, and group 1 is refused because it is the lifeline.",
       "propertyNames": {
-        "enum": ["color", "level_hold", "level_set", "on_off", "scene", "status_report"]
+        "enum": [
+          "color",
+          "level_hold",
+          "level_set",
+          "on_off",
+          "scene",
+          "status_report"
+        ]
       },
       "additionalProperties": {
         "type": "string",
         "pattern": "^[1-9][0-9]*$",
-        "not": { "const": "1" }
+        "not": {
+          "const": "1"
+        }
       }
     },
     "settings_adapter": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["parameter", "bitmask", "values"],
+      "required": [
+        "parameter",
+        "bitmask",
+        "values"
+      ],
       "description": "How to reach one named setting on this model: a configuration parameter, optionally one bit of it.",
       "properties": {
         "parameter": {
@@ -135,7 +230,10 @@
           "description": "The configuration parameter number, as the driver reports it in a value's property."
         },
         "bitmask": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1,
           "description": "The parameter's property_key when the setting is one bit of a bit field, or null for the whole parameter. Required and nullable rather than optional, because a missing bitmask silently meaning 'the whole parameter' is exactly the ambiguity this database exists to remove."
         },
@@ -143,7 +241,199 @@
           "type": "object",
           "minProperties": 1,
           "description": "The values the compiler may write, by the name it asks for them by.",
-          "additionalProperties": { "type": "integer" }
+          "additionalProperties": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "zigbee_device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backend",
+        "model",
+        "manufacturer",
+        "fingerprints",
+        "emitters"
+      ],
+      "description": "One Zigbee model. Zigbee bindings are written from an endpoint and name clusters, so an emitter here carries an endpoint and its actions name clusters rather than association group numbers.",
+      "properties": {
+        "backend": {
+          "const": "zigbee2mqtt",
+          "description": "Required on a Zigbee entry, because absent means zwave."
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The vendor's model name, used in validation error messages. Not carried into the loaded entry."
+        },
+        "manufacturer": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The vendor's name, for the same reason as model."
+        },
+        "fingerprints": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Every model identity this entry describes, as Zigbee2MQTT's own converter definition reports it.",
+          "items": {
+            "$ref": "#/$defs/zigbee_fingerprint"
+          }
+        },
+        "emitters": {
+          "type": "array",
+          "minItems": 1,
+          "description": "The physical controls on the device, one per bindable endpoint. An emitter whose endpoint or cluster a real device does not report is dropped at resolution time and the rest of the entry still stands, because a firmware that reports fewer endpoints is a fact about that device rather than a mistake in the entry.",
+          "items": {
+            "$ref": "#/$defs/zigbee_emitter"
+          }
+        },
+        "settings": {
+          "type": "object",
+          "description": "Named device settings, keyed by the capability name the compiler asks for.",
+          "additionalProperties": {
+            "$ref": "#/$defs/zigbee_settings_adapter"
+          }
+        },
+        "wake_instruction": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "description": "How a user wakes this device so a pending bind completes, for battery powered models. Record only a sequence that has actually been observed."
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "description": "Why this entry says what it says: which capture the endpoints and clusters came from, and what in it is still unverified."
+        }
+      }
+    },
+    "zigbee_fingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "vendor",
+        "model"
+      ],
+      "description": "One exact model identity, taken from Zigbee2MQTT's definition rather than from the device's own model_id: the converter is what decides how a device is driven, and it is stable across firmware.",
+      "properties": {
+        "vendor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "zigbee_emitter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "emitter_id",
+        "label",
+        "kind",
+        "endpoint",
+        "actions"
+      ],
+      "properties": {
+        "emitter_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable id a rule refers to this control by. Unique within the entry, and never changed once shipped: a rule stores it."
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the user sees."
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "button",
+            "config_button",
+            "gesture",
+            "paddle"
+          ],
+          "description": "What sort of control this is, for icons and wording."
+        },
+        "endpoint": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The endpoint this control drives from, which is what a bind request names. It must be an endpoint the real device reports, and the test suite checks every one against tests/fixtures/g1_bridge.json."
+        },
+        "actions": {
+          "$ref": "#/$defs/zigbee_actions"
+        },
+        "semantics": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "unknown",
+            null
+          ],
+          "description": "Set to 'unknown' when what this control sends on a press is not established as a fixed OFF, which makes the Off-all template unsafe on it."
+        }
+      }
+    },
+    "zigbee_actions": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "Which cluster carries which feature. Two features may name one cluster, because genLevelCtrl really does carry both setting a level and holding to dim: there is no way to bind one without the other. The cluster must be in that endpoint's output list on the real device, which is checked at resolution time and by the test suite against the capture.",
+      "propertyNames": {
+        "enum": [
+          "color",
+          "level_hold",
+          "level_set",
+          "on_off",
+          "scene",
+          "status_report"
+        ]
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9]+$"
+      }
+    },
+    "zigbee_settings_adapter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "property",
+        "values",
+        "payloads"
+      ],
+      "description": "How to reach one named setting over MQTT. Zigbee2MQTT is written to by publishing {property: payload} to the device's set topic and its payloads are labels rather than numbers, so an adapter holds both: values maps a choice name to the integer the rest of the system carries, and payloads maps the same choice name to the string the bridge expects. The two must name exactly the same choices.",
+      "properties": {
+        "property": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The property name in the device's set payload, as Zigbee2MQTT's converter exposes it."
+        },
+        "values": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "The values the compiler may write, by the name it asks for them by.",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "payloads": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "What each of those choices is called in the MQTT payload.",
+          "additionalProperties": {
+            "type": "string"
+          }
         }
       }
     }

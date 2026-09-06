@@ -22,7 +22,10 @@ that really waited thirty seconds is a test somebody eventually deletes.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import timedelta
+import json
+from pathlib import Path
 from typing import Any
 
 from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
@@ -42,13 +45,30 @@ from homeassistant.util import dt as dt_util
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
+from custom_components.device_links.backends.zigbee2mqtt import ZigbeeBackend
+from custom_components.device_links.models import Backend as BackendId
 from custom_components.device_links.rule_toggle import TOGGLE_MIN_INTERVAL_SECONDS
 from custom_components.device_links.sensor import RULE_STATES
 from tests.conftest import CONTROLLER, MAIN_LIGHTS, ZWAVE_JS_DOMAIN, a_profile, a_rule, activate
 from tests.factories import HOME_ID, handle
+from tests.fakes.zigbee import build_bridge_from_fixture
 from tests.fakes.zwave import FakeDriver
 
 RULE_ID = "bedroom-main"
+
+
+def p2_format(backend: str) -> str:
+    """Return the identifier pattern the P2 capture recorded for one integration."""
+    captured = json.loads(
+        (Path(__file__).parent / "fixtures" / "p2_device_identifiers.json").read_text()
+    )
+    pattern: str = captured["data"]["formats"][backend]["pattern"][0]
+    return pattern
+
+
+def zigbee_backend_factory(base_topic: str) -> ZigbeeBackend:
+    """Return a Zigbee adapter on one base topic. Constructing it does no I/O."""
+    return ZigbeeBackend(client=build_bridge_from_fixture(), base_topic=base_topic)
 
 
 def entity_id_of(hass: HomeAssistant, entry: MockConfigEntry, key: str) -> str:
@@ -251,40 +271,88 @@ async def test_unloading_removes_our_entities_and_leaves_the_upstream_device_alo
     )
 
 
-def test_the_zwave_identifier_matches_the_format_the_p2_capture_recorded() -> None:
+def test_the_zwave_identifier_matches_the_format_the_p2_capture_recorded(
+    zwave_driver: FakeDriver,
+) -> None:
     """Pin the string that decides whether attachment lands or makes an orphan.
 
     Everything else here is tested against a fixture-built registry, so this is the one
     assertion that ties what the code produces to what was read off Jayant's real
     Home Assistant: the short `<home id>-<node id>` form, in the `zwave_js` namespace.
+
+    Asked of the adapter, because the adapter is where the derivation lives since T57.
     """
-    import json  # noqa: PLC0415
-    from pathlib import Path  # noqa: PLC0415
+    from custom_components.device_links.backends.zwave import ZWaveBackend  # noqa: PLC0415
 
-    from custom_components.device_links.rule_entity import _upstream_identifier  # noqa: PLC0415
+    captured = p2_format("zwave_js")
+    backend = ZWaveBackend(driver=zwave_driver, profiles=None)
+    identifier = backend.registry_identifier(handle(CONTROLLER))
 
-    captured = json.loads(
-        (Path(__file__).parent / "fixtures" / "p2_device_identifiers.json").read_text()
-    )["data"]["formats"]["zwave_js"]["pattern"][0]
-    domain, value = _upstream_identifier(handle(CONTROLLER))
-
+    assert identifier is not None
+    domain, value = identifier
     assert domain == ZWAVE_JS_DOMAIN
     assert captured == "<home_id>-<node_id>", "the captured format changed; re-check P2"
     assert value == f"{HOME_ID}-{CONTROLLER}"
 
 
-def test_a_backend_with_no_derivable_identifier_is_not_attachable() -> None:
-    """Guessing a Zigbee or Matter identifier is exactly how the orphan device is made."""
-    from dataclasses import replace  # noqa: PLC0415
+def test_the_zigbee_identifier_carries_the_configured_base_topic() -> None:
+    """T57: a Zigbee device is an `mqtt` device, filed under the base topic it publishes on.
 
-    from custom_components.device_links.models import Backend as BackendId  # noqa: PLC0415
-    from custom_components.device_links.rule_entity import _upstream_identifier  # noqa: PLC0415
+    The P2 capture masked the IEEE address and left the shape, so the shape is what is
+    pinned here, against a realistic address rather than the redacted one the G1 fixture
+    carries. The second half is the reason this is the adapter's answer at all: the base
+    topic is configurable, and a second instance registers different identifiers (E25).
+    """
+    ieee = "0x00124b002e1dfd4a"
+    device = replace(handle(CONTROLLER), backend=BackendId.ZIGBEE2MQTT, protocol_id=ieee)
 
-    zigbee = replace(handle(CONTROLLER), backend=BackendId.ZIGBEE2MQTT)
+    assert p2_format("mqtt") == "<base_topic>_0x<ieee>", "the captured format changed"
+    assert zigbee_backend_factory("zigbee2mqtt").registry_identifier(device) == (
+        "mqtt",
+        f"zigbee2mqtt_{ieee}",
+    )
+    assert zigbee_backend_factory("attic/z2m").registry_identifier(device) == (
+        "mqtt",
+        f"attic/z2m_{ieee}",
+    )
+
+
+def test_a_managed_zigbee_group_is_an_address_rather_than_a_device() -> None:
+    """Nothing registers an `mqtt` device for a Zigbee group, so there is nothing to open."""
+    group = replace(handle(CONTROLLER), backend=BackendId.ZIGBEE2MQTT, protocol_id="group:7")
+
+    assert zigbee_backend_factory("zigbee2mqtt").registry_identifier(group) is None
+
+
+def test_a_handle_whose_address_is_malformed_is_not_attachable(
+    zwave_driver: FakeDriver,
+) -> None:
+    """Guessing at an address that is not shaped like one is how the orphan is made."""
+    from custom_components.device_links.backends.zwave import ZWaveBackend  # noqa: PLC0415
+
     malformed = replace(handle(CONTROLLER), protocol_id="no-separator")
 
-    assert _upstream_identifier(zigbee) is None
-    assert _upstream_identifier(malformed) is None
+    assert ZWaveBackend(driver=zwave_driver, profiles=None).registry_identifier(malformed) is None
+
+
+def test_a_protocol_with_no_loaded_backend_is_not_attachable(
+    hass: HomeAssistant, device_links_entry: MockConfigEntry
+) -> None:
+    """Matter is Phase 3, so a Matter handle resolves to no device and says so quietly."""
+    from custom_components.device_links.rule_entity import (  # noqa: PLC0415
+        async_upstream_device,
+    )
+
+    # A well-formed Z-Wave address under a backend that is not loaded, so the refusal is
+    # the missing backend and not a protocol id nothing could parse: the same handle with
+    # `backend=ZWAVE` resolves to a device, and the next assertion is what says so.
+    matter = replace(handle(CONTROLLER), backend=BackendId.MATTER)
+
+    assert async_upstream_device(hass, device_links_entry, matter) is None  # type: ignore[arg-type]
+    assert (
+        async_upstream_device(hass, device_links_entry, handle(CONTROLLER))  # type: ignore[arg-type]
+        is not None
+    ), "the same address under a loaded backend does resolve, so the refusal is the backend"
 
 
 # --------------------------------------------------------------------------------------
