@@ -890,10 +890,17 @@ async def test_the_plan_lists_the_legs_and_leaves_them_out_of_the_work(
     await hass.async_block_till_done()
     coordinator = hybrid_entry.runtime_data.coordinator
 
-    payload = Serializer(hass, hybrid_entry).plan(await coordinator.async_plan())  # type: ignore[arg-type]
+    payload = Serializer(hass, hybrid_entry).plan(  # type: ignore[arg-type]
+        await coordinator.async_plan(), frozenset()
+    )
 
     assert [leg["kind"] for leg in payload["hybrid_legs"]] == ["off_only"]
     assert payload["counts"]["add"] == 0
+    # A plan that is about devices rather than about rules lists none: a rollback and a
+    # swap change no listener, so legs beside either would be padding.
+    assert (
+        Serializer(hass, hybrid_entry).plan(await coordinator.async_plan())["hybrid_legs"] == []  # type: ignore[arg-type]
+    )
 
 
 async def test_the_plan_lists_no_leg_while_the_option_is_off(
@@ -906,6 +913,256 @@ async def test_the_plan_lists_no_leg_while_the_option_is_off(
     await hass.async_block_till_done()
     coordinator = device_links_entry.runtime_data.coordinator
 
-    payload = Serializer(hass, device_links_entry).plan(await coordinator.async_plan())  # type: ignore[arg-type]
+    payload = Serializer(hass, device_links_entry).plan(  # type: ignore[arg-type]
+        await coordinator.async_plan(), frozenset()
+    )
 
     assert payload["hybrid_legs"] == []
+
+
+# --------------------------------------------------------------------------------------
+# What a fresh-eyes review found, and the tests that would have caught it
+# --------------------------------------------------------------------------------------
+
+
+def test_a_two_way_rule_still_writes_the_reverse_leg_when_a_hybrid_leg_takes_on_off() -> None:
+    """The warning says the reverse still carries both, so the reverse has to exist.
+
+    Taking on/off out of the feature set for the forward leg also emptied it for the
+    reverse, so a two-way on-only rule compiled one leg and no links at all, while telling
+    the user that the direction they did not author still carried on and off. The warning
+    was the only thing standing where a link should have been.
+    """
+    compiled = compile_rule(
+        replace(hybrid_rule(HybridKind.ON_ONLY), direction=Direction.TWO_WAY),
+        capabilities_for(CONTROLLER, MAIN_LIGHTS),
+    )
+
+    reverse = [
+        link for link in compiled.links if link.source.identity != handle(CONTROLLER).identity
+    ]
+    assert [link.feature for link in reverse] == [Feature.ON_OFF]
+    assert "hybrid_reverse_carries_both" in {
+        warning.translation_key for warning in compiled.warnings
+    }
+
+
+def test_a_button_led_leg_is_refused_for_a_rule_with_more_than_one_target() -> None:
+    """One button has one light on it, and two legs would fight over it forever.
+
+    Each leg watches its own target and writes the same indicator, so the LED would flip on
+    every change of either light and settle on whichever wrote last. There is no state the
+    two of them agree on and no warning that would make it acceptable.
+    """
+    compiled = compile_rule(
+        hybrid_rule(
+            HybridKind.BUTTON_LED,
+            features=frozenset({Feature.STATUS_REPORT}),
+            targets=(
+                RuleTarget(device=handle(MAIN_LIGHTS), endpoint=None),
+                RuleTarget(device=handle(35), endpoint=None),
+            ),
+        ),
+        capabilities_for(CONTROLLER, MAIN_LIGHTS, 35),
+    )
+
+    assert compiled.hybrid_legs == ()
+    assert [error.translation_key for error in compiled.errors] == ["hybrid_button_led_one_target"]
+
+
+def test_an_opt_in_that_acts_on_no_feature_this_rule_asks_for_says_so() -> None:
+    """A tick box that silently does nothing is worse than one that was never offered.
+
+    The editor offers a control's opt-ins from what the control can carry rather than from
+    what the rule wants, so "keep this button's LED in sync" can be ticked on a rule with
+    no status report in it. That rule saved clean and did nothing at all.
+    """
+    compiled = compile_rule(
+        hybrid_rule(HybridKind.BUTTON_LED, features=frozenset({Feature.ON_OFF})),
+        capabilities_for(CONTROLLER, MAIN_LIGHTS),
+    )
+
+    assert compiled.hybrid_legs == ()
+    assert not compiled.errors
+    assert "hybrid_opt_in_unused" in {warning.translation_key for warning in compiled.warnings}
+
+
+def test_hold_to_dim_is_not_reported_as_unavailable_when_a_leg_carries_the_on_off() -> None:
+    """A feature a leg took over is the answer, so warning about it reports the answer."""
+    compiled = compile_rule(
+        hybrid_rule(HybridKind.ON_ONLY, features=frozenset({Feature.ON_OFF, Feature.LEVEL_HOLD})),
+        capabilities_for(CONTROLLER, MAIN_LIGHTS),
+    )
+
+    assert "level_hold_without_on_off" not in {
+        warning.translation_key for warning in compiled.warnings
+    }
+
+
+async def test_the_button_led_restore_survives_being_turned_off_and_on_again(
+    hass: HomeAssistant, hybrid_entry: MockConfigEntry, zwave_js_devices: dict[int, dr.DeviceEntry]
+) -> None:
+    """The value put back is the user's own, not the one the leg last wrote.
+
+    The restore used to go through the same path as an ordinary write, which records what
+    it finds before writing. By then the leg had already popped its record, so the restore
+    recorded its own value as the user's. One more enable-and-disable and the LED was left
+    showing a state nobody chose, with nothing left that would ever change it.
+    """
+    light = a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
+    rule = hybrid_rule(HybridKind.BUTTON_LED, features=frozenset({Feature.STATUS_REPORT}))
+    coordinator = hybrid_entry.runtime_data.coordinator
+    backend = coordinator.backend_for(handle(CONTROLLER))
+    assert backend is not None
+
+    for _cycle in (1, 2):
+        activate(hybrid_entry, a_profile(rule))
+        await hass.async_block_till_done()
+        assert await backend.async_read_indication(handle(CONTROLLER), BUTTON) is True
+        coordinator.async_set_rule_enabled(rule.id, enabled=False)
+        await hass.async_block_till_done()
+        # False is what the fixture device reported before any leg touched it, and it is
+        # what has to come back every time, not only the first.
+        assert await backend.async_read_indication(handle(CONTROLLER), BUTTON) is False
+        assert light
+
+
+async def test_a_leg_that_moves_to_another_rule_is_counted_against_that_rule(
+    hass: HomeAssistant, hybrid_entry: MockConfigEntry, zwave_js_devices: dict[int, dr.DeviceEntry]
+) -> None:
+    """A leg's identity leaves the rule out, so the running set has to be told when it moves.
+
+    Delete the rule and write the same leg under another id, and the listeners are still
+    exactly right: same device, same button, same target. What was wrong was the
+    bookkeeping, which went on crediting a rule that no longer existed.
+    """
+    a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
+    activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY, rule_id="first")))
+    await hass.async_block_till_done()
+
+    activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY, rule_id="second")))
+    await hass.async_block_till_done()
+    hass.services.async_register("homeassistant", "turn_off", lambda _call: None)
+    press(hass, zwave_js_devices, BUTTON_SCENE)
+    await hass.async_block_till_done()
+
+    hybrid = legs_of(hybrid_entry)
+    assert hybrid.status_for("second").fired == 1
+    assert hybrid.status_for("second").legs == 1
+    # And the rule that has gone is forgotten rather than left summing into the total.
+    assert hybrid.status_for("first").fired == 0
+    assert hybrid.totals.fired == 1
+
+
+async def test_a_leg_that_fails_while_it_registers_does_not_register_itself_again(
+    hass: HomeAssistant,
+    hybrid_entry: MockConfigEntry,
+    zwave_js_devices: dict[int, dr.DeviceEntry],
+    zwave_driver: FakeDriver,
+) -> None:
+    """Registering a leg reaches a device, and reaching a device can come back here.
+
+    A button LED is lit to match its light the moment the leg starts watching it. That
+    write can fail, a failure counts, counting tells the entities, and the entities are
+    told through the coordinator, which is what asks this manager to re-sync. A leg that
+    was not in the running map until after its listeners were wired was started again by
+    that re-sync, and again, until the test ran out of patience.
+    """
+    a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
+    node = zwave_driver.controller.nodes[CONTROLLER]
+    for value_id, value in list(node.values.items()):
+        if int(value.command_class) == CommandClass.INDICATOR:
+            del node.values[value_id]
+    activate(
+        hybrid_entry,
+        a_profile(hybrid_rule(HybridKind.BUTTON_LED, features=frozenset({Feature.STATUS_REPORT}))),
+    )
+    await hass.async_block_till_done()
+
+    assert legs_of(hybrid_entry).status_for("hybrid").fired == 1
+
+
+async def test_the_repairs_issue_clears_once_the_legs_are_working_again(
+    hass: HomeAssistant,
+    hybrid_entry: MockConfigEntry,
+    zwave_js_devices: dict[int, dr.DeviceEntry],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The rate is measured over the last few firings, so a fault that stops is forgotten.
+
+    Measured over the life of the entry instead, a light that was unplugged for an hour
+    would leave the issue up until the user had pressed the button a dozen more times, and
+    the message would say "4 of the last 4" throughout.
+    """
+    monkeypatch.setattr(hybrid_module, "PRESS_DEBOUNCE_SECONDS", 0.0)
+    a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
+    activate(hybrid_entry, a_profile(hybrid_rule(HybridKind.OFF_ONLY)))
+    await hass.async_block_till_done()
+
+    working = False
+
+    def _sometimes(_call: Any) -> None:
+        if not working:
+            raise ValueError("the light is not answering")
+
+    hass.services.async_register("homeassistant", "turn_off", _sometimes)
+    for _ in range(5):
+        press(hass, zwave_js_devices, BUTTON_SCENE)
+        await hass.async_block_till_done()
+    assert (DOMAIN, ISSUE_HYBRID_LEGS_FAILING) in ir.async_get(hass).issues
+
+    working = True
+    for _ in range(16):
+        press(hass, zwave_js_devices, BUTTON_SCENE)
+        await hass.async_block_till_done()
+
+    assert (DOMAIN, ISSUE_HYBRID_LEGS_FAILING) not in ir.async_get(hass).issues
+
+
+async def test_a_value_that_flips_and_comes_back_inside_the_rate_limit_sends_nothing(
+    hass: HomeAssistant,
+    hybrid_entry: MockConfigEntry,
+    zwave_js_devices: dict[int, dr.DeviceEntry],
+    zwave_driver: FakeDriver,
+) -> None:
+    """FR-H2's write hygiene, counted in frames rather than in intentions.
+
+    Deduplicating against what was last **wanted** is not enough: a light that goes off and
+    comes back on inside the rate limit is wanted twice and needs sending zero times, and
+    the coalesced write at the end of the window would otherwise send a value the device
+    already had. Each of these is a radio frame, which is the whole reason the rule exists.
+    """
+    light = a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
+    activate(
+        hybrid_entry,
+        a_profile(hybrid_rule(HybridKind.BUTTON_LED, features=frozenset({Feature.STATUS_REPORT}))),
+    )
+    await hass.async_block_till_done()
+    assert zwave_driver.controller.written_indicators == [(BUTTON_INDICATOR, True)]
+
+    hass.states.async_set(light, STATE_OFF)
+    hass.states.async_set(light, STATE_ON)
+    await _after_the_rate_limit(hass)
+
+    assert zwave_driver.controller.written_indicators == [(BUTTON_INDICATOR, True)]
+
+
+async def test_a_restore_that_the_device_refuses_is_logged_and_not_raised(
+    hass: HomeAssistant,
+    hybrid_entry: MockConfigEntry,
+    zwave_js_devices: dict[int, dr.DeviceEntry],
+    zwave_driver: FakeDriver,
+) -> None:
+    """Retiring a leg is a tidy-up, and a tidy-up that raised would take an unload with it."""
+    a_light(hass, zwave_js_devices, MAIN_LIGHTS, STATE_ON)
+    rule = hybrid_rule(HybridKind.BUTTON_LED, features=frozenset({Feature.STATUS_REPORT}))
+    activate(hybrid_entry, a_profile(rule))
+    await hass.async_block_till_done()
+
+    # The node leaves the network between the leg being registered and being turned off,
+    # which is what an exclusion looks like from inside the adapter.
+    del zwave_driver.controller.nodes[CONTROLLER]
+    hybrid_entry.runtime_data.coordinator.async_set_rule_enabled(rule.id, enabled=False)
+    await hass.async_block_till_done()
+
+    assert legs_of(hybrid_entry).running == ()

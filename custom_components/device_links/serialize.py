@@ -194,7 +194,7 @@ class Serializer:
     # Plans.
 
     @callback
-    def plan(self, plan: Plan, rule_ids: frozenset[str] = frozenset()) -> dict[str, Any]:
+    def plan(self, plan: Plan, rule_ids: frozenset[str] | None = None) -> dict[str, Any]:
         """Return a plan grouped by device, with one list per kind of work.
 
         Every device the plan says anything about is here, including one that has only
@@ -202,12 +202,18 @@ class Serializer:
         is a thing the user has to be able to see, and a device that vanished from the list
         because it had no work would read as a device nobody looked at.
 
-        `rule_ids` is the scope the plan was built for, empty meaning the whole profile,
-        and it is here only for the HA-executed legs: PRD Section 6.7 asks that the plan
+        `rule_ids` exists only for the HA-executed legs: PRD Section 6.7 asks that the plan
         list them rather than leaving them to be discovered, and which of them belong to
-        this plan is a question about rules rather than about devices. They are not part of
-        the plan's token and are not applied by pressing anything, which is exactly what
-        the panel says beside them.
+        this plan is a question about rules rather than about devices. An empty set means
+        every enabled rule of the profile, which is what an unscoped plan is about; None
+        means none at all, which is the honest answer for the two plans that are about
+        devices rather than about rules. A rollback puts hardware back and a swap moves
+        rules from one address to another, and neither starts, stops or changes a listener
+        inside Home Assistant, so listing legs beside either would be padding a decision
+        with things it does not affect.
+
+        Legs are never part of the plan's token and are not applied by pressing anything,
+        which is exactly what the panel says beside them.
         """
         devices: dict[str, dict[str, Any]] = {}
         for item in plan.items:
@@ -231,7 +237,7 @@ class Serializer:
             "hybrid_legs": self._hybrid_legs(rule_ids),
         }
 
-    def _hybrid_legs(self, rule_ids: frozenset[str]) -> list[dict[str, Any]]:
+    def _hybrid_legs(self, rule_ids: frozenset[str] | None) -> list[dict[str, Any]]:
         """Return the HA-executed legs this plan's rules ask for, or none.
 
         Empty while the global option is off, because no leg is running then and listing
@@ -240,7 +246,7 @@ class Serializer:
         these under their own heading and says the apply does not touch them.
         """
         profile = self._coordinator.active_profile
-        if profile is None or not self._coordinator.hybrid_allowed:
+        if rule_ids is None or profile is None or not self._coordinator.hybrid_allowed:
             return []
         return [
             self.hybrid_leg(leg)

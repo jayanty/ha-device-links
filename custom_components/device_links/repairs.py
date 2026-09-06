@@ -81,10 +81,14 @@ ISSUE_STORAGE_UNREADABLE: Final = "storage_unreadable"
 # this is what puts the fact in front of somebody who was not looking for it.
 ISSUE_HYBRID_LEGS_FAILING: Final = "hybrid_legs_failing"
 
-# What counts as "failing" for a hybrid leg. Both halves matter: a rate on its own would
-# raise an issue for one failed press out of one, and a count on its own would stay silent
-# for a leg that has failed forty times out of four thousand. A light that was rebooting
-# when a button was pressed is not a fault; a third of every press going nowhere is.
+# What counts as "failing" for a hybrid leg, measured over the last few firings rather than
+# over the life of the entry (`HybridLegs.recent`). Both halves matter: a rate on its own
+# would raise an issue for one failed press out of one, and a count on its own would stay
+# silent for a leg that has failed forty times out of four thousand. A light that was
+# rebooting when a button was pressed is not a fault; a quarter of recent presses going
+# nowhere is. A window is also what makes it clear again: a lifetime ratio would need a
+# dozen good presses to fall back under the threshold after an hour of a light being
+# unplugged, and would say "4 of the last 4" throughout.
 HYBRID_ERROR_RATE: Final = 0.25
 HYBRID_ERROR_FLOOR: Final = 4
 
@@ -349,18 +353,18 @@ def _hybrid_legs(runtime: DeviceLinksRuntimeData, wanted: dict[str, _Issue]) -> 
     that depends on Home Assistant being up and reachable is not working". The rules are
     named in the message so it can be acted on.
     """
-    totals = runtime.hybrid.totals
-    if totals.errors < HYBRID_ERROR_FLOOR or totals.fired == 0:
+    errors, fired = runtime.hybrid.recent
+    if errors < HYBRID_ERROR_FLOOR or fired == 0:
         return
-    if totals.errors / totals.fired < HYBRID_ERROR_RATE:
+    if errors / fired < HYBRID_ERROR_RATE:
         return
     wanted[ISSUE_HYBRID_LEGS_FAILING] = _Issue(
         translation_key=ISSUE_HYBRID_LEGS_FAILING,
         severity=ir.IssueSeverity.WARNING,
         placeholders={
-            "errors": str(totals.errors),
-            "fired": str(totals.fired),
-            "legs": str(totals.legs),
+            "errors": str(errors),
+            "fired": str(fired),
+            "legs": str(runtime.hybrid.totals.legs),
         },
     )
 

@@ -130,7 +130,13 @@ class _Compilation:
             return self._result()
 
         taken = self._hybrid_features()
-        actions = self._resolved_actions(emitter, self.rule.features - set(taken))
+        actions = self._resolved_actions(emitter, self.rule.features - set(taken), taken)
+        # The reverse leg carries what the forward one does **plus** whatever a hybrid leg
+        # took over, and that is not an oversight: an association carries on and off
+        # together, so a rule that limits its own direction to one of them cannot limit the
+        # other direction at all. `hybrid_reverse_carries_both` is the warning that says so,
+        # and dropping the feature here instead would have made that warning a lie.
+        reverse = sorted(set(actions) | set(taken))
         targets = self._targets()
         for target, target_capabilities in targets:
             self._add_links(
@@ -143,7 +149,7 @@ class _Compilation:
                 ),
                 actions,
             )
-            self._compile_reverse(source, target_capabilities, actions)
+            self._compile_reverse(source, target_capabilities, reverse)
 
         self._compile_hybrid(source, emitter, taken, targets)
         self._check_semantics(source, emitter)
@@ -196,7 +202,9 @@ class _Compilation:
         )
         return None
 
-    def _resolved_actions(self, emitter: Emitter, wanted: frozenset[Feature]) -> dict[Feature, str]:
+    def _resolved_actions(
+        self, emitter: Emitter, wanted: frozenset[Feature], taken: Mapping[Feature, HybridKind]
+    ) -> dict[Feature, str]:
         """Return the group carrying each requested feature, reporting the ones with none.
 
         A feature the control cannot carry is a warning while anything else still compiles,
@@ -222,7 +230,10 @@ class _Compilation:
             else:
                 resolved[feature] = group
         (self.warnings if resolved else self.errors).extend(unavailable)
-        if Feature.LEVEL_HOLD in resolved and Feature.ON_OFF not in resolved:
+        # Hold-to-dim with nothing turning the light on is a rule that half works, and a
+        # feature a hybrid leg took over is turning it on: reporting it here would be the
+        # same "the answer as the problem" the docstring above refuses.
+        if Feature.LEVEL_HOLD in resolved and Feature.ON_OFF not in {*resolved, *taken}:
             self.warnings.append(
                 Diagnostic("level_hold_without_on_off", {"emitter": emitter.label})
             )
@@ -314,7 +325,7 @@ class _Compilation:
         self,
         source: DeviceCapabilities,
         target: DeviceCapabilities,
-        actions: Mapping[Feature, str],
+        features: Sequence[Feature],
     ) -> None:
         """Compile the other direction of a two-way rule, off one control on the target.
 
@@ -334,9 +345,9 @@ class _Compilation:
         (`DeviceCapabilities.receiving_endpoint`), and Z-Wave answers 0 and None, which is
         exactly what was hardcoded here before.
         """
-        if self.rule.direction is not Direction.TWO_WAY or not actions:
+        if self.rule.direction is not Direction.TWO_WAY or not features:
             return
-        emitter = _emitter_carrying(target.emitters, actions)
+        emitter = _emitter_carrying(target.emitters, features)
         if emitter is None:
             self.warnings.append(
                 Diagnostic(
@@ -353,7 +364,7 @@ class _Compilation:
                 receiver=source,
                 receiver_endpoint=self._reverse_receiver_endpoint(source),
             ),
-            actions,
+            features,
         )
 
     def _reverse_receiver_endpoint(self, source: DeviceCapabilities) -> int | None:
@@ -413,10 +424,23 @@ class _Compilation:
         if not self.rule.hybrid:
             return
         for feature, kind in sorted(taken.items()):
+            if kind is HybridKind.BUTTON_LED and len(targets) > 1:
+                # One button has one light on it, and one leg per target would be several
+                # legs writing the same indicator from different states: the LED would flip
+                # on every change of any of them and settle on whichever wrote last.
+                # Refused rather than compiled into a fight it cannot win.
+                self.errors.append(
+                    Diagnostic(
+                        "hybrid_button_led_one_target",
+                        {"emitter": emitter.label, "count": str(len(targets))},
+                    )
+                )
+                continue
             for target, _capabilities in targets:
                 self._add_hybrid(kind, emitter, feature, LinkTarget(target.device, target.endpoint))
         if HybridKind.SELF_LOAD in self.rule.hybrid:
             self._compile_self_load(source, emitter)
+        self._check_unused_opt_ins(taken)
         if (
             self.hybrid_legs
             and self.rule.direction is Direction.TWO_WAY
@@ -424,6 +448,24 @@ class _Compilation:
         ):
             self.warnings.append(
                 Diagnostic("hybrid_reverse_carries_both", {"emitter": emitter.label})
+            )
+
+    def _check_unused_opt_ins(self, taken: Mapping[Feature, HybridKind]) -> None:
+        """Say when an opt-in acts on nothing this rule asked for.
+
+        The editor offers a control's opt-ins from what that control can carry rather than
+        from what the rule wants, so "keep this button's LED in sync" can be ticked on a
+        rule with no status report in it. That combination compiles to nothing at all, and
+        a checkbox that silently does nothing is worse than one that was never offered: the
+        rule saves clean and the user waits for a light that will never follow anything.
+
+        `SELF_LOAD` is excluded because it is about a target rather than a feature, and it
+        has its own warning for the case where nothing names the device.
+        """
+        used = set(taken.values()) | {HybridKind.SELF_LOAD}
+        for kind in sorted(self.rule.hybrid - used):
+            self.warnings.append(
+                Diagnostic("hybrid_opt_in_unused", {"kind": str(kind), "rule": self.rule.name})
             )
 
     def _compile_self_load(self, source: DeviceCapabilities, emitter: Emitter) -> None:

@@ -41,6 +41,7 @@ per level.
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from dataclasses import dataclass, field
 import logging
 from time import monotonic
@@ -52,12 +53,13 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.util import dt as dt_util
 
+from .const import DOMAIN
 from .models import Backend as BackendId
 from .models import HybridKind, HybridLeg
 from .rule_entity import async_upstream_device
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Coroutine, Mapping, Sequence
 
     from homeassistant.helpers.event import EventStateChangedData
 
@@ -89,6 +91,11 @@ PRESS_DEBOUNCE_SECONDS: Final = 0.5
 # latest wanted value coalesced into the write that does happen, so a dimming light produces
 # one frame rather than one per level.
 INDICATION_MIN_INTERVAL_SECONDS: Final = 1.0
+
+# How many firings the Repairs issue's error rate is measured over. Short enough that a
+# leg which has started working again clears the issue within an evening's use, long enough
+# that one failure among a handful does not raise it.
+RECENT_FIRINGS: Final = 20
 
 # The domains a leg will act on when it is handed a device. Everything else attached to a
 # switch (its power meter, its config buttons, its own scene events) is not a load, and
@@ -135,6 +142,11 @@ class _Running:
     # Leading-edge debounce for a press, and the coalescing state for an indication.
     last_fired_at: float | None = None
     wanted: bool | None = None
+    # What was last actually sent, which is not the same as what was last wanted: a value
+    # that flips and flips back inside the rate limit is wanted twice and needs sending
+    # zero times, and sending it anyway is exactly the radio frame the hygiene rule is
+    # about. None until the first write lands.
+    written: bool | None = None
     written_at: float | None = None
     timer: CALLBACK_TYPE | None = None
 
@@ -176,6 +188,14 @@ class HybridLegs:
         # What each button's indicator read before this integration first wrote to it, so
         # turning a leg off puts the light back where its owner left it (FR-H2).
         self._original: dict[str, bool] = {}
+        # One lock per button, so a restore and a first write for the same indicator cannot
+        # reach the mesh in the order it happened to answer in.
+        self._locks: dict[str, asyncio.Lock] = {}
+        # What the last few firings did, across every leg. The Repairs issue is about a rate
+        # and a rate needs a window: a lifetime ratio raised by a light that was unplugged
+        # for an hour takes a dozen good presses to fall back under the threshold, and says
+        # "4 of the last 4" the whole time, which is neither true nor clearable.
+        self._recent: deque[bool] = deque(maxlen=RECENT_FIRINGS)
 
     # Lifecycle.
 
@@ -238,8 +258,22 @@ class HybridLegs:
         for identity in sorted(set(self._running) - set(wanted)):
             self._retire(self._running.pop(identity))
         for identity, leg in sorted(wanted.items()):
-            if identity not in self._running:
-                self._running[identity] = self._start(leg)
+            running = self._running.get(identity)
+            if running is None:
+                # Recorded before its listeners are wired, not after. Registering a leg
+                # can reach a device (a button LED is lit to match the light the moment it
+                # starts watching it), a device write that fails counts, counting tells the
+                # entities, and telling the entities comes back here: a leg that was not in
+                # the map yet would be started again, and again.
+                self._running[identity] = running = _Running(leg=leg)
+                self._start(running)
+            else:
+                # The same leg, asked for by a different rule. `HybridLeg.identity` leaves
+                # the rule out on purpose (a leg moved between rules is the same leg to the
+                # device), so the listeners are still the right ones and only the
+                # bookkeeping has moved: replacing the leg here is what keeps the firing
+                # counters on the rule that is actually asking for it now.
+                running.leg = leg
         self._recount()
 
     def _wanted_legs(self) -> list[HybridLeg]:
@@ -260,23 +294,34 @@ class HybridLegs:
         return legs
 
     def _recount(self) -> None:
-        """Refresh the per-rule leg counts, keeping what each rule has already fired."""
+        """Refresh the per-rule leg counts, and forget the rules that have gone.
+
+        Kept for a rule that is merely disabled, because its counters are still about it
+        and re-enabling should not look like a fresh install. Dropped for a rule that is no
+        longer in the profile at all, because otherwise `totals` goes on summing the
+        firings of rules nobody can look at any more.
+        """
+        profile = self._coordinator.active_profile
+        known = {rule.id for rule in profile.rules} if profile is not None else set()
         counts: dict[str, int] = {}
         for running in self._running.values():
             counts[running.leg.rule_id] = counts.get(running.leg.rule_id, 0) + 1
+        for rule_id in list(self._status):
+            if rule_id not in known:
+                del self._status[rule_id]
         for rule_id in set(self._status) | set(counts):
             self._status.setdefault(rule_id, LegStatus()).legs = counts.get(rule_id, 0)
 
     # Registration.
 
-    def _start(self, leg: HybridLeg) -> _Running:
+    def _start(self, running: _Running) -> None:
         """Register the listeners one leg needs, and say so at INFO.
 
         At INFO because this is the moment Home Assistant takes on a job the radio was
         doing, and a log that does not record it leaves the user's house doing something
         no line anywhere explains.
         """
-        running = _Running(leg=leg)
+        leg = running.leg
         if leg.kind is HybridKind.BUTTON_LED:
             self._watch_target(running)
         else:
@@ -287,7 +332,6 @@ class HybridLegs:
             leg.identity,
             leg.rule_id,
         )
-        return running
 
     def _retire(self, running: _Running) -> None:
         """Stop one leg, and put back what it changed.
@@ -301,10 +345,58 @@ class HybridLegs:
         if leg.kind is HybridKind.BUTTON_LED:
             original = self._original.pop(leg.identity, None)
             if original is not None:
-                self._hass.async_create_task(
-                    self._async_write_indication(leg, original), eager_start=False
-                )
+                # Its own path, not a write with the old value: `_async_write`
+                # records what it finds before its first write, and calling it here would
+                # record the value this leg had just put there as the user's own. Two
+                # enable-and-disable cycles later the LED would be stuck showing a state
+                # nobody chose, which is precisely what this restore exists to prevent.
+                self._task(self._async_restore_indication(leg, original), f"restore {leg.identity}")
         _LOGGER.info("hybrid leg %s is no longer executed by Home Assistant", leg.identity)
+
+    def _task(self, coroutine: Coroutine[Any, Any, None], name: str) -> None:
+        """Run one leg's work as a background task of the config entry.
+
+        The entry's own task rather than a loose one, so an unload cancels it: a bare task
+        would go on to write to a radio after the integration had gone, which is the write
+        nobody asked for at the worst possible moment that `async_shutdown` refuses to make
+        deliberately.
+
+        Never eager. A leg's work reaches a device and a device that refuses counts, and
+        counting tells the entities, which comes back into this module: running the first
+        stretch of it inside the callback that decided it makes that a re-entrant call
+        rather than the next turn of the loop.
+        """
+        self._entry.async_create_background_task(
+            self._hass, coroutine, name=f"{DOMAIN} {name}", eager_start=False
+        )
+
+    async def _async_restore_indication(self, leg: HybridLeg, original: bool) -> None:
+        """Put one button's indicator back where its owner left it, and record nothing."""
+        backend = self._coordinator.backend_for(leg.source)
+        if backend is None:  # pragma: no cover
+            # Unreachable while a leg only exists for a device a loaded backend listed.
+            return
+        async with self._indication_lock(leg):
+            try:
+                async with asyncio.timeout(CALL_TIMEOUT_SECONDS):
+                    await backend.async_write_indication(leg.source, leg.emitter_id, original)
+            # An adapter raises whatever its client raises, and this is a tidy-up: the leg
+            # is already gone, so there is nothing left to count it against.
+            except Exception:
+                _LOGGER.warning(
+                    "hybrid leg %s could not put its button indication back",
+                    leg.identity,
+                    exc_info=True,
+                )
+
+    def _indication_lock(self, leg: HybridLeg) -> asyncio.Lock:
+        """Return the lock that keeps one button's writes in the order they were decided.
+
+        Disabling a leg and re-enabling it in the same second produces a restore and a
+        first write as two independent tasks, and without this the LED ends up showing
+        whichever of them the mesh answered second.
+        """
+        return self._locks.setdefault(leg.identity, asyncio.Lock())
 
     def _watch_presses(self, running: _Running) -> None:
         """Listen for the press this leg acts on, over the lifeline and nothing else.
@@ -395,8 +487,8 @@ class HybridLegs:
         if not entities:
             self._note_error(leg, "there is nothing Home Assistant can act on")
             return
-        self._hass.async_create_task(
-            self._async_call(leg, _PRESS_SERVICE[leg.kind], entities), eager_start=False
+        self._task(
+            self._async_call(leg, _PRESS_SERVICE[leg.kind], entities), f"press {leg.identity}"
         )
 
     @callback
@@ -429,21 +521,25 @@ class HybridLegs:
         running.timer = async_call_later(self._hass, wait, _later)
 
     def _write_indication_now(self, running: _Running) -> None:
-        """Send the value that is currently wanted, whatever arrived while we waited."""
+        """Send the value that is currently wanted, if that is not the value already sent.
+
+        The second half is the dedup that matters and the one the arithmetic hides: a light
+        that goes off and comes back on inside the rate limit is wanted twice and needs
+        sending zero times, and sending it anyway is exactly the radio frame the write
+        hygiene rule exists to prevent.
+        """
         lit = running.wanted
         if lit is None:  # pragma: no cover
             # Unreachable: nothing arms the timer or calls this before a value is wanted.
             # It is here because the field is genuinely `bool | None` and a write of None
             # would be a write of False, which is a light somebody did not ask to go out.
             return
+        if lit == running.written:
+            return
         running.written_at = monotonic()
-        self._hass.async_create_task(
-            self._async_write_indication(running.leg, lit, count=True), eager_start=False
-        )
+        self._task(self._async_write(running, lit), f"indication {running.leg.identity}")
 
-    async def _async_write_indication(
-        self, leg: HybridLeg, lit: bool, *, count: bool = False
-    ) -> None:
+    async def _async_write(self, running: _Running, lit: bool) -> None:
         """Write one button indication, recording what was there before the first time.
 
         The read happens once per leg, before the first write, which is what makes turning
@@ -451,7 +547,11 @@ class HybridLegs:
         recorded value and no restore, which is reported as nothing rather than as a guess:
         writing a default back would be this integration deciding what somebody's button
         looked like before it arrived.
+
+        `written` is set only when the device took it, so a failed write does not stop the
+        next attempt at the same value.
         """
+        leg = running.leg
         backend = self._coordinator.backend_for(leg.source)
         if backend is None:  # pragma: no cover
             # Unreachable while a leg only exists for a device a loaded backend listed.
@@ -460,13 +560,15 @@ class HybridLegs:
             self._note_error(leg, "its backend is not loaded")
             return
         try:
-            if leg.identity not in self._original:
-                before = await backend.async_read_indication(leg.source, leg.emitter_id)
-                if before is not None:
-                    self._original[leg.identity] = before
-            written = await backend.async_write_indication(leg.source, leg.emitter_id, lit)
+            async with self._indication_lock(leg), asyncio.timeout(CALL_TIMEOUT_SECONDS):
+                if leg.identity not in self._original:
+                    before = await backend.async_read_indication(leg.source, leg.emitter_id)
+                    if before is not None:
+                        self._original[leg.identity] = before
+                written = await backend.async_write_indication(leg.source, leg.emitter_id, lit)
         # An adapter raises whatever its client raises, and a leg firing has nowhere to
-        # report into but its own counters.
+        # report into but its own counters. A timeout arrives here too, which is why there
+        # is one: a hung mesh would otherwise hold this task for the life of the entry.
         except Exception:
             _LOGGER.warning(
                 "hybrid leg %s could not write the button indication", leg.identity, exc_info=True
@@ -476,8 +578,8 @@ class HybridLegs:
         if not written:
             self._note_error(leg, "the device did not take the button indication")
             return
-        if count:
-            self._count(leg, ok=True)
+        running.written = lit
+        self._count(leg, ok=True)
 
     async def _async_call(self, leg: HybridLeg, service: str, entities: Sequence[str]) -> None:
         """Make one service call, with a timeout and exactly one retry (FR-H2).
@@ -522,6 +624,7 @@ class HybridLegs:
         if not ok:
             status.errors += 1
         status.last_fired = dt_util.utcnow().isoformat()
+        self._recent.append(ok)
         self._coordinator.async_update_listeners()
 
     def status_for(self, rule_id: str) -> LegStatus:
@@ -540,6 +643,17 @@ class HybridLegs:
             ):
                 total.last_fired = status.last_fired
         return total
+
+    @property
+    def recent(self) -> tuple[int, int]:
+        """Return how many of the last few firings failed, and how many there were.
+
+        A window rather than a lifetime, because this is what decides whether somebody is
+        told their legs are failing, and a fault that has stopped should stop being
+        reported. The lifetime counts stay on the entities, where a total is what a person
+        wants to see.
+        """
+        return sum(1 for ok in self._recent if not ok), len(self._recent)
 
     @property
     def allowed(self) -> bool:

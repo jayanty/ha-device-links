@@ -261,8 +261,23 @@ export class DeviceLinksSwapWizard extends LitElement {
 
   private _chooseOld(replacement: SwapReplacement): void {
     this._old = replacement.old.identity;
-    this._new = null;
+    this._forget();
     this._step = "new";
+  }
+
+  /**
+   * Drop everything that was about the previous pair.
+   *
+   * A preview, a mapping and an acknowledged loss all belong to one old device and one
+   * replacement. Carrying any of them into a different pair would put the wrong rewrites
+   * on the review step and, worse, would carry a tick about losses the user has not seen.
+   */
+  private _forget(): void {
+    this._new = null;
+    this._newEmitters = [];
+    this._mapping = {};
+    this._preview = null;
+    this._accepted = false;
   }
 
   // ------------------------------------------------------------------------------------
@@ -705,6 +720,10 @@ export class DeviceLinksSwapWizard extends LitElement {
       });
       this._error = null;
     } catch (error) {
+      // Dropped rather than kept: a preview that failed is not a preview of anything, and
+      // leaving the previous one would let Next stay enabled and the review step render
+      // the wrong device's rewrites, the wrong reachability and the wrong loss gate.
+      this._preview = null;
       this._error = describeError(this.hass, DeviceLinksApiError.from(error));
     } finally {
       this._busy = false;
@@ -729,10 +748,15 @@ export class DeviceLinksSwapWizard extends LitElement {
     }
     const newDeviceId = replacement.device_id;
     const mapping = this._mapping;
-    const acceptLossy = this._accepted;
     return {
       plan: async (): Promise<Plan> => {
         const preview = await api.swapPreview({ oldIdentity, newDeviceId, mapping });
+        // Re-planning can find losses that were not there when the box was ticked: a
+        // target that has since gone unreadable makes a rule lose what it used to carry.
+        // The tick is about a list the user read, so a longer list needs a new tick.
+        if (this._losses(preview) !== this._losses(this._preview)) {
+          this._accepted = false;
+        }
         this._preview = preview;
         return preview.plan;
       },
@@ -742,7 +766,9 @@ export class DeviceLinksSwapWizard extends LitElement {
           newDeviceId,
           planToken,
           mapping,
-          acceptLossy,
+          // Read now rather than captured when this flow was built, so a tick that was
+          // withdrawn between the plan and the press is a tick that was withdrawn.
+          acceptLossy: this._accepted,
         });
         return { job_id: applied.job_id, status: applied.status };
       },
@@ -751,6 +777,14 @@ export class DeviceLinksSwapWizard extends LitElement {
       // orphans, so the dialog reports the rest and offers no tick box for them.
       acceptsUnmanaged: false,
     };
+  }
+
+  /** Return what a preview says would be lost, as one comparable string. */
+  private _losses(preview: SwapPreview | null): string {
+    return (preview?.proposal.rewrites ?? [])
+      .flatMap((rewrite) => rewrite.losses.map((loss) => loss.translation_key))
+      .sort()
+      .join("|");
   }
 
   /** What a user has to weigh alongside the plan, in the plan rather than behind it. */

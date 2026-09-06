@@ -247,3 +247,32 @@ describe("a swap the backend has refused", () => {
     ).toBe(true);
   });
 });
+
+describe("what a preview that failed leaves behind", () => {
+  it("drops the previous answer rather than showing it for a different pair", async () => {
+    const hass = mockHass();
+    hass.results.set(COMMANDS.swapPreview, preview());
+    const wizard = await open(hass);
+    await toReview(wizard);
+    expect(text(wizard)).toContain("in 1 rule");
+
+    // The next preview is refused, so what is on screen is not a preview of anything and
+    // must not be the previous device's rewrites, reachability and loss gate.
+    hass.results.delete(COMMANDS.swapPreview);
+    hass.failures.set(COMMANDS.swapPreview, {
+      code: "unknown_error",
+      message: "the mesh dropped",
+    });
+    press(wizard, "Back");
+    await wizard.updateComplete;
+    await flush();
+    await wizard.updateComplete;
+
+    expect(text(wizard)).toContain("the mesh dropped");
+    expect(text(wizard)).not.toContain("in 1 rule");
+    // And there is no way forward onto a review step built from the answer that failed.
+    expect(buttons(wizard).find((button) => button.textContent?.trim() === "Next")?.disabled).toBe(
+      true,
+    );
+  });
+});

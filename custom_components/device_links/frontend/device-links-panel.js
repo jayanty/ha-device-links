@@ -633,8 +633,10 @@ function et(e, t, n) {
 		feature_unavailable_status_report: "{emitter} does not report its own state, so the status feedback part of this rule was left out.",
 		group_full: "Group {group} on {device} is full ({used} of {capacity}). Remove an entry it holds, or point this rule at a group with room, before adding {target}.",
 		group_not_offered: "No control of {device} uses association group {group}. The groups it offers are: {groups}.",
+		hybrid_button_led_one_target: "Keeping {emitter} in sync works with one target, and this rule has {count}. One button has one light on it, so several targets would each be telling it something different and it would show whichever spoke last. Split this into one rule per target, or turn the option off.",
 		hybrid_no_button_indication: "The control {emitter} on {device} has no button indication Device Links knows how to write, so the leg that would make its LED follow a light cannot be made. Only a curated device profile can say which indicator belongs to which button, and guessing would light the wrong one.",
 		hybrid_no_scene: "The control {emitter} on {device} does not report a scene number when it is pressed, as far as Device Links knows, so a leg that has to react to a press on it cannot be made. Guessing the number would make the leg fire when a different button was pressed.",
+		hybrid_opt_in_unused: "The rule {rule} asks Home Assistant to carry {kind}, and does not ask for the feature that option acts on, so it does nothing. Add the feature, or turn the option off.",
 		hybrid_reverse_carries_both: "This rule is two way, so the leg back from each target to {emitter} still carries both on and off. Only the direction you authored is limited to one of them.",
 		hybrid_scene_unverified: "The scene number {emitter} on {device} reports has not been observed, only inferred from the device's own button numbering, so a leg that reacts to a press on it may react to a different button. Press it once with the rule enabled and check that the right thing happened.",
 		hybrid_self_load_not_targeted: "This rule asks Home Assistant to act on the control's own load on {device}, and does not list that device as a target, so there is nothing for the leg to act on. Add the device to the targets.",
@@ -658,7 +660,7 @@ function et(e, t, n) {
 		runner_shut_down: "Device Links is unloading, so this apply was refused rather than written through backends that are being taken down. Try again once it has started up.",
 		security_class_mismatch: "{device} and {target} were included with different security classes, so the radio refuses the group {group} link. Re-include one of them so that both match.",
 		self_association: "A device cannot be in its own association group, so {device} cannot control itself over the radio.",
-		self_association_use_hybrid_leg: "{device} cannot control itself over the radio. An automation can carry that instead; Device Links does not write those legs yet.",
+		self_association_use_hybrid_leg: "{device} cannot control itself over the radio: a device cannot be a member of its own association group. Home Assistant can carry that part instead. Turn on hybrid legs in the Device Links options, then tick “Also turn off this device's own load” on this rule. That part runs in Home Assistant and stops when Home Assistant does; the rest of the rule does not.",
 		setting_not_applied: "{device} accepted the change to {setting} and then reported its old value, so the setting did not stick.",
 		setting_not_reported: "{device} did not report {setting} back after it was written, so the change could not be confirmed.",
 		setting_write_failed: "{setting} could not be written to {device}. The error is in the log; nothing else about the rule was changed.",
@@ -2752,7 +2754,10 @@ var W = [
     `;
 	}
 	_chooseOld(e) {
-		this._old = e.old.identity, this._new = null, this._step = "new";
+		this._old = e.old.identity, this._forget(), this._step = "new";
+	}
+	_forget() {
+		this._new = null, this._newEmitters = [], this._mapping = {}, this._preview = null, this._accepted = !1;
 	}
 	_renderNewStep() {
 		let e = this._replacements.find((e) => e.old.identity === this._old)?.candidates ?? [], t = this._filtered(this.devices.filter((t) => t.identity !== this._old && t.device_id !== null && !e.some((e) => e.identity === t.identity)));
@@ -3004,7 +3009,7 @@ var W = [
 					mapping: this._mapping
 				}), this._error = null;
 			} catch (e) {
-				this._error = A(this.hass, k.from(e));
+				this._preview = null, this._error = A(this.hass, k.from(e));
 			} finally {
 				this._busy = !1;
 			}
@@ -3013,7 +3018,7 @@ var W = [
 	_flow() {
 		let e = this.api, t = this._old, n = this._new;
 		if (!e || t === null || n?.device_id == null) return null;
-		let r = n.device_id, i = this._mapping, a = this._accepted;
+		let r = n.device_id, i = this._mapping;
 		return {
 			plan: async () => {
 				let n = await e.swapPreview({
@@ -3021,24 +3026,27 @@ var W = [
 					newDeviceId: r,
 					mapping: i
 				});
-				return this._preview = n, n.plan;
+				return this._losses(n) !== this._losses(this._preview) && (this._accepted = !1), this._preview = n, n.plan;
 			},
 			apply: async (n) => {
-				let o = await e.swapApply({
+				let a = await e.swapApply({
 					oldIdentity: t,
 					newDeviceId: r,
 					planToken: n,
 					mapping: i,
-					acceptLossy: a
+					acceptLossy: this._accepted
 				});
 				return {
-					job_id: o.job_id,
-					status: o.status
+					job_id: a.job_id,
+					status: a.status
 				};
 			},
 			notices: () => this._planNotices(),
 			acceptsUnmanaged: !1
 		};
+	}
+	_losses(e) {
+		return (e?.proposal.rewrites ?? []).flatMap((e) => e.losses.map((e) => e.translation_key)).sort().join("|");
 	}
 	_planNotices() {
 		let e = this._preview;

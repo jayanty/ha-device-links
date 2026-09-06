@@ -463,7 +463,12 @@ async def _profiles_activate(
     runtime.pending_plan = plan
     connection.send_result(
         msg["id"],
-        {"profile_id": msg["profile_id"], "plan": Serializer(hass, entry).plan(plan)},
+        {
+            "profile_id": msg["profile_id"],
+            # Every enabled rule of the profile that is now in force, which is what
+            # activating one is about.
+            "plan": Serializer(hass, entry).plan(plan, frozenset()),
+        },
     )
 
 
@@ -532,7 +537,7 @@ async def _profiles_import(
     result = _saved(hass, entry, profile)
     if is_active:
         runtime.pending_plan = await coordinator.async_plan()
-        result["plan"] = Serializer(hass, entry).plan(runtime.pending_plan)
+        result["plan"] = Serializer(hass, entry).plan(runtime.pending_plan, frozenset())
     connection.send_result(
         msg["id"], {**result, "is_active": is_active, "missing_devices": list(missing)}
     )

@@ -263,6 +263,9 @@ class FakeController(EventBase):
         # parameter -> the (bitmask, value) pairs written to it. Keyed by parameter so a
         # test can say `19 not in written_parameters` (Decision D4).
         self.written_parameters: dict[int, list[tuple[int | None, int]]] = {}
+        # Every Indicator CC write, in order, as `(indicator id, value)`. What a test about
+        # hybrid leg write hygiene counts: each of these is one radio frame.
+        self.written_indicators: list[tuple[int, bool]] = []
 
         self._refresh_tasks: set[asyncio.Task[None]] = set()
 
@@ -531,7 +534,15 @@ class FakeController(EventBase):
 
         Keyed by parameter rather than by value id so a test can assert that a parameter
         was never touched: `19 not in written_parameters` is Decision D4 in one line.
+
+        Indicator writes are counted separately and not here, because they are the other
+        half of the same Stage 0 finding: an indicator set does not touch device NVM and a
+        configuration write does, so a test about hybrid leg write hygiene has to be able
+        to count the frames without the count meaning "this many flash writes".
         """
+        if value.command_class == CommandClass.INDICATOR:
+            self.written_indicators.append((int(value.property_), bool(new_value)))
+            return
         if value.command_class != CommandClass.CONFIGURATION:
             return
         parameter = int(value.property_)

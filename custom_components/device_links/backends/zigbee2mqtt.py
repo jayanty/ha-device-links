@@ -1474,8 +1474,10 @@ class ZigbeeBackend:
 
         Not a gap so much as a different kind of hardware: a Zigbee remote's LEDs are
         driven by its own firmware, and Zigbee2MQTT exposes no per-button indicator to
-        write. Answering None is what makes the compiler refuse hybrid leg kind (c) on this
-        protocol rather than a leg that fires forever and changes nothing.
+        write. What actually refuses hybrid leg kind (c) on this protocol is the compiler,
+        which needs an `indicator_id` on the emitter and no Zigbee profile entry has one;
+        this is the second half of the same fact, so that a leg reaching here anyway
+        records a failure rather than reporting a write that did not happen.
         """
         del handle, emitter_id
         return None

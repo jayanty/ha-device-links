@@ -117,11 +117,17 @@
     "group_not_offered": {
       "message": "No control of {device} uses association group {group}. The groups it offers are: {groups}."
     },
+    "hybrid_button_led_one_target": {
+      "message": "Keeping {emitter} in sync works with one target, and this rule has {count}. One button has one light on it, so several targets would each be telling it something different and it would show whichever spoke last. Split this into one rule per target, or turn the option off."
+    },
     "hybrid_no_button_indication": {
       "message": "The control {emitter} on {device} has no button indication Device Links knows how to write, so the leg that would make its LED follow a light cannot be made. Only a curated device profile can say which indicator belongs to which button, and guessing would light the wrong one."
     },
     "hybrid_no_scene": {
       "message": "The control {emitter} on {device} does not report a scene number when it is pressed, as far as Device Links knows, so a leg that has to react to a press on it cannot be made. Guessing the number would make the leg fire when a different button was pressed."
+    },
+    "hybrid_opt_in_unused": {
+      "message": "The rule {rule} asks Home Assistant to carry {kind}, and does not ask for the feature that option acts on, so it does nothing. Add the feature, or turn the option off."
     },
     "hybrid_reverse_carries_both": {
       "message": "This rule is two way, so the leg back from each target to {emitter} still carries both on and off. Only the direction you authored is limited to one of them."
@@ -193,7 +199,7 @@
       "message": "A device cannot be in its own association group, so {device} cannot control itself over the radio."
     },
     "self_association_use_hybrid_leg": {
-      "message": "{device} cannot control itself over the radio. An automation can carry that instead; Device Links does not write those legs yet."
+      "message": "{device} cannot control itself over the radio: a device cannot be a member of its own association group. Home Assistant can carry that part instead. Turn on hybrid legs in the Device Links options, then tick “Also turn off this device's own load” on this rule. That part runs in Home Assistant and stops when Home Assistant does; the rest of the rule does not."
     },
     "setting_not_applied": {
       "message": "{device} accepted the change to {setting} and then reported its old value, so the setting did not stick."
