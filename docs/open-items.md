@@ -112,6 +112,26 @@ rather than the adapter.
 
 ---
 
+### J5. Approve the first Matter write
+
+| | |
+|---|---|
+| Issue | [#17](https://github.com/jayanty/ha-device-links/issues/17) |
+| Blocks | Every Matter write path |
+| Needs | Approval to write one ACL grant and one Binding entry, then remove both |
+
+Suggested pair: Inovelli VTM31-SN (node 31) endpoint 2 to an Eve Energy outlet, OnOff only.
+
+Worth extra care because an ACL entry is a security boundary. The implementation only grants
+Operate on a specific cluster and endpoint, never Administer, and refuses to touch an entry
+it did not create, but none of that has met a real device. All Matter writes are behind an
+options flag that defaults to off.
+
+Sanity-check assumption A10 first: the Stage 0 M1 report's "headroom is 2 entries" counted
+every fabric's entries against a per-fabric limit.
+
+---
+
 ## 1b. Assumptions made to keep going without Jayant
 
 Instructed on 2026-09-05 to complete as much as possible without waiting, using reasonable
