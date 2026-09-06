@@ -91,6 +91,14 @@ class FakeBridge:
         self.silent = False
         self.unresponsive: set[str] = set()
 
+        # Report `status: "ok"` even when every cluster failed. The documentation says that
+        # cannot happen, and Device Links asks for one cluster at a time, so under the
+        # documentation a failure of ours is always total and always an error. This is the
+        # case where the documentation is wrong, and it is the exact case in which reading
+        # `status` alone ships a bug that looks like it works. Unobserved like everything
+        # else here: assumption A2, issue #6.
+        self.ok_despite_total_failure = False
+
         # Every request that was published, so a test can assert that a refusal really
         # refused rather than merely reporting one.
         self.requests: list[tuple[str, Payload]] = []
@@ -168,12 +176,16 @@ class FakeBridge:
         failed = [
             cluster
             for cluster in requested
-            if cluster in self.fail_clusters or not zp.emits(source, endpoint, cluster)  # type: ignore[arg-type]
+            if cluster in self.fail_clusters
+            # Only a bind consults what the endpoint drives. An unbind is a ZDO request
+            # about an entry that is already there, and a device whose reported clusters
+            # have changed since it was written must still be able to have it taken off.
+            or (adding and not zp.emits(source, endpoint, cluster))  # type: ignore[arg-type]
         ]
         for cluster in requested:
             if cluster not in failed:
                 self._write_binding(source, endpoint, cluster, target, adding=adding)
-        if requested and len(failed) == len(requested):
+        if requested and len(failed) == len(requested) and not self.ok_despite_total_failure:
             return _error(body, "Failed to bind, no cluster could be written", failed=failed)
         self._republish(zp.DEVICES_TOPIC)
         return _ok(body, failed=failed)

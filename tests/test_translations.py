@@ -314,6 +314,9 @@ def test_the_english_translations_match_the_strings_file() -> None:
 PLACEHOLDER_HELPERS = {
     "_about": {"device", "target", "group"},
     "_group_placeholders": {"device", "target", "group"},
+    # The Zigbee adapter's equivalent. `cluster` rather than `group`, because that is what
+    # a Zigbee link is written to and calling it a group would be describing Z-Wave.
+    "_binding_placeholders": {"device", "target", "cluster"},
 }
 
 

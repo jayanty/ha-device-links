@@ -33,16 +33,27 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from itertools import count
 import json
 import logging
 from typing import TYPE_CHECKING, Final, Protocol, cast
 
 from custom_components.device_links.backends import zigbee_protocol as zp
-from custom_components.device_links.backends.base import BackendDevice, ObservedDevice
+from custom_components.device_links.backends.base import (
+    BackendDevice,
+    LinkCheck,
+    LinkResult,
+    LinkResultStatus,
+    ObservedDevice,
+    SettingResult,
+    SettingValue,
+)
 from custom_components.device_links.models import Backend as BackendId
 from custom_components.device_links.models import (
     DeviceCapabilities,
     DeviceHandle,
+    Diagnostic,
+    Link,
     LinkTarget,
     ObservedLink,
     SettingsAdapter,
@@ -53,6 +64,16 @@ if TYPE_CHECKING:
     from custom_components.device_links.profile_db import ProfileDatabase, ZigbeeProfileEntry
 
 _LOGGER = logging.getLogger(__name__)
+
+# How long a request waits for the response that carries its transaction id.
+#
+# Deliberately under the executor's own 30 second `OPERATION_TIMEOUT_SECONDS`, and that is
+# the whole reason for the number rather than a round 30. Both bound the same wait, and
+# whichever fires first decides what the user is told: this one knows the request was a
+# Zigbee bind that got no answer and can say so, and the executor's knows only that a
+# backend did not return in time. Two 30 second timers would pick between those two
+# messages at random.
+DEFAULT_REQUEST_TIMEOUT: Final = 20.0
 
 # How long a deep read waits for the bridge to republish `bridge/devices` after a write.
 # See `async_observed` for what this is really asking and why it is not the same question
@@ -68,6 +89,11 @@ DEFAULT_STARTUP_TIMEOUT: Final = 10.0
 # `ObservedDevice.deep_verify_skipped_reason`, which the executor turns into the `why`
 # placeholder of `verify_not_confirmed`.
 SKIPPED_BRIDGE_OFFLINE: Final = "bridge_offline"
+
+# What Zigbee2MQTT reports as the power source of a battery device. A bind can only be made
+# while such a device is awake, so a refusal or a silence from one is a wake-up prompt
+# rather than a fault (E22).
+BATTERY_POWER_SOURCE: Final = "Battery"
 
 
 class MqttClient(Protocol):
@@ -97,6 +123,13 @@ class ZigbeeBackendError(Exception):
 
 
 @dataclass(slots=True)
+class _Pending:
+    """One request waiting for the response that carries its transaction id."""
+
+    future: asyncio.Future[zp.BridgeResponse]
+
+
+@dataclass(slots=True)
 class _State:
     """What the bridge has told us, as it last told us.
 
@@ -117,12 +150,13 @@ class ZigbeeBackend:
     list, which is the point at which the backend knows the network.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         *,
         client: MqttClient,
         base_topic: str = "zigbee2mqtt",
         profiles: ProfileDatabase | None = None,
+        request_timeout: float = DEFAULT_REQUEST_TIMEOUT,
         refresh_timeout: float = DEFAULT_REFRESH_TIMEOUT,
         startup_timeout: float = DEFAULT_STARTUP_TIMEOUT,
     ) -> None:
@@ -132,12 +166,15 @@ class ZigbeeBackend:
         # instance uses a different one (E25).
         self._base = base_topic.rstrip("/")
         self._profiles = profiles
+        self._request_timeout = request_timeout
         self._refresh_timeout = refresh_timeout
         self._startup_timeout = startup_timeout
 
         self._state = _State()
+        self._pending: dict[str, _Pending] = {}
         self._unsubscribes: list[Callable[[], None]] = []
         self._listeners: list[Callable[[str], None]] = []
+        self._transactions = count(1)
 
         # Whether a write of ours has happened that the bridge has not yet republished
         # `bridge/devices` for. What a deep read waits on; see `async_observed`.
@@ -154,12 +191,14 @@ class ZigbeeBackend:
 
         The four state topics are retained, so this is the whole of the read path's
         startup: a broker delivers them on subscribe and the backend knows the network
-        without asking anything.
+        without asking anything. The response topics are subscribed to first, so a response
+        can never arrive before there is something listening for it.
         """
         loop = asyncio.get_running_loop()
         arrived: asyncio.Future[None] = loop.create_future()
         self._awaiting_devices.append(arrived)
         for topic in (
+            f"{self._base}/bridge/response/#",
             f"{self._base}/{zp.STATE_TOPIC}",
             f"{self._base}/{zp.GROUPS_TOPIC}",
             f"{self._base}/{zp.DEVICES_TOPIC}",
@@ -185,6 +224,10 @@ class ZigbeeBackend:
         for unsubscribe in self._unsubscribes:
             unsubscribe()
         self._unsubscribes.clear()
+        for pending in list(self._pending.values()):
+            if not pending.future.done():
+                pending.future.cancel()
+        self._pending.clear()
         for waiter in self._awaiting_devices:
             if not waiter.done():
                 waiter.cancel()
@@ -210,6 +253,8 @@ class ZigbeeBackend:
             self._on_groups(parsed)
         elif relative == zp.STATE_TOPIC:
             self._on_state(parsed)
+        elif relative.startswith("bridge/response/"):
+            self._on_response(parsed)
 
     def _on_devices(self, parsed: object) -> None:
         """Take a new device list, and tell the coordinator which devices changed.
@@ -273,6 +318,23 @@ class ZigbeeBackend:
             _LOGGER.info("the Zigbee2MQTT bridge on %s is answering again", self._base)
             self._reported_offline = False
         self._state.online = online
+
+    def _on_response(self, parsed: object) -> None:
+        """Hand a response to whatever asked for it, matching on the transaction id.
+
+        MQTT is fire and forget and responses are not ordered, so the echoed transaction is
+        the only thing that says which request a response answers. A response for a
+        transaction nobody is waiting on is dropped: it belongs to another client of the
+        same broker, or to a request of ours that has already timed out.
+        """
+        if not isinstance(parsed, dict):
+            return
+        response = zp.parse_response(parsed)
+        if response.transaction is None:
+            return
+        pending = self._pending.pop(response.transaction, None)
+        if pending is not None and not pending.future.done():
+            pending.future.set_result(response)
 
     def _notify(self, identity: str) -> None:
         """Tell every subscriber that one device is worth re-reading."""
@@ -459,6 +521,391 @@ class ZigbeeBackend:
                 return control.emitter.emitter_id
         return f"ep{endpoint}"
 
+    # Writing, and the refusals that come before it.
+    #
+    # NOTE: everything from here to the end of this section is modelled from the
+    # Zigbee2MQTT documentation and has never been performed against hardware. Stage 0
+    # item G2 was never approved, so no Zigbee bind has ever been made on this network:
+    # the request shapes, the response shapes and the failure modes are all taken from
+    # the documentation, and `tests/fakes/zigbee.py` is the model they are proved against
+    # rather than evidence about the bridge. See assumption A2 in docs/open-items.md and
+    # issue #6. When G2 runs, this is what gets corrected.
+
+    async def async_check_link(self, link: Link) -> LinkCheck:
+        """Say whether this link could be written, without writing it.
+
+        Zigbee has no equivalent of the Z-Wave driver's `checkAssociation`: there is no
+        request that asks the bridge whether a bind would be allowed. So a check here is
+        everything that can be answered from what the bridge already publishes, which turns
+        out to be most of it and costs nothing at all: the coordinator's address, every
+        device the bridge knows, and every endpoint's input and output clusters are all in
+        the retained `bridge/devices` payload.
+
+        The panel's blocked-with-reason experience is therefore not worse for Zigbee than
+        for Z-Wave. It is arguably better: the Z-Wave check spends a radio round trip and
+        can still be answered by a mesh that is busy, and this one is a lookup.
+
+        What it deliberately does not answer is whether the link is already there. A check
+        says whether a write could be made, and an existing binding does not change that.
+        """
+        refusal = self._refusal(link, adding=True)
+        if refusal is not None:
+            return LinkCheck(ok=False, reason=refusal)
+        return LinkCheck(ok=True)
+
+    async def async_add_link(self, link: Link) -> LinkResult:
+        """Bind one cluster, or explain why it was not bound.
+
+        The order of the refusals is the safety rule, and it is this and no other:
+
+        1. A coordinator binding, because it is never ours to write whatever else is true.
+           This is Zigbee's lifeline: those bindings are Zigbee2MQTT's own reporting setup,
+           and every binding on this network today is one.
+        2. A self-binding, for the same reason: it can never be what the user meant, so
+           nothing about the bridge's current state can make it right.
+        3. A target endpoint that is not named. A Zigbee binding always names one, so a
+           link that does not is not a link that can be expressed.
+        4. The bridge being offline, which is not about this link at all but means nothing
+           can be written now.
+        5. A device or group the bridge does not report.
+        6. Already present, which is where a state-dependent answer belongs. After the
+           absolute refusals so neither can be masked by "it is already there", and before
+           the capability checks so that an entry which exists is never reported as blocked:
+           a firmware upgrade can change what a device says it drives, and answering BLOCKED
+           for an entry that is on the device makes a plan that can never converge.
+        7. Whether the source really drives the cluster and the target really serves it.
+           Only when adding: a check about writing has nothing to say about taking an entry
+           off, and refusing there would strand a binding nobody could remove.
+        8. The request.
+        """
+        return await self._write(link, adding=True)
+
+    async def async_remove_link(self, link: Link) -> LinkResult:
+        """Unbind one cluster, or explain why it was not unbound.
+
+        The same shape as the add, without step 7. Not present is `ALREADY_PRESENT`: there
+        is nothing to do and nothing went wrong.
+
+        **Unbinding removes the attribute reporting Zigbee2MQTT configured on that cluster**
+        unless `skip_disable_reporting` is set (CLAUDE.md Section 10). Device Links does not
+        set it, so what happens is what the bridge would do on its own rather than a quiet
+        divergence, and the plan says so before a user confirms it.
+        """
+        return await self._write(link, adding=False)
+
+    async def _write(self, link: Link, *, adding: bool) -> LinkResult:
+        """Bind or unbind one cluster, refusing in the documented order."""
+        refusal = self._absolute_refusal(link)
+        if refusal is not None:
+            return LinkResult(status=LinkResultStatus.BLOCKED, reason=refusal)
+        try:
+            present = self._is_present(link)
+        except ZigbeeBackendError as err:
+            _LOGGER.debug("write of %s could not be prepared: %s", link.fingerprint, err)
+            return LinkResult(
+                status=LinkResultStatus.BLOCKED,
+                reason=Diagnostic("zigbee_unknown_device", _binding_placeholders(link)),
+            )
+        if present is adding:
+            return LinkResult(status=LinkResultStatus.ALREADY_PRESENT)
+        if adding:
+            refusal = self._capability_refusal(link)
+            if refusal is not None:
+                return LinkResult(status=LinkResultStatus.BLOCKED, reason=refusal)
+        return await self._request_binding(link, adding=adding)
+
+    async def _request_binding(self, link: Link, *, adding: bool) -> LinkResult:
+        """Send one bind or unbind and turn the answer into a result.
+
+        NOTE: modelled, never observed. Assumption A2, issue #6.
+        """
+        request = self._bind_request(link)
+        payload = zp.bind_payload(request) if adding else zp.unbind_payload(request)
+        topic = zp.BIND_REQUEST if adding else zp.UNBIND_REQUEST
+        # Set before publishing rather than after, because the bridge republishes
+        # `bridge/devices` before it answers: a flag raised afterwards would be raised
+        # after the message that clears it and would never come down.
+        self._devices_stale = True
+        response = await self._request(topic, payload)
+        if response is None:
+            return self._no_response(link)
+        if response.succeeded:
+            return LinkResult(status=LinkResultStatus.APPLIED)
+        if response.partly_failed:
+            # The whole reason `BridgeResponse.succeeded` exists. `status` is `error` only
+            # when every cluster failed, so a cluster named in `failed` under `status: "ok"`
+            # is a bind that did not happen and would otherwise be reported as applied.
+            return self._cluster_failure(link, response)
+        # Anything else, `status: "error"` and any answer this version does not recognise
+        # alike, is a failure. Failing closed on an unknown status matters as much here as
+        # it does for the Z-Wave check result: nothing is written on an answer we cannot read.
+        return self._bind_error(link, response)
+
+    def _no_response(self, link: Link) -> LinkResult:
+        """Report a request that got no answer, without claiming to know what happened.
+
+        MQTT is fire and forget, so silence has several causes: the bridge is down, the
+        device was not listening, or the response was lost. None of them is "the binding
+        was not made", and saying so would be a claim nobody can support.
+
+        There is no `LinkResultStatus` for "we do not know", and inventing a sixth member
+        would change what every consumer of a job summary switches on, so this is `FAILED`
+        with a reason that says exactly what is and is not known. The job's own re-read is
+        what settles it: if the bind did land, the next plan is empty. A battery source
+        gets `PENDING_WAKEUP` instead, because for one of those silence has a likely cause
+        and an action attached to it (E22).
+        """
+        if self._is_battery(link.source):
+            return self._pending_wakeup(link)
+        return LinkResult(
+            status=LinkResultStatus.FAILED,
+            reason=Diagnostic(
+                "zigbee_no_response",
+                {**_binding_placeholders(link), "seconds": str(self._request_timeout)},
+            ),
+        )
+
+    def _cluster_failure(self, link: Link, response: zp.BridgeResponse) -> LinkResult:
+        """Report the clusters that did not bind, by name."""
+        self._settle_stale(response)
+        return LinkResult(
+            status=LinkResultStatus.FAILED,
+            reason=Diagnostic(
+                "zigbee_clusters_failed",
+                {**_binding_placeholders(link), "clusters": ", ".join(response.failed)},
+            ),
+            raw_error=response.error,
+        )
+
+    def _bind_error(self, link: Link, response: zp.BridgeResponse) -> LinkResult:
+        """Report a request the bridge refused outright."""
+        self._settle_stale(response)
+        if self._is_battery(link.source):
+            return self._pending_wakeup(link)
+        return LinkResult(
+            status=LinkResultStatus.FAILED,
+            reason=Diagnostic("zigbee_bind_failed", _binding_placeholders(link)),
+            raw_error=response.error,
+        )
+
+    def _pending_wakeup(self, link: Link) -> LinkResult:
+        """Report a battery source that was not listening (E22).
+
+        Not a failure and not a success: the write has not happened and nothing has gone
+        wrong. `pending_wakeup` is what the rest of the system already means by that, and
+        the Repairs issue built on it is what asks this adapter for the wake instruction.
+        """
+        return LinkResult(
+            status=LinkResultStatus.PENDING_WAKEUP,
+            reason=Diagnostic("zigbee_wake_the_device", _binding_placeholders(link)),
+        )
+
+    def _settle_stale(self, response: zp.BridgeResponse) -> None:
+        """Lower the stale flag when the bridge has said it changed nothing.
+
+        A bridge that answered and wrote nothing has nothing to republish, so a later deep
+        read must not spend its whole timeout waiting for a message that is not coming. A
+        request that got no answer at all leaves the flag up, deliberately: that is the case
+        where the write may have landed and the read really should wait.
+        """
+        if not response.written:
+            self._devices_stale = False
+
+    async def _request(self, topic: str, payload: Mapping[str, object]) -> zp.BridgeResponse | None:
+        """Publish one request and wait for the response carrying its transaction id.
+
+        Registered before publishing, not after: the bridge can answer immediately, and a
+        waiter set up afterwards would miss the answer to its own request and time out.
+
+        NOTE: modelled, never observed. Assumption A2, issue #6.
+        """
+        transaction = str(payload["transaction"])
+        future: asyncio.Future[zp.BridgeResponse] = asyncio.get_running_loop().create_future()
+        self._pending[transaction] = _Pending(future)
+        try:
+            await self._client.async_publish(f"{self._base}/{topic}", json.dumps(payload))
+            async with asyncio.timeout(self._request_timeout):
+                return await future
+        except TimeoutError:
+            _LOGGER.debug(
+                "no response to %s on %s within %ss, so whether it was carried out is unknown",
+                transaction,
+                topic,
+                self._request_timeout,
+            )
+            return None
+        finally:
+            self._pending.pop(transaction, None)
+
+    def _bind_request(self, link: Link) -> zp.BindRequest:
+        """Return the request that expresses this link, addressed as the bridge expects.
+
+        Exactly one cluster, and never the "all supported clusters" form Zigbee2MQTT falls
+        back to when `clusters` is absent: on an Inovelli switch that would also bind
+        `manuSpecificInovelli` and the metering clusters, which no rule ever asked for.
+
+        Both ends are named by the friendly name they answer to now, resolved here rather
+        than taken off the handle (E23).
+        """
+        return zp.BindRequest(
+            source_name=self._name_of(link.source),
+            source_endpoint=link.source_endpoint,
+            target=self._target_name(link),
+            target_endpoint=link.target.endpoint,
+            clusters=(link.emitter_group,),
+            transaction=f"dl-{next(self._transactions)}",
+        )
+
+    def _target_name(self, link: Link) -> str:
+        """Return what the request calls this link's target: a device name or a group name."""
+        group_id = zp.group_id_of(link.target.handle)
+        if group_id is None:
+            return self._name_of(link.target.handle)
+        group = self._state.groups.get(group_id)
+        if group is None:
+            raise ZigbeeBackendError(f"group {group_id} is not one this bridge reports")
+        return str(group["friendly_name"])
+
+    def _absolute_refusal(self, link: Link) -> Diagnostic | None:
+        """Return why this link may never be written, whatever the bridge currently says."""
+        if link.target.handle.protocol_id == self._state.coordinator_ieee:
+            return Diagnostic("zigbee_coordinator_binding_protected", _binding_placeholders(link))
+        if link.source.identity == link.target.handle.identity:
+            return Diagnostic("zigbee_self_binding", _binding_placeholders(link))
+        if zp.group_id_of(link.target.handle) is None and link.target.endpoint is None:
+            return Diagnostic("zigbee_target_endpoint_required", _binding_placeholders(link))
+        if not self._state.online:
+            return Diagnostic(
+                "zigbee_bridge_offline", {**_binding_placeholders(link), "topic": self._base}
+            )
+        return self._addressing_refusal(link)
+
+    def _addressing_refusal(self, link: Link) -> Diagnostic | None:
+        """Return why this link names something the bridge does not have."""
+        group_id = zp.group_id_of(link.target.handle)
+        if group_id is not None:
+            group = self._state.groups.get(group_id)
+            if group is None:
+                return Diagnostic("zigbee_unknown_device", _binding_placeholders(link))
+            if not zp.is_managed_group_name(str(group["friendly_name"])):
+                return Diagnostic("zigbee_foreign_group", _binding_placeholders(link))
+        try:
+            self._device(link.source)
+            if group_id is None:
+                self._device(link.target.handle)
+        except ZigbeeBackendError:
+            return Diagnostic("zigbee_unknown_device", _binding_placeholders(link))
+        return None
+
+    def _capability_refusal(self, link: Link) -> Diagnostic | None:
+        """Return why this bind would not do anything, asked before it is spent.
+
+        A binding whose source endpoint does not drive the cluster sends nothing, and one
+        whose target endpoint does not serve it is accepted and dead forever. Neither shows
+        up on the device afterwards as anything but a binding that is present and useless,
+        which is the worst outcome available: it looks applied.
+        """
+        source = self._device(link.source)
+        if not zp.emits(source, link.source_endpoint, link.emitter_group):
+            return Diagnostic("zigbee_source_cannot_send", _binding_placeholders(link))
+        if zp.group_id_of(link.target.handle) is not None:
+            # A group has no clusters of its own; what its members can act on is checked
+            # when each member is added to it.
+            return None
+        target = self._device(link.target.handle)
+        if link.target.endpoint is None or not zp.accepts(
+            target, link.target.endpoint, link.emitter_group
+        ):
+            return Diagnostic("zigbee_target_cannot_receive", _binding_placeholders(link))
+        return None
+
+    def _refusal(self, link: Link, *, adding: bool) -> Diagnostic | None:
+        """Return every refusal that does not depend on what is already on the device."""
+        refusal = self._absolute_refusal(link)
+        if refusal is not None or not adding:
+            return refusal
+        return self._capability_refusal(link)
+
+    def _is_present(self, link: Link) -> bool:
+        """Say whether this exact link is already on the device.
+
+        Compared by fingerprint against the observed links, so it asks the same question
+        the planner asked and gets the same answer: a managed group's expansion counts as
+        the per-target links it stands for, and a level binding counts for both the
+        features it carries.
+        """
+        source = self._device(link.source)
+        return any(
+            observed.fingerprint == link.fingerprint
+            for observed in self._observed_links(link.source, source)
+        )
+
+    def _is_battery(self, handle: DeviceHandle) -> bool:
+        """Say whether this device is battery powered, which changes what silence means."""
+        try:
+            device = self._device(handle)
+        except ZigbeeBackendError:
+            return False
+        return str(device.get("power_source", "")).startswith(BATTERY_POWER_SOURCE)
+
+    # Settings.
+
+    async def async_read_setting(self, handle: DeviceHandle, capability: str) -> SettingValue:
+        """Read one named setting off the device, as far as this adapter can see it.
+
+        `value` is None, always, and that is a fact rather than a gap being papered over:
+        a Zigbee device's settings arrive on its **own** state topic, and this adapter
+        subscribes to the bridge topics only. None means "the device has not told us",
+        which is exactly true and is not the same as zero.
+
+        Raises for a setting the curated entry does not name, which is the same contract
+        the Z-Wave adapter has: a read has no shape to report a refusal in, and inventing
+        a value would be worse. See docs/open-items.md T45.
+        """
+        entry = self._entry_of(self._device(handle))
+        if entry is None or capability not in entry.settings:
+            raise ZigbeeBackendError(
+                f"{handle.protocol_id} has no {capability} setting in the profile database"
+            )
+        return SettingValue(capability=capability, parameter=0, bitmask=None, value=None)
+
+    async def async_write_setting(
+        self, handle: DeviceHandle, capability: str, value: int
+    ) -> SettingResult:
+        """Refuse to write a Zigbee device setting, and say why rather than pretending.
+
+        Refused rather than attempted, deliberately, and this is the one place in Phase 2A
+        where a modelled write is **not** built. The bind path is modelled on one unproven
+        thing (the request and response shapes, assumption A2). A settings write would be
+        built on two: those, plus the property names and payload labels in the curated
+        entries, which come from Zigbee2MQTT's converters and could not be checked against
+        the G1 capture at all, because the capture trimmed `definition.exposes` out. A write
+        proved only against a fake that embodies both guesses would demonstrate nothing
+        except that the two guesses agree with each other.
+
+        Nothing can reach this today in any case: `compiler.py` produces a setting write
+        only for `mirror_hub_commands`, which is a Z-Wave concept, and the executor cannot
+        carry out a `set_param` item at all (docs/open-items.md T16). The adapters are still
+        shipped in the profile entries, so the data is captured and the work is queued
+        rather than lost. See docs/open-items.md T45.
+        """
+        entry = self._entry_of(self._device(handle))
+        if entry is None or capability not in entry.settings:
+            return SettingResult(
+                ok=False,
+                reason=Diagnostic(
+                    "settings_not_available",
+                    {"device": handle.name_at_authoring, "setting": capability},
+                ),
+            )
+        return SettingResult(
+            ok=False,
+            reason=Diagnostic(
+                "zigbee_settings_not_written",
+                {"device": handle.name_at_authoring, "setting": capability},
+            ),
+        )
+
     # Devices, groups and their identity.
 
     def _device(self, handle: DeviceHandle) -> zp.Device:
@@ -546,6 +993,21 @@ class ZigbeeBackend:
             return None
         entry = self._entry_of(device)
         return None if entry is None else entry.wake_instruction
+
+
+def _binding_placeholders(link: Link) -> dict[str, str]:
+    """Return the placeholders every message about a Zigbee binding needs to be actionable.
+
+    `cluster` rather than `group`, because that is what a Zigbee link is written to and a
+    message that called it a group would be describing Z-Wave. `tests/test_translations.py`
+    knows this helper by name, so a message using one of these three is checked against
+    what is really supplied wherever it is raised.
+    """
+    return {
+        "device": link.source.name_at_authoring,
+        "cluster": link.emitter_group,
+        "target": link.target.handle.name_at_authoring,
+    }
 
 
 def _as_devices(parsed: Sequence[object]) -> dict[str, zp.Device]:
