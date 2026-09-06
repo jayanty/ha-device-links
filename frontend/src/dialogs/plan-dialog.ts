@@ -66,6 +66,20 @@ export interface PlanAppliedDetail {
   job: JobFinished;
 }
 
+/**
+ * What a caller learns when this dialog is dismissed.
+ *
+ * `changes` is what an apply would have written, which is not the same question as
+ * whether the dialog was cancelled. A caller that staged something to make this plan (the
+ * rules table's switch) has to tell "the user walked away from work that is still
+ * waiting" from "there was nothing to do, so there is nothing to walk away from", and
+ * only the second of those should leave the staged change in place.
+ */
+export interface PlanClosedDetail {
+  applied: boolean;
+  changes: number;
+}
+
 @customElement("dl-plan-dialog")
 export class DeviceLinksPlanDialog extends LitElement {
   @property({ attribute: false }) hass!: HomeAssistant;
@@ -748,7 +762,16 @@ export class DeviceLinksPlanDialog extends LitElement {
     if (this._phase === "applying") {
       return;
     }
-    this.dispatchEvent(new CustomEvent("dl-plan-closed", { bubbles: true, composed: true }));
+    this.dispatchEvent(
+      new CustomEvent<PlanClosedDetail>("dl-plan-closed", {
+        detail: {
+          applied: this._phase === "finished",
+          changes: this._plan === null ? 0 : this._changeCount(this._plan),
+        },
+        bubbles: true,
+        composed: true,
+      }),
+    );
   }
 }
 

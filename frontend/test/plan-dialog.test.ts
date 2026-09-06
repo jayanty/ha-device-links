@@ -273,6 +273,19 @@ describe("the plan dialog", () => {
     expect(closed).not.toHaveBeenCalled();
   });
 
+  it("says on close whether anything was applied and what was left undone", async () => {
+    const hass = mockHass();
+    hass.results.set(COMMANDS.plan, plan());
+    const dialog = await open(hass);
+    const closed = vi.fn();
+    dialog.addEventListener("dl-plan-closed", (event) => {
+      closed((event as CustomEvent<{ applied: boolean; changes: number }>).detail);
+    });
+
+    button(dialog, "Cancel")?.click();
+    expect(closed).toHaveBeenCalledWith({ applied: false, changes: 2 });
+  });
+
   it("ends its job subscription when it leaves the document", async () => {
     const hass = mockHass();
     hass.results.set(COMMANDS.plan, plan());

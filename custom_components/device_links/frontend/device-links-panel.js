@@ -2415,6 +2415,10 @@ var K = class extends D {
 	}
 	_requestClose() {
 		this._phase !== "applying" && this.dispatchEvent(new CustomEvent("dl-plan-closed", {
+			detail: {
+				applied: this._phase === "finished",
+				changes: this._plan === null ? 0 : this._changeCount(this._plan)
+			},
 			bubbles: !0,
 			composed: !0
 		}));
@@ -4402,13 +4406,15 @@ var Kt = [
 	_openPlan(e, t) {
 		this._planScope = e, this._planHeading = t === void 0 ? "Plan and apply" : `Plan and apply: ${t}`, this._planOpen = !0;
 	}
-	async _closePlan() {
+	async _closePlan(e) {
 		this._planOpen = !1;
-		let e = this._staged;
-		if (this._staged = null, e !== null && !this._appliedDuringPlan && this.api) try {
+		let t = e?.detail, n = this._staged;
+		this._staged = null;
+		let r = !this._appliedDuringPlan && (t?.changes ?? 1) > 0;
+		if (n !== null && r && this.api) try {
 			await this.api.upsertRule({
-				...e.rule,
-				enabled: e.wasEnabled
+				...n.rule,
+				enabled: n.wasEnabled
 			}, this._profile?.id);
 		} catch (e) {
 			this._error = N(this.hass, M.from(e));

@@ -172,13 +172,36 @@ describe("the rules table", () => {
     await view.updateComplete;
 
     const dialog = view.shadowRoot?.querySelector("dl-plan-dialog");
-    dialog?.dispatchEvent(new CustomEvent("dl-plan-closed"));
+    dialog?.dispatchEvent(
+      new CustomEvent("dl-plan-closed", { detail: { applied: false, changes: 2 } }),
+    );
     await flush();
 
     const upserts = hass.sent.filter((message) => message.type === COMMANDS.rulesUpsert);
     expect(upserts).toHaveLength(2);
     const restored = upserts.at(-1)?.rule as { enabled: boolean } | undefined;
     expect(restored?.enabled).toBe(true);
+  });
+
+  it("leaves a staged switch alone when the plan had nothing in it", async () => {
+    const hass = loaded();
+    hass.results.set(COMMANDS.rulesUpsert, ruleRow({ state: "disabled" }));
+    const view = await mount("device-links-rules", hass);
+
+    view.shadowRoot?.querySelector<HTMLInputElement>("input[type=checkbox]")?.click();
+    await flush();
+    await view.updateComplete;
+
+    // The devices already hold what the switch asked for, so there is nothing to walk
+    // away from and putting the switch back would make it look broken.
+    view.shadowRoot
+      ?.querySelector("dl-plan-dialog")
+      ?.dispatchEvent(
+        new CustomEvent("dl-plan-closed", { detail: { applied: false, changes: 0 } }),
+      );
+    await flush();
+
+    expect(hass.sent.filter((message) => message.type === COMMANDS.rulesUpsert)).toHaveLength(1);
   });
 
   it("warns that deleting a rule leaves what it wrote behind", async () => {

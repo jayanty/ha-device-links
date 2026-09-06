@@ -23,6 +23,7 @@ import "../components/dialog";
 import "../dialogs/plan-dialog";
 import "../dialogs/rule-editor";
 import { renderIcon } from "../components/icon";
+import type { PlanClosedDetail } from "../dialogs/plan-dialog";
 import type { RuleSavedDetail } from "../dialogs/rule-editor";
 import {
   backendLabel,
@@ -616,13 +617,19 @@ export class DeviceLinksRules extends DeviceLinksView {
    *
    * Nothing was written, so the honest end state is the one the user started in. Leaving
    * the stored change behind would leave a rule that says it is enabled and links that are
-   * not there, off the back of a dialog somebody dismissed.
+   * not there, off the back of a dialog somebody dismissed. The exception is a plan that
+   * had nothing in it, which means the devices already hold what the switch asked for.
    */
-  private async _closePlan(): Promise<void> {
+  private async _closePlan(event?: Event): Promise<void> {
     this._planOpen = false;
+    const detail = (event as CustomEvent<PlanClosedDetail> | undefined)?.detail;
     const staged = this._staged;
     this._staged = null;
-    if (staged !== null && !this._appliedDuringPlan && this.api) {
+    // A plan with nothing in it is not something to walk away from: the rule was switched
+    // to a state the devices are already in, so the stored change stands and reverting it
+    // would make the switch look broken.
+    const abandoned = !this._appliedDuringPlan && (detail?.changes ?? 1) > 0;
+    if (staged !== null && abandoned && this.api) {
       try {
         await this.api.upsertRule(
           { ...staged.rule, enabled: staged.wasEnabled },
