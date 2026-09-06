@@ -21,6 +21,7 @@ Two things it does that nothing else may:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 import logging
 from typing import TYPE_CHECKING, Final
@@ -68,6 +69,21 @@ _ROOT_ENDPOINT: Final = 0
 # rather than a claim about a device nobody has looked at. See docs/open-items.md T9.
 RECEIVABLE_FEATURES: Final = frozenset({Feature.ON_OFF, Feature.LEVEL_SET, Feature.LEVEL_HOLD})
 
+# The command classes an association lives in, which are the ones a deep verify refreshes
+# and a subscription watches (FR-B3, FR-B4).
+ASSOCIATION_CC: Final = 0x85
+MULTI_CHANNEL_ASSOCIATION_CC: Final = 0x8E
+_ASSOCIATION_CCS: Final = frozenset({ASSOCIATION_CC, MULTI_CHANNEL_ASSOCIATION_CC})
+
+# How long a deep verify waits for a device to answer a refresh. Stage 0 measured an
+# association add at 67 ms and a remove at 253 ms on a listening node, so five seconds is
+# generous for a mesh that is answering at all, and short enough not to hang a job.
+DEFAULT_DEEP_VERIFY_TIMEOUT: Final = 5.0
+
+# Why a deep verify did not happen. A sleeping node cannot answer a refresh, and asking one
+# to would burn the whole timeout to learn what its status already said.
+SKIPPED_ASLEEP: Final = "asleep"
+
 
 class ZWaveBackend:
     """One Z-Wave network, as the `Backend` protocol sees it.
@@ -77,10 +93,17 @@ class ZWaveBackend:
     before the mesh is interesting.
     """
 
-    def __init__(self, *, driver: Driver, profiles: ProfileDatabase | None) -> None:
+    def __init__(
+        self,
+        *,
+        driver: Driver,
+        profiles: ProfileDatabase | None,
+        deep_verify_timeout: float = DEFAULT_DEEP_VERIFY_TIMEOUT,
+    ) -> None:
         """Hold what this adapter needs, and read nothing yet."""
         self._driver = driver
         self._profiles = profiles
+        self._deep_verify_timeout = deep_verify_timeout
 
     # Reading.
 
@@ -111,8 +134,23 @@ class ZWaveBackend:
         )
 
     async def async_observed(self, handle: DeviceHandle, deep: bool = False) -> ObservedDevice:
-        """Return what is really on this device now."""
+        """Return what is really on this device now.
+
+        A shallow read is the driver's cache, which is right about our own writes (Stage 0
+        confirmed it reflects them immediately) and can be behind on somebody else's.
+        `deep` asks the device itself, which costs radio time and a bounded wait, so it is
+        opt-in per request and is what the executor does after an apply.
+        """
         node = self._node(handle)
+        verified = False
+        timed_out = False
+        skipped: str | None = None
+        if deep:
+            if _is_asleep(node):
+                skipped = SKIPPED_ASLEEP
+            else:
+                verified = await self._await_refresh(node)
+                timed_out = not verified
         groups = await self._groups(node)
         associations = await self._driver.controller.async_get_all_associations(node)
         # Stage 0 read this dump one level too shallow and got plausible-looking empty
@@ -127,7 +165,62 @@ class ZWaveBackend:
             handle=handle,
             links=tuple(self._observed_links(handle, node, associations, groups)),
             settings=self._settings_of(node),
+            deep_verified=verified,
+            deep_verify_timed_out=timed_out,
+            deep_verify_skipped_reason=skipped,
         )
+
+    async def _await_refresh(self, node: Node) -> bool:
+        """Refresh the association command classes and wait for the device to answer.
+
+        FR-B4 describes deep verify as refresh, then read. Stage 0 item Z3 found
+        `async_refresh_cc_values` sends `wait_for_result=False` and returns in 0 ms: it is
+        fire and forget, so a read issued straight afterwards returns the same cache it
+        would have returned anyway. Implemented literally, FR-B4 produces a verify that
+        always agrees with itself, which is worse than no verify because it looks like
+        assurance. So: subscribe first, so a fast device cannot answer before anyone is
+        listening; then refresh; then wait for the value-updated event the answer produces.
+
+        Returns whether the device answered. What that answer is worth has one honest
+        limit, and callers have to know it. The event is emitted when a refreshed value
+        lands, and a real driver may not emit one when the value it read back is unchanged,
+        which was never measured (Stage 0 item Z5 was not run: docs/open-items.md J4 and
+        T10, issue #8). On real hardware, then, a timeout means "the device did not report
+        its associations to us in time", not "the device is wrong", and the common case
+        where nothing was stale may produce one. That is why this returns a fact rather
+        than raising, why the caller gets `deep_verified` and `deep_verify_timed_out` as
+        separate things, and why this logs at debug: a warning that fires routinely is a
+        warning users learn to ignore, and it would devalue the one that matters.
+        """
+        answered: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+
+        def _on_value_updated(event: Mapping[str, object]) -> None:
+            if _command_class_of(event) in _ASSOCIATION_CCS and not answered.done():
+                answered.set_result(None)
+
+        unsubscribe = node.on("value updated", _on_value_updated)
+        try:
+            # Imported inside the function, not at module scope: see the module docstring.
+            from zwave_js_server.const import CommandClass  # noqa: PLC0415
+
+            for command_class in (
+                CommandClass.ASSOCIATION,
+                CommandClass.MULTI_CHANNEL_ASSOCIATION,
+            ):
+                await node.async_refresh_cc_values(command_class)
+            async with asyncio.timeout(self._deep_verify_timeout):
+                await answered
+        except TimeoutError:
+            _LOGGER.debug(
+                "node %s did not report its associations within %ss, so this read is the "
+                "driver cache rather than a confirmation",
+                node.node_id,
+                self._deep_verify_timeout,
+            )
+            return False
+        finally:
+            unsubscribe()
+        return True
 
     def _observed_links(
         self,
@@ -395,6 +488,17 @@ class ZWaveBackend:
             if value is not None and isinstance(value.value, int):
                 found[capability] = value.value
         return found
+
+
+def _command_class_of(event: Mapping[str, object]) -> int | None:
+    """Return the command class of the value a node event is about, if it is about one.
+
+    The event payload is a plain dict the library fills in, so it is read defensively:
+    an event shape that changes upstream must make a subscription go quiet, not throw
+    inside somebody else's emit loop, where `EventBase.emit` would swallow it.
+    """
+    command_class = getattr(event.get("value"), "command_class", None)
+    return None if command_class is None else int(command_class)
 
 
 def _local_refusal(

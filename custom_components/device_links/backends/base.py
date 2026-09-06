@@ -144,11 +144,23 @@ class ObservedDevice:
     `is_system` already set on the ones that are never ours to remove. `settings` are the
     named settings the profile database knows about, by capability name, so the planner can
     see a setting that is already right and not plan a write for it.
+
+    The three deep-verify fields exist to keep "the device confirmed this" apart from "this
+    is what we had cached", which is the whole value of a verify. A deep read that was asked
+    for and could not be confirmed is reported as such rather than as a normal answer,
+    because reporting it as confirmation is worse than not verifying at all: it looks like
+    assurance. `deep_verified` is true only when the device actually answered;
+    `deep_verify_timed_out` says it was asked and did not answer in time; and
+    `deep_verify_skipped_reason` says it was never asked, and why. A shallow read leaves all
+    three at their defaults, so it can never be mistaken for a confirmed one.
     """
 
     handle: DeviceHandle
     links: tuple[ObservedLink, ...]
     settings: Mapping[str, int] = field(default_factory=dict)
+    deep_verified: bool = False
+    deep_verify_timed_out: bool = False
+    deep_verify_skipped_reason: str | None = None
 
 
 @runtime_checkable
