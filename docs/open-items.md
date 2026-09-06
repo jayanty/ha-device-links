@@ -106,7 +106,7 @@ Claude-owned, sequenced, no input needed.
 | S2 | Storage, profiles, snapshots, YAML export | Phase 1C |
 | S3 | Executor: jobs, retries, concurrency, verify | Phase 1C |
 | S4 | Entities, services, events, diagnostics, Repairs, WebSocket API | Phase 1D |
-| S5 | `strings.json` entries for every diagnostic translation key the compiler and planner emit | Phase 1D |
+| S5 | `strings.json` entries for every diagnostic translation key the compiler, the planner and the executor emit | Phase 1D |
 | S6 | The sidebar panel | Phase 1E |
 | S7 | Zigbee backend, device swap, hybrid legs | Phase 2 |
 | S8 | Matter backend behind the options flag | Phase 3 |
@@ -133,6 +133,11 @@ Small, known, and deliberately deferred rather than forgotten.
 | T12 | The coordinator cannot tell a dead node from a healthy one | E4 asks for a dead node to be `unknown` rather than `drift`. What is implemented is "the backend could not answer for this device", which covers a dropped connection and a failed read but not a node the driver reports as dead while still answering from its cache. Closing it needs `BackendDevice` to carry readiness, and a fake that can report a dead node. |
 | T13 | A device handle from the Z-Wave adapter carries no `ha_device_id` | `backends/zwave.py` leaves it empty and says the coordinator fills it in from the device registry; the coordinator does not, because nothing in Phase 1C needs it and resolving it needs the registry mapping Phase 1D builds for entities. Identity never depends on it (`DeviceHandle.identity` is backend plus `protocol_id`), so nothing is wrong today: a profile saved now simply has empty ids until Phase 1D fills them. |
 | T14 | The YAML mirror (Decision D8, FR-P2) is not written | `yaml_io.py` produces the text and `storage.py` keeps the authoritative copy, but nothing writes `<config>/device_links/profiles/<slug>.yaml` on change. The option is off by default, so this is only owed when the options flow that turns it on lands in Phase 1D. |
+| T15 | A cancel that arrives during a retry backoff is acted on only after the wait | The runner waits out the 1 s or 2 s and then stops, so a cancel can take up to two seconds to take effect. Nothing new is written in the meantime, so this is latency rather than safety. Closing it means racing the sleep against a stop event, which is more machinery than two seconds is worth today. |
+| T16 | The executor cannot perform a `set_param` item, so a rule's `mirror_source` choice never reaches a device | `compiler.py` produces `SettingWrite`s and nothing turns them into plan items (T2), so the executor refuses `set_param` and `pending` as `unsupported_operation` rather than dropping them silently. The Z-Wave adapter's `async_write_setting` already exists and is tested, so closing this is planning work plus a branch in the runner, not new protocol work. |
+| T17 | `stale_plan` covers both "somebody edited this device" and "this device stopped answering" | The two are separated only by the reason key (`stale_plan` against `device_unavailable`), so a caller that switches on the outcome cannot tell them apart. Both mean the same thing to the user today (re-plan), which is why they share an outcome; the panel in Phase 1E may want to say different things and would then want two. |
+| T18 | A write reported `failed` is not verified | E13 says retry twice and then report `failed`, so that is what happens, and a write that failed on the report path while actually landing is reported as failed. Nothing is left wrong: the device is deep-read anyway, the next plan sees the link present and does not propose it again. What is understated is the job summary, which can say a link was not written when it was. |
+| T19 | A job is not resumable and its progress is in memory only | E17 asks for `interrupted` and no auto-resume, which is what is implemented, but the running job's progress lives on the runner and is gone after a restart. The persisted summary records the terminal state only. Phase 1D decides whether a subscription needs more than that. |
 
 ---
 

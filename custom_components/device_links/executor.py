@@ -208,14 +208,17 @@ class JobReport:
 
     `snapshot_id` is the id of the snapshot taken before the first write, which is the same
     as the job id: a rollback needs to get from "this job" to "what was there before it"
-    without a second index to keep consistent.
+    without a second index to keep consistent. It is None when the job had nothing to
+    write, because a job that wrote nothing has nothing to roll back, and spending one of
+    the twenty snapshot slots on it would let twenty presses of Apply on an already
+    converged network push out every snapshot worth keeping.
     """
 
     id: str
     created_at: str
     scope: str
     status: JobStatus
-    snapshot_id: str
+    snapshot_id: str | None
     results: tuple[LinkReport, ...]
 
 
@@ -250,7 +253,13 @@ class _Op:
         return "" if self.item.link is None else self.item.link.fingerprint
 
     def report(self) -> LinkReport:
-        """Return this operation as the caller sees it, which is only valid once decided."""
+        """Return this operation as the caller sees it.
+
+        Every path through a job decides every operation: refused, skipped as stale, not
+        attempted because the job stopped, or written. An undecided one is therefore a bug
+        in this module rather than a state a user can reach, and it reads as `failed`
+        because a link nobody can account for is not one to report as done.
+        """
         return LinkReport(
             fingerprint=self.fingerprint,
             device_identity=self.item.device_identity,
@@ -287,6 +296,7 @@ class _Job:
     finished: asyncio.Event
     writes: list[_Write] = field(default_factory=list)
     devices_in_flight: set[str] = field(default_factory=set)
+    snapshot_id: str | None = None
     stop: JobStatus | None = None
 
 
@@ -560,7 +570,12 @@ class JobRunner:
         each operation and nothing more, which stops being correct the moment anything else
         about the device has moved in between, and that is precisely when a rollback is
         being asked for.
+
+        Nothing is recorded when the plan turns out to have nothing to write. A snapshot of
+        a job that changed nothing is a slot spent on a state that is still the current one.
         """
+        if not handles:
+            return
         links: list[ObservedLink] = []
         for identity in sorted(handles):
             device = self._coordinator.observed_for(handles[identity])
@@ -569,6 +584,7 @@ class JobRunner:
         snapshot = Snapshot(
             id=job.id, created_at=job.created_at, reason=SNAPSHOT_REASON, links=tuple(links)
         )
+        job.snapshot_id = snapshot.id
         self._coordinator.async_update_state(self._coordinator.state.with_snapshot(snapshot))
 
     # One device.
@@ -738,11 +754,11 @@ class JobRunner:
             id=job.id,
             created_at=job.created_at,
             scope=job.scope,
-            status=status,
+            status=str(status),
             results=tuple(
                 JobLinkResult(
                     fingerprint=result.fingerprint,
-                    status=result.outcome,
+                    status=str(result.outcome),
                     reason=None if result.reason is None else result.reason.translation_key,
                 )
                 for result in results
@@ -757,7 +773,7 @@ class JobRunner:
             created_at=job.created_at,
             scope=job.scope,
             status=status,
-            snapshot_id=job.id,
+            snapshot_id=job.snapshot_id,
             results=results,
         )
 

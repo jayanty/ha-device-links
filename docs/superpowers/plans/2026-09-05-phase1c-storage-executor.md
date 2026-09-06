@@ -183,7 +183,7 @@ git commit -m "feat(core): coordinator with fingerprint-based ownership resoluti
 
 **Files:** create `custom_components/device_links/executor.py`, `tests/test_executor.py`
 
-- [ ] **Step 1: Write the failing tests.** Cover at least:
+- [x] **Step 1: Write the failing tests.** Cover at least:
   - A plan of three adds across two devices applies all three and reports per-link results.
   - **Operations on one device are serialized.** Two writes to the same node must never be
     in flight together; a mesh handles one command per node at a time and overlapping writes
@@ -203,16 +203,16 @@ git commit -m "feat(core): coordinator with fingerprint-based ownership resoluti
   - **A job interrupted by shutdown is marked `interrupted` and is not auto-resumed** (E17).
     Re-running apply is safe because the plan is recomputed.
 
-- [ ] **Step 2: Run and confirm failure.**
+- [x] **Step 2: Run and confirm failure.**
 
-- [ ] **Step 3: Implement.** `JobRunner` with `async_apply(plan, *, scope, remove_unmanaged)`
+- [x] **Step 3: Implement.** `JobRunner` with `async_apply(plan, *, scope, remove_unmanaged)`
   returning a `job_id`, plus progress that a WebSocket subscription can stream in Phase 1D.
 
   Timeouts: 30 seconds per operation, based on Stage 0's measured 67 ms and 253 ms. Backoff:
   1 s then 2 s. Both as named constants with the Stage 0 numbers in a comment, so a future
   reader knows they were measured rather than guessed.
 
-- [ ] **Step 4: Confirm tests pass. Step 5: Commit.**
+- [x] **Step 4: Confirm tests pass. Step 5: Commit.**
 
 ```bash
 git commit -m "feat(core): job runner with per-device serialization, retries and cancel"
@@ -224,7 +224,7 @@ git commit -m "feat(core): job runner with per-device serialization, retries and
 
 **Files:** modify `executor.py`; create `tests/test_executor_verify.py`
 
-- [ ] **Step 1: Write the failing tests.** Cover at least:
+- [x] **Step 1: Write the failing tests.** Cover at least:
   - After a successful apply, observed state is re-read and every applied link is marked
     `verified_at`.
   - A link that was written but does not appear on re-read is `unverified` and flips the rule
@@ -238,7 +238,7 @@ git commit -m "feat(core): job runner with per-device serialization, retries and
     snapshot exists and matches pre-apply state even when the apply then fails.
   - Snapshots are capped at 20 by the store.
 
-- [ ] **Step 2: Run and confirm failure. Step 3: Implement. Step 4: Confirm. Step 5: Commit.**
+- [x] **Step 2: Run and confirm failure. Step 3: Implement. Step 4: Confirm. Step 5: Commit.**
 
 ```bash
 git commit -m "feat(core): verify after apply and pre-apply snapshots"
@@ -253,7 +253,7 @@ git commit -m "feat(core): verify after apply and pre-apply snapshots"
 The first test in the project that exercises compile, plan, apply, verify and re-plan
 together. It is the closest thing to an acceptance test that does not need hardware.
 
-- [ ] **Step 1: Write the tests.**
+- [x] **Step 1: Write the tests.**
   - Build a profile expressing PRD scenario **S2** (Bedroom Scene Controller main button
     controls Master Bedroom Lights, with on/off, hold-to-dim and level sync). Plan it, apply
     it, verify it, and assert the fake device now holds exactly the expected entries in
@@ -269,7 +269,7 @@ together. It is the closest thing to an acceptance test that does not need hardw
     applied, the failure is reported, the snapshot still reflects pre-apply state, and a
     re-plan proposes exactly the remaining work.
 
-- [ ] **Step 2: Run, fix what it finds, commit.**
+- [x] **Step 2: Run, fix what it finds, commit.**
 
 ```bash
 git commit -m "test(core): the full compile, plan, apply, verify loop against fakes"
@@ -283,12 +283,12 @@ git commit -m "test(core): the full compile, plan, apply, verify loop against fa
 - [x] Ownership is by recorded fingerprint only, with a named test proving a look-alike link
       is not adopted
 - [x] A backend going unavailable never looks like mass deletion
-- [ ] Per-device serialization, bounded concurrency, bounded retries, working cancel
-- [ ] Written-but-unverified is reported as drift, not as success
-- [ ] A snapshot exists before any write, including when the apply fails
-- [ ] Scenarios S2 and S3 pass end to end against the fakes, and a second plan is empty
-- [ ] `./scripts/lint` and `./scripts/test` exit 0, CI green, coverage at or above 95%
-- [ ] Anything unresolved is registered in `docs/open-items.md`
+- [x] Per-device serialization, bounded concurrency, bounded retries, working cancel
+- [x] Written-but-unverified is reported as drift, not as success
+- [x] A snapshot exists before any write, including when the apply fails
+- [x] Scenarios S2 and S3 pass end to end against the fakes, and a second plan is empty
+- [x] `./scripts/lint` and `./scripts/test` exit 0, CI green, coverage at or above 95%
+- [x] Anything unresolved is registered in `docs/open-items.md`
 
 ## What Phase 1C does not do
 

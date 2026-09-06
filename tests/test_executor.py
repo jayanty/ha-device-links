@@ -194,7 +194,11 @@ async def test_a_plan_of_three_adds_across_two_devices_applies_all_three(
 async def test_an_empty_plan_is_a_completed_job_that_touches_nothing(
     coordinator: DeviceLinksCoordinator, runner: JobRunner, backend: RecordingBackend
 ) -> None:
-    """Apply on a network already in the state it should be in must not be a radio event."""
+    """Apply on a network already in the state it should be in must not be a radio event.
+
+    Nor a snapshot: twenty presses of Apply on a converged network would otherwise push
+    out every snapshot that was worth keeping, which is the history a rollback needs.
+    """
     plan = await coordinator.async_plan()
 
     report = await runner.async_apply(plan)
@@ -202,6 +206,8 @@ async def test_an_empty_plan_is_a_completed_job_that_touches_nothing(
     assert report.status is JobStatus.COMPLETED
     assert report.results == ()
     assert backend.writes == []
+    assert report.snapshot_id is None
+    assert coordinator.state.snapshots == ()
 
 
 # Scheduling.
