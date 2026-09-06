@@ -387,7 +387,7 @@ async def test_an_unmanaged_link_the_user_picked_out_by_hand_is_removed(
 
 
 async def test_a_write_that_fails_midway_leaves_a_state_a_second_apply_finishes(
-    coordinator: DeviceLinksCoordinator, runner: JobRunner, driver: FakeDriver
+    coordinator: DeviceLinksCoordinator, driver: FakeDriver
 ) -> None:
     """The ugly one, and the one that decides whether "press apply again" is safe advice.
 
@@ -405,8 +405,10 @@ async def test_a_write_that_fails_midway_leaves_a_state_a_second_apply_finishes(
     }
     backend = coordinator.backend_for(handle(CONTROLLER))
     assert isinstance(backend, RecordingBackend)
-    # One device at a time, so which write is the one that succeeds is decided by the plan
-    # rather than by how many awaits happen to be on the path through the adapter.
+    # One device at a time rather than the default two, so which write is the one that
+    # succeeds is decided by the order of the plan and not by how many awaits happen to lie
+    # on the path through the adapter. A test whose answer depends on that is a test that
+    # changes its mind when somebody refactors a layer it is not about.
     runner = JobRunner(coordinator, max_concurrent_devices=1, sleep=_no_sleep)
 
     async def _break_the_mesh(link: Link) -> None:
