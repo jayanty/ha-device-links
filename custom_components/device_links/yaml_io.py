@@ -24,9 +24,12 @@ under a `name` key, said to be informational in the file's own header, and never
 on: renaming a device in the file changes what a human reads and nothing about which
 device a rule means.
 
-The same conversion serves storage, through `profile_to_data` and `profile_from_data`.
-Keeping one codec is deliberate: two would drift, and the way a second serializer drifts
-from the first is by quietly losing a field somebody's rules depended on.
+The same conversion serves storage, through `profile_to_data`, `profile_from_data` and the
+observed-link pair snapshots are built from. Keeping one codec is deliberate: two would
+drift, and the way a second serializer drifts from the first is by quietly losing a field
+somebody's rules depended on. It lives here, in the pure module, because turning a value
+type into plain data is exactly as pure as the value types themselves, and because this is
+where the narrowing that makes reading untrusted data safe already is.
 
 Error messages here are English rather than translation keys, unlike the `Diagnostic`s the
 compiler and planner produce. They are about the text of a file: a line number, a key name
@@ -48,8 +51,10 @@ from custom_components.device_links.models import (
     DeviceHandle,
     Direction,
     Feature,
+    LinkTarget,
     MatterFingerprint,
     MirrorChoice,
+    ObservedLink,
     Profile,
     Rule,
     RuleSource,
@@ -171,6 +176,61 @@ def profile_from_data(data: object) -> Profile:
     return profile
 
 
+def observed_link_to_data(link: ObservedLink) -> dict[str, object]:
+    """Return one observed link as plain data, devices and all.
+
+    Snapshots are what a rollback is rebuilt from, so this keeps the whole link rather than
+    its fingerprint: `is_system` and `managed_by` decide what may be done to an entry, and a
+    snapshot that dropped them would come back as a set of links nobody knows the status of.
+    Each device is written inline rather than referenced, so one link is readable and
+    restorable on its own.
+    """
+    return {
+        "backend": str(link.backend),
+        "source": _device_to_data(link.source, keep_local_ids=True),
+        "source_endpoint": link.source_endpoint,
+        "emitter_id": link.emitter_id,
+        "emitter_group": link.emitter_group,
+        "target": {
+            "device": _device_to_data(link.target.handle, keep_local_ids=True),
+            "endpoint": link.target.endpoint,
+        },
+        "feature": str(link.feature),
+        "rule_id": link.rule_id,
+        "is_system": link.is_system,
+        "managed_by": link.managed_by,
+    }
+
+
+def observed_link_from_data(value: object) -> ObservedLink:
+    """Return the observed link this data describes."""
+    fields = _require_mapping(value, "the link")
+    target = _require_mapping(fields.get("target"), "the link target")
+    managed_by = fields.get("managed_by")
+    rule_id = fields.get("rule_id")
+    try:
+        link = ObservedLink(
+            backend=_enum(Backend, fields.get("backend"), "the link backend"),
+            source=_device_from_data(fields.get("source"), "the link source"),
+            source_endpoint=_require_int(fields.get("source_endpoint"), "the link source endpoint"),
+            emitter_id=_require_str(fields.get("emitter_id"), "the link control"),
+            emitter_group=_require_str(fields.get("emitter_group"), "the link group"),
+            target=LinkTarget(
+                handle=_device_from_data(target.get("device"), "the link target"),
+                endpoint=_optional_int(target.get("endpoint"), "the link target endpoint"),
+            ),
+            feature=_enum(Feature, fields.get("feature"), "the link feature"),
+            rule_id=None if rule_id is None else _require_str(rule_id, "the link rule"),
+            is_system=_require_bool(fields.get("is_system"), "the link system flag"),
+            managed_by=None if managed_by is None else _require_str(managed_by, "the link owner"),
+        )
+    except ValueError as error:
+        if isinstance(error, ProfileFormatError):
+            raise
+        raise ProfileFormatError(f"this is not a usable link: {error}") from error
+    return link
+
+
 # Writing.
 
 
@@ -235,22 +295,25 @@ def _rule_to_data(rule: Rule) -> dict[str, object]:
 # Reading.
 
 
+def _device_from_data(value: object, what: str) -> DeviceHandle:
+    """Return the device this data describes."""
+    fields = _require_mapping(value, what)
+    backend = _enum(Backend, fields.get("backend"), f"{what} backend")
+    return DeviceHandle(
+        backend=backend,
+        protocol_id=_require_str(fields.get("protocol_id"), f"{what} address"),
+        ha_device_id=_require_str(fields.get("ha_device_id", ""), f"{what} id"),
+        fingerprint=_fingerprint_from_data(backend, fields.get("fingerprint"), f"{what} model"),
+        name_at_authoring=_require_str(fields.get("name", ""), f"{what} name"),
+    )
+
+
 def _devices_from_data(value: object) -> dict[str, DeviceHandle]:
     """Return the devices the file describes, keyed by the identity it files them under."""
     entries = _require_mapping(value, "the profile's devices")
     devices: dict[str, DeviceHandle] = {}
     for identity, raw in entries.items():
-        fields = _require_mapping(raw, f"device {identity!r}")
-        backend = _enum(Backend, fields.get("backend"), f"device {identity!r} backend")
-        handle = DeviceHandle(
-            backend=backend,
-            protocol_id=_require_str(fields.get("protocol_id"), f"device {identity!r} address"),
-            ha_device_id=_require_str(fields.get("ha_device_id", ""), f"device {identity!r} id"),
-            fingerprint=_fingerprint_from_data(
-                backend, fields.get("fingerprint"), f"device {identity!r} fingerprint"
-            ),
-            name_at_authoring=_require_str(fields.get("name", ""), f"device {identity!r} name"),
-        )
+        handle = _device_from_data(raw, f"device {identity!r}")
         if handle.identity != identity:
             raise ProfileFormatError(
                 f"device {identity!r} is filed under an address it disagrees with: it says "

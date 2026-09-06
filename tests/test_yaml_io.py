@@ -29,11 +29,13 @@ from custom_components.device_links.yaml_io import (
     SCHEMA_VERSION,
     ProfileFormatError,
     dump_profile,
+    observed_link_from_data,
+    observed_link_to_data,
     parse_profile,
     profile_from_data,
     profile_to_data,
 )
-from tests.factories import handle
+from tests.factories import handle, link, observed
 
 
 def _handle(node_id: int) -> DeviceHandle:
@@ -359,3 +361,27 @@ def test_the_data_form_keeps_the_local_device_id_when_storage_asks_for_it() -> N
 
     assert devices[handle(36).identity]["ha_device_id"] == handle(36).ha_device_id
     assert profile_from_data(data) == profile
+
+
+def test_an_observed_link_round_trips_with_its_ownership_intact() -> None:
+    """Snapshots are rebuilt from these, so what may be done to an entry must survive."""
+    entry = observed(link(36, "g2", 38, Feature.ON_OFF), rule_id="rule-1")
+
+    assert observed_link_from_data(observed_link_to_data(entry)) == entry
+
+
+def test_a_stored_link_that_could_never_exist_is_refused() -> None:
+    """A file saying a device controls itself is corrupt, not something to reconstruct."""
+    data = observed_link_to_data(observed(link(36, "g2", 38, Feature.ON_OFF), rule_id=None))
+    data["target"] = {"device": data["source"], "endpoint": None}
+
+    with pytest.raises(ProfileFormatError, match="cannot control itself"):
+        observed_link_from_data(data)
+
+
+def test_a_stored_link_missing_a_field_says_which_one() -> None:
+    data = observed_link_to_data(observed(link(36, "g2", 38, Feature.ON_OFF), rule_id=None))
+    del data["feature"]
+
+    with pytest.raises(ProfileFormatError, match="feature"):
+        observed_link_from_data(data)
