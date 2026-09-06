@@ -48,7 +48,7 @@ from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.event import async_call_later
 
 from custom_components.device_links.backends.base import Backend, ObservedDevice
-from custom_components.device_links.compiler import compile_rule
+from custom_components.device_links.compiler import CompiledRule, compile_rule
 from custom_components.device_links.models import Backend as BackendId
 from custom_components.device_links.models import (
     DeviceCapabilities,
@@ -74,8 +74,10 @@ REFRESH_DEBOUNCE_SECONDS: Final = 2.0
 class RuleState(StrEnum):
     """What one rule's links are doing, as far as the coordinator can honestly say.
 
-    A subset of the states PRD Section 6.6 lists for the rule status sensor: `applying`
-    belongs to the executor and `blocked` to the planner, and neither is invented here.
+    A subset of the states PRD Section 6.6 lists for the rule status sensor. `applying`
+    belongs to the executor and is not invented here. `blocked` is here because the
+    compiler produces it: a rule whose every leg was refused compiles to nothing, and a
+    rule with nothing to write must not be reported as in sync with what it did not write.
 
     `UNKNOWN` and `DRIFT` are deliberately far apart. Drift is a fault, and reporting one
     because a node was asleep or a backend was restarting is how a user learns to ignore
@@ -85,6 +87,7 @@ class RuleState(StrEnum):
     IN_SYNC = "in_sync"
     DRIFT = "drift"
     PENDING = "pending"
+    BLOCKED = "blocked"
     DISABLED = "disabled"
     UNKNOWN = "unknown"
 
@@ -131,9 +134,9 @@ class DeviceLinksCoordinator:
         # Ownership, rebuilt from the active profile on every resolve. `_owners` is the
         # whole of it: fingerprint to the rule that claims it, and nothing else is ever
         # consulted to decide whether a link is ours.
+        self._compiled: dict[str, CompiledRule] = {}
         self._owners: dict[str, str] = {}
         self._desired: list[Link] = []
-        self._rule_devices: dict[str, frozenset[str]] = {}
 
         self._unsubscribes: list[CALLBACK_TYPE] = []
         self._pending: set[str] = set()
@@ -299,7 +302,7 @@ class DeviceLinksCoordinator:
         answer must be the same for every device, and compiling per device is how two
         devices end up disagreeing about who owns a link between them.
         """
-        self._owners, self._desired, self._rule_devices = self._compile_active_profile()
+        self._compiled, self._owners, self._desired = self._compile_active_profile()
         for identity, device in self._observed.items():
             self._observed[identity] = replace(
                 device, links=tuple(self._owned(link) for link in device.links)
@@ -307,31 +310,34 @@ class DeviceLinksCoordinator:
 
     def _compile_active_profile(
         self,
-    ) -> tuple[dict[str, str], list[Link], dict[str, frozenset[str]]]:
-        """Return the ownership index, the desired links, and each rule's devices.
+    ) -> tuple[dict[str, CompiledRule], dict[str, str], list[Link]]:
+        """Return what each rule compiles to, who owns what, and what is wanted.
 
         Every rule is compiled with `enabled` forced on, because ownership is about what a
         rule claims and a disabled rule still claims what it wrote. Only enabled rules
         contribute to the desired state, which is what makes a disabled rule's links owned,
         unwanted, and therefore removable.
+
+        The compilation is kept rather than thrown away, because drift asks the same
+        question again for every rule and compiling twice is how two answers about the same
+        rule end up disagreeing.
         """
+        compiled: dict[str, CompiledRule] = {}
         owners: dict[str, str] = {}
         desired: list[Link] = []
-        rule_devices: dict[str, frozenset[str]] = {}
         profile = self.active_profile
         if profile is None:
-            return owners, desired, rule_devices
+            return compiled, owners, desired
         for rule in profile.rules:
-            links = compile_rule(rule.with_enabled(True), self._capabilities).links
-            for link in links:
+            compiled[rule.id] = compile_rule(rule.with_enabled(True), self._capabilities)
+            for link in compiled[rule.id].links:
                 # First claim wins. Two rules asking for the same write are one entry on
                 # the device, and an entry with two owners is an entry whose removal
                 # depends on which rule was looked at first.
                 owners.setdefault(link.fingerprint, rule.id)
-            rule_devices[rule.id] = frozenset(link.source.identity for link in links)
             if rule.enabled:
-                desired.extend(links)
-        return owners, desired, rule_devices
+                desired.extend(compiled[rule.id].links)
+        return compiled, owners, desired
 
     def _owned(self, link: ObservedLink) -> ObservedLink:
         """Return this observed link with its owner resolved, and never with a guess.
@@ -425,11 +431,16 @@ class DeviceLinksCoordinator:
             identities &= scope.device_identities
         if scope.rule_ids:
             identities &= {
-                identity
+                link.source.identity
                 for rule_id in scope.rule_ids
-                for identity in self._rule_devices.get(rule_id, frozenset())
+                for link in self._links_of(rule_id)
             }
         return identities
+
+    def _links_of(self, rule_id: str) -> tuple[Link, ...]:
+        """Return what one rule of the active profile compiles to, disabled or not."""
+        compiled = self._compiled.get(rule_id)
+        return () if compiled is None else compiled.links
 
     # Drift.
 
@@ -445,9 +456,11 @@ class DeviceLinksCoordinator:
 
         Disabled first, because a disabled rule is not drifting, it is off. Then whether
         every device it names can be seen at all, because a state that cannot be observed
-        is unknown and not wrong (E4). Then whether it has ever been applied, because
-        nothing can have drifted from an apply that never happened. Only then is a missing
-        link a fault.
+        is unknown and not wrong (E4). Then whether it compiles to anything at all, because
+        a rule whose every leg was refused has nothing to be in sync with and saying
+        `in_sync` about it would be the most misleading answer available. Then whether it
+        has ever been applied, because nothing can have drifted from an apply that never
+        happened. Only then is a missing link a fault.
         """
         if not rule.enabled:
             return RuleState.DISABLED
@@ -456,7 +469,9 @@ class DeviceLinksCoordinator:
         }
         if any(not self.is_available(identity) for identity in devices):
             return RuleState.UNKNOWN
-        wanted = compile_rule(rule, self._capabilities).links
+        wanted = self._links_of(rule.id)
+        if not wanted:
+            return RuleState.BLOCKED
         if all(link.fingerprint in self._present for link in wanted):
             return RuleState.IN_SYNC
         if rule.id not in self._state.applied_rule_ids:

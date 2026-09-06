@@ -76,6 +76,7 @@ class ControlledBackend:
         self.available = True
         self.unreadable: set[str] = set()
         self.observed_reads = 0
+        self.deep_reads = 0
         self.subscriptions = 0
         self.notify: Callable[[str], None] = lambda identity: None
 
@@ -96,6 +97,7 @@ class ControlledBackend:
     async def async_observed(self, handle: DeviceHandle, deep: bool = False) -> ObservedDevice:
         self._check(handle.identity)
         self.observed_reads += 1
+        self.deep_reads += int(deep)
         return await self.inner.async_observed(handle, deep)
 
     async def async_check_link(self, link: Link) -> LinkCheck:
@@ -674,3 +676,26 @@ def test_a_plan_item_that_is_not_about_a_link_survives_a_rule_scope() -> None:
     item = PlanItem(op=PlanOp.SET_PARAM, device_identity=handle(36).identity)
 
     assert DeviceLinksCoordinator._is_wanted(item, frozenset({"rule-1"}), frozenset())
+
+
+async def test_a_rule_that_compiles_to_nothing_is_blocked_rather_than_in_sync(
+    coordinator: DeviceLinksCoordinator,
+) -> None:
+    """A rule whose every leg was refused has nothing to be in sync with.
+
+    This one is a trap: with no links wanted, "is every wanted link present?" is vacuously
+    true, and the rule would report in_sync while doing nothing at all. The user would see
+    a healthy rule and a light that never responds.
+    """
+    with_rules(coordinator, rule("rule-1", emitter="g99"))
+
+    assert coordinator.drift_state() == {"rule-1": RuleState.BLOCKED}
+
+
+async def test_a_deep_refresh_asks_the_device_rather_than_the_driver_cache(
+    coordinator: DeviceLinksCoordinator, backend: ControlledBackend
+) -> None:
+    """What the executor does after an apply: a verify that reads the cache proves nothing."""
+    await coordinator.async_refresh(handle(36), deep=True)
+
+    assert backend.deep_reads == 1
