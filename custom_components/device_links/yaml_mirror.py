@@ -260,6 +260,13 @@ def _is_ours(path: Path) -> bool:
     not survive a restart and a mirror that only pruned within one session would leave a
     renamed profile's file behind for ever. The header is the first line `dump_profile`
     writes and nothing else in a configuration directory begins with it.
+
+    Only the header is read. The mirror directory is meant to hold this integration's own
+    files and may hold anything, and reading a whole file into memory to look at its first
+    line is a foot-gun waiting for the day somebody keeps something large beside them.
     """
-    text = _reads_as(path)
-    return text is not None and text.startswith(HEADER_FIRST_LINE)
+    try:
+        with path.open(encoding="utf-8") as handle:
+            return handle.read(len(HEADER_FIRST_LINE)) == HEADER_FIRST_LINE
+    except (OSError, UnicodeDecodeError):
+        return False

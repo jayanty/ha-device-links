@@ -321,16 +321,48 @@ def test_a_rewritten_rule_that_cannot_compile_at_all_carries_the_compilers_own_r
 # --------------------------------------------------------------------------------------
 
 
-def test_swapping_a_device_for_itself_is_refused() -> None:
+def test_a_node_replaced_in_place_is_a_swap_rather_than_nothing_to_do() -> None:
+    """E20 and FR-S3's second case: the address stayed and the model under it changed.
+
+    Z-Wave's "replace failed node" keeps the node id, so every rule still names the right
+    device and every rule is still wrong: the controls belong to a model that is gone, and
+    the handle each rule stores carries that model's fingerprint. Refusing this as "the
+    same device" would have the Repairs issue offer a flow that then declined to run.
+    """
+    # The rules were written against node 42's VZW32-SN; a ZEN35 answers at that address now.
+    replaced = replace(handle(REPLACEMENT), fingerprint=handle(36).fingerprint)
+    rules = (a_rule(source_node=REPLACEMENT, targets=(LIGHT,)),)
+    proposal = propose(
+        old=handle(REPLACEMENT),
+        new=replaced,
+        rules=rules,
+        capabilities={**network(LIGHT), replaced.identity: network(36)[handle(36).identity]},
+    )
+
+    assert proposal.errors == ()
+    assert proposal.same_model is False
+    # The paddle is `paddle` on a VZW32-SN and `g2` on a ZEN35, and only one control on a
+    # ZEN35 carries all three of on/off, level set and level hold, so it maps without being
+    # asked even though nothing about the two ids agrees.
+    assert [(m.old_emitter_id, m.new_emitter_id, m.basis) for m in proposal.mappings] == [
+        ("paddle", "g2", MappingBasis.SAME_FEATURES)
+    ]
+    after = proposal.rewrites[0].after
+    assert after.source.device.identity == handle(REPLACEMENT).identity, "the address stayed"
+    assert after.source.device.fingerprint == handle(36).fingerprint, "the model was refreshed"
+    assert after.source.emitter_id == "g2"
+
+
+def test_swapping_a_device_for_the_same_model_at_the_same_address_is_still_nothing_to_do() -> None:
+    """The address and the model both unchanged is the case there is genuinely nothing in."""
     proposal = propose(
         old=handle(REPLACEMENT),
         new=handle(REPLACEMENT),
-        rules=(a_rule(source_node=REPLACEMENT),),
+        rules=(a_rule(source_node=REPLACEMENT, targets=(LIGHT,)),),
         capabilities=network(REPLACEMENT, LIGHT),
     )
 
     assert [error.translation_key for error in proposal.errors] == ["swap_same_device"]
-    assert not proposal.is_applicable
 
 
 def test_a_replacement_on_another_protocol_is_refused_rather_than_attempted() -> None:

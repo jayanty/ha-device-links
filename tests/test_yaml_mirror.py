@@ -238,6 +238,27 @@ async def test_a_yaml_file_this_integration_did_not_write_is_never_deleted(
     assert files(mirror_dir(hass)) == ["other-other.yaml", "somebody-elses.yaml"]
 
 
+async def test_a_file_that_cannot_be_read_at_all_is_left_where_it_is(
+    hass: HomeAssistant, mirrored: MockConfigEntry
+) -> None:
+    """A `.yaml` that is not text, or that we may not open, is not one of ours to delete.
+
+    The refusal has to be the safe direction. "I could not read it, so it cannot be mine"
+    leaves a file alone; "I could not read it, so it is fine to remove" is how a mirror
+    aimed at a directory it should not have been aimed at takes something with it.
+    """
+    activate(mirrored, a_profile(a_rule()))
+    await settle(hass)
+    binary = mirror_dir(hass) / "not-text.yaml"
+    binary.write_bytes(b"\xff\xfe\x00 not utf-8")
+
+    activate(mirrored, a_profile(a_rule(), profile_id="other", name="Other"))
+    await settle(hass)
+
+    assert binary.exists()
+    assert files(mirror_dir(hass)) == ["not-text.yaml", "other-other.yaml"]
+
+
 # --------------------------------------------------------------------------------------
 # Where it will not write
 # --------------------------------------------------------------------------------------

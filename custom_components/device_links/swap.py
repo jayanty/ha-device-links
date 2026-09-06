@@ -195,6 +195,11 @@ def propose(
     `chosen` is the mapping the user made in the wizard, by old emitter id. It wins over
     both pre-fills, always: a pre-fill is a suggestion and the user is the one who knows
     which paddle is which.
+
+    `old` and `new` may share an address. That is Z-Wave's "replace failed node" (E20): the
+    node id did not move and the model under it did, so the rules keep the device they name
+    and change the controls they drive it from, and the stale fingerprint on every stored
+    handle is replaced with the one the device reports now.
     """
     same_model = old.fingerprint.model_key == new.fingerprint.model_key
     errors = _refusals(old, new, rules, capabilities)
@@ -246,7 +251,12 @@ def _refusals(
     rewriting would produce a profile whose every rule silently compiled to nothing.
     """
     errors: list[Diagnostic] = []
-    if old.identity == new.identity:
+    # Swapping a device for itself is only nothing to do when it is still the same model.
+    # A node that answers as a different one under the same address is Z-Wave's "replace
+    # failed node" (E20, FR-S3), and it is a real swap: the address did not move, the
+    # controls did, and the handle every rule stores carries the model that is gone.
+    same_address = old.identity == new.identity
+    if same_address and old.fingerprint.model_key == new.fingerprint.model_key:
         errors.append(Diagnostic("swap_same_device", {"device": new.name_at_authoring}))
     if old.backend is not new.backend:
         errors.append(
