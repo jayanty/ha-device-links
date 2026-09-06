@@ -89,7 +89,13 @@ class Serializer:
 
     @callback
     def device(self, handle: DeviceHandle) -> dict[str, Any]:
-        """Return one device as a list row: what it is, and how much is on it."""
+        """Return one device as a list row: what it is, and how much is on it.
+
+        `receiving_endpoint` is here rather than only on the device detail because it is
+        what the rule editor needs while a target is being ticked, and the targets step
+        holds the device list and nothing else. Reading a detail per candidate would be one
+        command per device to fill in a number the list already knows (open item T50).
+        """
         observed = self._coordinator.observed_for(handle)
         capabilities = self._coordinator.capabilities_for(handle.identity)
         return {
@@ -102,6 +108,7 @@ class Serializer:
             "links": 0 if observed is None else len(observed.links),
             "emitters": 0 if capabilities is None else len(capabilities.emitters),
             "is_long_range": capabilities is not None and capabilities.is_long_range,
+            "receiving_endpoint": None if capabilities is None else capabilities.receiving_endpoint,
         }
 
     @callback
@@ -111,10 +118,16 @@ class Serializer:
 
     @staticmethod
     def _emitter(emitter: Emitter) -> dict[str, Any]:
-        """Return one control, including why it may need care (`semantics`)."""
+        """Return one control, including why it may need care (`semantics`).
+
+        `endpoint` is where the control drives from, and the rule editor puts it straight
+        on the rule it saves: a rule's source endpoint is not something a client can guess,
+        because it is 0 on the Z-Wave root and 2 on an Inovelli Blue paddle (open item T50).
+        """
         return {
             "emitter_id": emitter.emitter_id,
             "label": emitter.label,
+            "endpoint": emitter.endpoint,
             "group_ids": list(emitter.group_ids),
             "actions": {str(feature): group for feature, group in emitter.actions.items()},
             "capacity": emitter.capacity,

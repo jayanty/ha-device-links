@@ -56,6 +56,9 @@ function device(node: number, name: string, options: Partial<DeviceRow> = {}): D
     links: 0,
     emitters: 0,
     is_long_range: false,
+    // Z-Wave: an association names a node, and an endpoint only when the user asked for
+    // one. Every device on this network is single-endpoint, so this is null throughout.
+    receiving_endpoint: null,
     ...options,
   };
 }
@@ -65,6 +68,7 @@ function lifeline(): Emitter {
   return {
     emitter_id: "g1",
     label: "Lifeline",
+    endpoint: 0,
     group_ids: ["1"],
     actions: {},
     capacity: 10,
@@ -82,6 +86,7 @@ function zen35Emitters(): Emitter[] {
     {
       emitter_id: "main_button",
       label: "Main Button",
+      endpoint: 0,
       group_ids: ["2", "3", "4"],
       actions: { on_off: "2", level_set: "3", level_hold: "4" },
       capacity: 5,
@@ -93,6 +98,7 @@ function zen35Emitters(): Emitter[] {
     ...[1, 2, 3, 4].map((button) => ({
       emitter_id: `button_${button}`,
       label: `Button ${button}`,
+      endpoint: 0,
       group_ids: [String(3 + button * 2), String(4 + button * 2)],
       actions: { on_off: String(3 + button * 2), level_hold: String(4 + button * 2) },
       capacity: 5,
@@ -112,6 +118,7 @@ function dimmerEmitters(): Emitter[] {
     {
       emitter_id: "paddle",
       label: "Paddle",
+      endpoint: 0,
       group_ids: ["2", "3", "4"],
       actions: { on_off: "2", level_set: "3", level_hold: "4" },
       capacity: 10,
@@ -123,6 +130,7 @@ function dimmerEmitters(): Emitter[] {
     {
       emitter_id: "config_button",
       label: "Config Button",
+      endpoint: 0,
       group_ids: ["7"],
       actions: { on_off: "7" },
       capacity: 10,
@@ -368,7 +376,7 @@ export const RULES: RuleRow[] = [
       direction: "one_way",
       mirror_source: "leave",
       features: ["on_off", "level_set", "level_hold"],
-      source: { device: identity(36), endpoint: null, emitter_id: "main_button" },
+      source: { device: identity(36), endpoint: 0, emitter_id: "main_button" },
       targets: [
         { device: identity(38), endpoint: null },
         { device: identity(39), endpoint: null },
@@ -388,7 +396,7 @@ export const RULES: RuleRow[] = [
       direction: "two_way",
       mirror_source: "leave",
       features: ["on_off", "level_set"],
-      source: { device: identity(37), endpoint: null, emitter_id: "paddle" },
+      source: { device: identity(37), endpoint: 0, emitter_id: "paddle" },
       targets: [{ device: identity(38), endpoint: null }],
     },
     state: "drift",
@@ -405,7 +413,7 @@ export const RULES: RuleRow[] = [
       direction: "one_way",
       mirror_source: "off",
       features: ["on_off"],
-      source: { device: identity(36), endpoint: null, emitter_id: "button_2" },
+      source: { device: identity(36), endpoint: 0, emitter_id: "button_2" },
       targets: [
         { device: identity(37), endpoint: null },
         { device: identity(42), endpoint: null },
@@ -426,7 +434,7 @@ export const RULES: RuleRow[] = [
       direction: "one_way",
       mirror_source: "leave",
       features: ["on_off"],
-      source: { device: identity(29), endpoint: null, emitter_id: "button_1" },
+      source: { device: identity(29), endpoint: 0, emitter_id: "button_1" },
       targets: [{ device: identity(35), endpoint: null }],
     },
     state: "blocked",

@@ -130,6 +130,34 @@ const MIRROR_CHOICES: { value: MirrorChoice; label: string; help: string }[] = [
   },
 ];
 
+/**
+ * A rule while it is being written, which is not yet a rule that could be saved.
+ *
+ * The one difference from `RuleData` is the source endpoint, which is null until a control
+ * is chosen and is that control's own `endpoint` afterwards. A draft is what the steps
+ * edit; `payloadOf` is the only way one becomes something the backend is sent, and it
+ * answers null while the draft is still missing a piece, so the difference cannot be
+ * forgotten at the one call site that matters (open item T50).
+ */
+export interface RuleDraft extends Omit<RuleData, "source"> {
+  source: { device: string; endpoint: number | null; emitter_id: string };
+}
+
+/**
+ * Return the rule this draft describes, or null while it does not describe one yet.
+ *
+ * Both the compile-as-you-type call and the save go through here, so what the user was
+ * shown in the review step is exactly what is stored: two paths building the payload
+ * separately is how a rule gets validated in one shape and saved in another.
+ */
+export function payloadOf(draft: RuleDraft): RuleData | null {
+  const { device, endpoint, emitter_id } = draft.source;
+  if (device === "" || emitter_id === "" || endpoint === null || draft.targets.length === 0) {
+    return null;
+  }
+  return { ...draft, source: { device, endpoint, emitter_id } };
+}
+
 /** What the owner is told when a rule was stored. */
 export interface RuleSavedDetail {
   rule: RuleData;
@@ -166,7 +194,7 @@ export class DeviceLinksRuleEditor extends LitElement {
    */
   @property({ attribute: false }) initialTemplate: TemplateId | null = null;
 
-  @state() private _draft: RuleData | null = null;
+  @state() private _draft: RuleDraft | null = null;
 
   @state() private _step: Step = "template";
 
@@ -320,7 +348,7 @@ export class DeviceLinksRuleEditor extends LitElement {
     `;
   }
 
-  private _renderStep(draft: RuleData): TemplateResult {
+  private _renderStep(draft: RuleDraft): TemplateResult {
     switch (this._step) {
       case "template":
         return this._renderTemplateStep(draft);
@@ -339,7 +367,7 @@ export class DeviceLinksRuleEditor extends LitElement {
   // Step 1: the intent.
   // ------------------------------------------------------------------------------------
 
-  private _renderTemplateStep(draft: RuleData): TemplateResult {
+  private _renderTemplateStep(draft: RuleDraft): TemplateResult {
     const templates = Object.keys(TEMPLATE_DEFAULTS) as TemplateId[];
     return html`
       <div class="template-grid">
@@ -376,7 +404,7 @@ export class DeviceLinksRuleEditor extends LitElement {
   // Step 2: the control, and its headroom.
   // ------------------------------------------------------------------------------------
 
-  private _renderSourceStep(draft: RuleData): TemplateResult {
+  private _renderSourceStep(draft: RuleDraft): TemplateResult {
     const chosen = this._deviceFor(draft.source.device);
     if (chosen === null) {
       return html`
@@ -402,7 +430,7 @@ export class DeviceLinksRuleEditor extends LitElement {
     `;
   }
 
-  private _renderEmitters(draft: RuleData): TemplateResult {
+  private _renderEmitters(draft: RuleDraft): TemplateResult {
     const emitters = this._sourceDetail?.emitters ?? [];
     if (emitters.length === 0) {
       return html`<p class="secondary">
@@ -416,7 +444,7 @@ export class DeviceLinksRuleEditor extends LitElement {
     `;
   }
 
-  private _renderEmitter(draft: RuleData, emitter: Emitter): TemplateResult {
+  private _renderEmitter(draft: RuleDraft, emitter: Emitter): TemplateResult {
     // A lifeline is how the device reports to Home Assistant at all. It is shown, so the
     // user can see the group is accounted for, and it is not selectable and offers no
     // control: Device Links never writes to it.
@@ -520,7 +548,14 @@ export class DeviceLinksRuleEditor extends LitElement {
     const available = Object.keys(emitter.actions) as Feature[];
     const kept = draft.features.filter((feature) => available.includes(feature));
     this._update({
-      source: { ...draft.source, emitter_id: emitter.emitter_id },
+      // The endpoint comes with the control, because it is a property of the control: the
+      // Z-Wave root is 0 and an Inovelli Blue's paddle is Zigbee endpoint 2, and a rule
+      // that named neither was refused by `rules/upsert` on every protocol (T50).
+      source: {
+        ...draft.source,
+        endpoint: emitter.endpoint,
+        emitter_id: emitter.emitter_id,
+      },
       // A feature the chosen control cannot carry is dropped rather than left to compile
       // into a warning the user did not cause. If that empties the set, the template's
       // intent is kept as far as the control allows.
@@ -532,7 +567,7 @@ export class DeviceLinksRuleEditor extends LitElement {
   // Step 3: the targets.
   // ------------------------------------------------------------------------------------
 
-  private _renderTargetsStep(draft: RuleData): TemplateResult {
+  private _renderTargetsStep(draft: RuleDraft): TemplateResult {
     const chosen = new Set(draft.targets.map((target) => target.device));
     const candidates = this._filtered(
       this.devices.filter((device) => device.identity !== draft.source.device),
@@ -567,6 +602,16 @@ export class DeviceLinksRuleEditor extends LitElement {
                     <span>${device.name}</span>
                     <span class="chip muted">${backendLabel(device.backend)}</span>
                     ${
+                      // Which endpoint the link will land on, shown rather than only sent.
+                      // It is the device's own answer to "where does a link land when
+                      // nobody chose", and a device with more than one is open item T56.
+                      device.receiving_endpoint === null
+                        ? nothing
+                        : html`<span class="chip muted">
+                          Endpoint ${device.receiving_endpoint}
+                        </span>`
+                    }
+                    ${
                       device.available
                         ? nothing
                         : html`<span class="chip warn">Not answering</span>`
@@ -595,7 +640,11 @@ export class DeviceLinksRuleEditor extends LitElement {
     const checked = (event.target as HTMLInputElement).checked;
     const targets = draft.targets.filter((target) => target.device !== device.identity);
     if (checked) {
-      targets.push({ device: device.identity, endpoint: null });
+      // Where a link lands on this device when nobody was offered the choice. Null on
+      // Z-Wave, which is a node association on the whole device and is what the compiler
+      // expects; the endpoint the load is on for a Zigbee device, whose binding is refused
+      // outright without one (T50). An endpoint picker for a target with several is T56.
+      targets.push({ device: device.identity, endpoint: device.receiving_endpoint });
     }
     this._update({ targets });
   }
@@ -604,7 +653,7 @@ export class DeviceLinksRuleEditor extends LitElement {
   // Step 4: behaviour.
   // ------------------------------------------------------------------------------------
 
-  private _renderBehaviourStep(draft: RuleData): TemplateResult {
+  private _renderBehaviourStep(draft: RuleDraft): TemplateResult {
     const emitter = this._selectedEmitter(draft);
     const actions = emitter?.actions ?? {};
     return html`
@@ -727,7 +776,7 @@ export class DeviceLinksRuleEditor extends LitElement {
   // Step 5: review, which is where the compiler gets the last word.
   // ------------------------------------------------------------------------------------
 
-  private _renderReviewStep(draft: RuleData): TemplateResult {
+  private _renderReviewStep(draft: RuleDraft): TemplateResult {
     const compiled = this._compiled;
     return html`
       <div class="notice">
@@ -858,7 +907,7 @@ export class DeviceLinksRuleEditor extends LitElement {
     return this._deviceFor(identity)?.name ?? identity;
   }
 
-  private _selectedEmitter(draft: RuleData): Emitter | null {
+  private _selectedEmitter(draft: RuleDraft): Emitter | null {
     return (
       this._sourceDetail?.emitters.find(
         (emitter) => emitter.emitter_id === draft.source.emitter_id,
@@ -915,7 +964,7 @@ export class DeviceLinksRuleEditor extends LitElement {
   }
 
   /** What each step needs before it can be left. Nothing is guessed on the user's behalf. */
-  private _canLeave(step: Step, draft: RuleData): boolean {
+  private _canLeave(step: Step, draft: RuleDraft): boolean {
     switch (step) {
       case "template":
         return true;
@@ -979,7 +1028,7 @@ export class DeviceLinksRuleEditor extends LitElement {
     }
   }
 
-  private _update(patch: Partial<RuleData>): void {
+  private _update(patch: Partial<RuleDraft>): void {
     if (this._draft === null) {
       return;
     }
@@ -1004,13 +1053,14 @@ export class DeviceLinksRuleEditor extends LitElement {
     if (!this.api || draft === null) {
       return;
     }
-    if (draft.source.device === "" || draft.source.emitter_id === "" || !draft.targets.length) {
+    const rule = payloadOf(draft);
+    if (rule === null) {
       this._compiled = null;
       return;
     }
     this._validating = true;
     void this.api
-      .validateRule(draft)
+      .validateRule(rule)
       .then((compiled) => {
         this._compiled = compiled;
         this._error = null;
@@ -1028,13 +1078,20 @@ export class DeviceLinksRuleEditor extends LitElement {
     if (!this.api || draft === null) {
       return;
     }
+    // Unreachable from the review step, which cannot be arrived at without a control and a
+    // target, and cheaper than a save that would be refused for a reason the user cannot
+    // see. The type is what makes it a check rather than a hope.
+    const rule = payloadOf(draft);
+    if (rule === null) {
+      return;
+    }
     this._saving = true;
     this._error = null;
     try {
-      await this.api.upsertRule(draft, this.profileId);
+      await this.api.upsertRule(rule, this.profileId);
       this.dispatchEvent(
         new CustomEvent<RuleSavedDetail>("dl-rule-saved", {
-          detail: { rule: draft, apply },
+          detail: { rule, apply },
           bubbles: true,
           composed: true,
         }),

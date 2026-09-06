@@ -34,6 +34,8 @@ export function deviceRow(overrides: Partial<DeviceRow> = {}): DeviceRow {
     links: 2,
     emitters: 2,
     is_long_range: false,
+    // Z-Wave: a link lands on the node, not on an endpoint of it.
+    receiving_endpoint: null,
     ...overrides,
   };
 }
@@ -42,6 +44,7 @@ export function emitter(overrides: Partial<Emitter> = {}): Emitter {
   return {
     emitter_id: "button_2",
     label: "Button 2",
+    endpoint: 0,
     group_ids: ["7", "8"],
     actions: { on_off: "7", level_hold: "8" },
     capacity: 5,
@@ -132,7 +135,7 @@ export function ruleData(overrides: Partial<RuleData> = {}): RuleData {
     direction: "one_way",
     mirror_source: "off",
     features: ["on_off"],
-    source: { device: SOURCE, endpoint: null, emitter_id: "button_2" },
+    source: { device: SOURCE, endpoint: 0, emitter_id: "button_2" },
     targets: [{ device: TARGET, endpoint: null }],
     ...overrides,
   };

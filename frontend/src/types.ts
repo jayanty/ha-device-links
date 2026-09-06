@@ -80,7 +80,15 @@ export interface Diagnostic {
 // Devices.
 // --------------------------------------------------------------------------------------
 
-/** `Serializer.device`: one device as the device list shows it. */
+/**
+ * `Serializer.device`: one device as the device list shows it.
+ *
+ * `receiving_endpoint` is where a link lands on this device when nobody named an endpoint:
+ * the endpoint a Zigbee binding must address, and null on Z-Wave, where an association
+ * names a node and an endpoint only when the user asked for one. The rule editor fills a
+ * target's endpoint from it, which is why it is on the list row rather than only on the
+ * detail: the targets step has the list and nothing else.
+ */
 export interface DeviceRow {
   identity: string;
   device_id: string | null;
@@ -91,12 +99,19 @@ export interface DeviceRow {
   links: number;
   emitters: number;
   is_long_range: boolean;
+  receiving_endpoint: number | null;
 }
 
-/** `Serializer._emitter`: one control on a device, and what it can reach. */
+/**
+ * `Serializer._emitter`: one control on a device, and what it can reach.
+ *
+ * `endpoint` is where this control drives from: 0 on the Z-Wave root, 2 on an Inovelli
+ * Blue paddle. A rule's source endpoint is this number, and nothing else can supply it.
+ */
 export interface Emitter {
   emitter_id: string;
   label: string;
+  endpoint: number;
   group_ids: string[];
   actions: Partial<Record<Feature, string>>;
   capacity: number;
@@ -148,10 +163,18 @@ export interface DeviceDetail {
 // Rules and profiles.
 // --------------------------------------------------------------------------------------
 
-/** `yaml_io.rule_to_data`, the source half: which control on which device. */
+/**
+ * `yaml_io.rule_to_data`, the source half: which control on which device.
+ *
+ * `endpoint` is a number and never null, which is a deliberately tight type rather than a
+ * mirror of `number | null` on the target half. `yaml_io._require_int` refuses a rule
+ * whose source endpoint is missing, so a client that sends null has every save refused,
+ * which is exactly what happened between Phase 1E and open item T50. It is the emitter's
+ * own `endpoint`, so there is always a number to send.
+ */
 export interface RuleSourceData {
   device: string;
-  endpoint: number | null;
+  endpoint: number;
   emitter_id: string;
 }
 

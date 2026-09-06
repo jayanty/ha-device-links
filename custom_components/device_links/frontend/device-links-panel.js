@@ -3408,7 +3408,19 @@ var X = [
 		label: "Leave the control's own load out of it",
 		help: "Writes the device's mirror setting so only the targets respond."
 	}
-], Z = class extends D {
+];
+function Gt(e) {
+	let { device: t, endpoint: n, emitter_id: r } = e.source;
+	return t === "" || r === "" || n === null || e.targets.length === 0 ? null : {
+		...e,
+		source: {
+			device: t,
+			endpoint: n,
+			emitter_id: r
+		}
+	};
+}
+var Z = class extends D {
 	constructor(...e) {
 		super(...e), this.components = null, this.narrow = !1, this.open = !1, this.devices = [], this.rule = null, this.initialTemplate = null, this._draft = null, this._step = "template", this._sourceDetail = null, this._loadingSource = !1, this._compiled = null, this._validating = !1, this._saving = !1, this._error = null, this._search = "";
 	}
@@ -3666,6 +3678,7 @@ var X = [
 		this._update({
 			source: {
 				...t.source,
+				endpoint: e.endpoint,
 				emitter_id: e.emitter_id
 			},
 			features: r.length ? r : n.slice(0, 1)
@@ -3695,6 +3708,9 @@ var X = [
                   <span class="grow">
                     <span>${e.name}</span>
                     <span class="chip muted">${R(e.backend)}</span>
+                    ${e.receiving_endpoint === null ? C : x`<span class="chip muted">
+                          Endpoint ${e.receiving_endpoint}
+                        </span>`}
                     ${e.available ? C : x`<span class="chip warn">Not answering</span>`}
                     ${e.is_long_range ? x`<span class="chip error">Long Range</span>` : C}
                   </span>
@@ -3712,7 +3728,7 @@ var X = [
 		let r = t.target.checked, i = n.targets.filter((t) => t.device !== e.identity);
 		r && i.push({
 			device: e.identity,
-			endpoint: null
+			endpoint: e.receiving_endpoint
 		}), this._update({ targets: i });
 	}
 	_renderBehaviourStep(e) {
@@ -3952,7 +3968,7 @@ var X = [
 		if (this._error = null, this._compiled = null, this._search = "", this._sourceDetail = null, this.rule === null) {
 			let e = this.initialTemplate ?? "remote", t = Ut[e];
 			this._draft = {
-				id: Gt(),
+				id: Kt(),
 				name: this.initialTemplate === null ? "" : z(e),
 				template: e,
 				backend: "zwave",
@@ -3988,28 +4004,30 @@ var X = [
 	}
 	_validate() {
 		let e = this._draft;
-		if (this.api && e !== null) {
-			if (e.source.device === "" || e.source.emitter_id === "" || !e.targets.length) {
-				this._compiled = null;
-				return;
-			}
-			this._validating = !0, this.api.validateRule(e).then((e) => {
-				this._compiled = e, this._error = null;
-			}).catch((e) => {
-				this._error = N(this.hass, M.from(e));
-			}).finally(() => {
-				this._validating = !1;
-			});
+		if (!this.api || e === null) return;
+		let t = Gt(e);
+		if (t === null) {
+			this._compiled = null;
+			return;
 		}
+		this._validating = !0, this.api.validateRule(t).then((e) => {
+			this._compiled = e, this._error = null;
+		}).catch((e) => {
+			this._error = N(this.hass, M.from(e));
+		}).finally(() => {
+			this._validating = !1;
+		});
 	}
 	async _save(e) {
 		let t = this._draft;
-		if (this.api && t !== null) {
+		if (!this.api || t === null) return;
+		let n = Gt(t);
+		if (n !== null) {
 			this._saving = !0, this._error = null;
 			try {
-				await this.api.upsertRule(t, this.profileId), this.dispatchEvent(new CustomEvent("dl-rule-saved", {
+				await this.api.upsertRule(n, this.profileId), this.dispatchEvent(new CustomEvent("dl-rule-saved", {
 					detail: {
-						rule: t,
+						rule: n,
 						apply: e
 					},
 					bubbles: !0,
@@ -4030,20 +4048,20 @@ var X = [
 	}
 };
 P([k({ attribute: !1 })], Z.prototype, "hass", void 0), P([k({ attribute: !1 })], Z.prototype, "api", void 0), P([k({ attribute: !1 })], Z.prototype, "components", void 0), P([k({ type: Boolean })], Z.prototype, "narrow", void 0), P([k({ type: Boolean })], Z.prototype, "open", void 0), P([k({ attribute: !1 })], Z.prototype, "devices", void 0), P([k({ attribute: !1 })], Z.prototype, "rule", void 0), P([k({ type: String })], Z.prototype, "profileId", void 0), P([k({ attribute: !1 })], Z.prototype, "initialTemplate", void 0), P([A()], Z.prototype, "_draft", void 0), P([A()], Z.prototype, "_step", void 0), P([A()], Z.prototype, "_sourceDetail", void 0), P([A()], Z.prototype, "_loadingSource", void 0), P([A()], Z.prototype, "_compiled", void 0), P([A()], Z.prototype, "_validating", void 0), P([A()], Z.prototype, "_saving", void 0), P([A()], Z.prototype, "_error", void 0), P([A()], Z.prototype, "_search", void 0), Z = P([O("dl-rule-editor")], Z);
-function Gt() {
+function Kt() {
 	let e = globalThis.crypto?.randomUUID?.();
 	return e ? e.replace(/-/g, "") : `rule${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 }
 //#endregion
 //#region src/views/rules.ts
-var Kt = [
+var qt = [
 	"remote",
 	"virtual_3way",
 	"scene_button",
 	"off_all",
 	"status_feedback",
 	"custom"
-], qt = [
+], Jt = [
 	"in_sync",
 	"drift",
 	"pending",
@@ -4052,7 +4070,7 @@ var Kt = [
 	"unknown"
 ], Q = class extends U {
 	constructor(...e) {
-		super(...e), this._profile = null, this._rules = [], this._devices = [], this._templates = [...Kt], this._emitterLabels = {}, this._loading = !0, this._error = null, this._search = "", this._backendFilter = "", this._stateFilter = "", this._editorOpen = !1, this._editing = null, this._editorTemplate = null, this._planOpen = !1, this._planHeading = "Plan and apply", this._confirmDelete = null, this._staged = null, this._appliedDuringPlan = !1;
+		super(...e), this._profile = null, this._rules = [], this._devices = [], this._templates = [...qt], this._emitterLabels = {}, this._loading = !0, this._error = null, this._search = "", this._backendFilter = "", this._stateFilter = "", this._editorOpen = !1, this._editing = null, this._editorTemplate = null, this._planOpen = !1, this._planHeading = "Plan and apply", this._confirmDelete = null, this._staged = null, this._appliedDuringPlan = !1;
 	}
 	static {
 		this.styles = H;
@@ -4150,7 +4168,7 @@ var Kt = [
 		}}
           >
             <option value="">Any</option>
-            ${qt.map((e) => x`<option value=${e}>${B(e)}</option>`)}
+            ${Jt.map((e) => x`<option value=${e}>${B(e)}</option>`)}
           </select>
         </label>
       </div>
@@ -4456,7 +4474,7 @@ var Kt = [
 P([A()], Q.prototype, "_profile", void 0), P([A()], Q.prototype, "_rules", void 0), P([A()], Q.prototype, "_devices", void 0), P([A()], Q.prototype, "_templates", void 0), P([A()], Q.prototype, "_emitterLabels", void 0), P([A()], Q.prototype, "_loading", void 0), P([A()], Q.prototype, "_error", void 0), P([A()], Q.prototype, "_search", void 0), P([A()], Q.prototype, "_backendFilter", void 0), P([A()], Q.prototype, "_stateFilter", void 0), P([A()], Q.prototype, "_editorOpen", void 0), P([A()], Q.prototype, "_editing", void 0), P([A()], Q.prototype, "_editorTemplate", void 0), P([A()], Q.prototype, "_planOpen", void 0), P([A()], Q.prototype, "_planScope", void 0), P([A()], Q.prototype, "_planHeading", void 0), P([A()], Q.prototype, "_confirmDelete", void 0), Q = P([O("device-links-rules")], Q);
 //#endregion
 //#region src/panel.ts
-var Jt = "0.0.1", $ = class extends D {
+var Yt = "0.0.1", $ = class extends D {
 	constructor(...e) {
 		super(...e), this.narrow = !1, this.componentLoader = () => at(), this._components = null, this._selected = null, this._api = null;
 	}
@@ -4632,7 +4650,7 @@ var Jt = "0.0.1", $ = class extends D {
 	}
 	_renderVersionBanner() {
 		if (!this.versionMismatch) return C;
-		let e = `Device Links was updated to ${this.backendVersion} while this page was open. This panel is still running version ${Jt}. Reload the page to pick up the new one.`;
+		let e = `Device Links was updated to ${this.backendVersion} while this page was open. This panel is still running version ${Yt}. Reload the page to pick up the new one.`;
 		return this._components?.has("ha-alert") ? x`
         <ha-alert class="banner" alert-type="info" title="A newer version is installed">
           ${e}
@@ -4672,4 +4690,4 @@ P([k({ attribute: !1 })], $.prototype, "hass", void 0), P([k({
 	reflect: !0
 })], $.prototype, "narrow", void 0), P([k({ attribute: !1 })], $.prototype, "route", void 0), P([k({ attribute: !1 })], $.prototype, "panel", void 0), P([k({ attribute: !1 })], $.prototype, "componentLoader", void 0), P([A()], $.prototype, "_components", void 0), P([A()], $.prototype, "_selected", void 0), $ = P([O("device-links-panel")], $);
 //#endregion
-export { Jt as BUNDLE_VERSION, $ as DeviceLinksPanel };
+export { Yt as BUNDLE_VERSION, $ as DeviceLinksPanel };
