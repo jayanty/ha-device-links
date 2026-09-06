@@ -900,8 +900,18 @@ class AclOutcome:
 
     `entries` is what to write and is None when `refusal` is set. `changed` is False when
     the grant is already there, which is the common case on a second apply and must not
-    spend a write. `used` and `capacity` are carried whatever the outcome, because the
-    message a user sees when a list is full has to say how full it is (E27).
+    spend a write.
+
+    **`entries` is this fabric's entries and only this fabric's**, whether anything changed
+    or not: it is a write payload rather than a description of the device. Writing it when
+    `changed` is False would be a no-op only because an Access Control write is fabric
+    scoped, and that is exactly the thing nobody has watched happen (assumption A9), so a
+    caller that wrote it unconditionally would be betting on the assumption for no reason.
+
+    `used` and `capacity` are carried whatever the outcome, because the message a user sees
+    when a list is full has to say how full it is (E27). A revocation reports a capacity of
+    zero, because a revocation cannot be refused for want of room and its refusals never
+    reach a message: `matter._revoke` logs them and lets the removal succeed.
     """
 
     entries: tuple[AclEntry, ...] | None
