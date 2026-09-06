@@ -152,6 +152,11 @@ export class DeviceLinksPanel extends LitElement {
   override connectedCallback(): void {
     super.connectedCallback();
     void this._loadComponents();
+    // Rebuilt here as well as in `willUpdate`, because a panel that is detached and
+    // re-attached (moved in the DOM rather than recreated) comes back with the same
+    // `hass` it had, so no property change would rebuild the client `disconnectedCallback`
+    // closed, and every view would be handed a null one.
+    this._openClient();
   }
 
   override disconnectedCallback(): void {
@@ -163,12 +168,20 @@ export class DeviceLinksPanel extends LitElement {
   }
 
   protected override willUpdate(changed: Map<string, unknown>): void {
-    if (changed.has("hass") && this.hass) {
-      if (this._api === null) {
-        this._api = new DeviceLinksApi(this.hass);
-      } else {
-        this._api.hass = this.hass;
-      }
+    if (changed.has("hass")) {
+      this._openClient();
+    }
+  }
+
+  /** Build the shared client, or point the one that exists at the current `hass`. */
+  private _openClient(): void {
+    if (!this.hass) {
+      return;
+    }
+    if (this._api === null) {
+      this._api = new DeviceLinksApi(this.hass);
+    } else {
+      this._api.hass = this.hass;
     }
   }
 
@@ -279,10 +292,11 @@ export class DeviceLinksPanel extends LitElement {
     const prefix = this.route?.prefix ?? "/device_links";
     history.pushState(null, "", `${prefix}/${id}`);
     this.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true }));
-    // Home Assistant normally answers by setting `route`. Nothing here depends on that
-    // happening, because the tab is derived from `route` and a router that did not answer
-    // would leave the panel where it was rather than somewhere blank.
-    this.requestUpdate();
+    // Set locally as well, rather than waiting to be told. Home Assistant's router answers
+    // a location change by setting `route` back to exactly this, so nothing is being
+    // second-guessed; what this avoids is a tab strip that does not move in whatever
+    // context the router does not answer, which would look like a dead control.
+    this.route = { prefix, path: `/${id}` };
   }
 
   // ------------------------------------------------------------------------------------

@@ -1154,13 +1154,16 @@ var Je = "0.0.1", $ = class extends H {
 		return this._api;
 	}
 	connectedCallback() {
-		super.connectedCallback(), this._loadComponents();
+		super.connectedCallback(), this._loadComponents(), this._openClient();
 	}
 	disconnectedCallback() {
 		super.disconnectedCallback(), this._api?.close(), this._api = null;
 	}
 	willUpdate(e) {
-		e.has("hass") && this.hass && (this._api === null ? this._api = new Ne(this.hass) : this._api.hass = this.hass);
+		e.has("hass") && this._openClient();
+	}
+	_openClient() {
+		this.hass && (this._api === null ? this._api = new Ne(this.hass) : this._api.hass = this.hass);
 	}
 	async _loadComponents() {
 		this._components === null && (this._components = await this.componentLoader());
@@ -1226,7 +1229,10 @@ var Je = "0.0.1", $ = class extends H {
 		history.pushState(null, "", `${t}/${e}`), this.dispatchEvent(new CustomEvent("location-changed", {
 			bubbles: !0,
 			composed: !0
-		})), this.requestUpdate();
+		})), this.route = {
+			prefix: t,
+			path: `/${e}`
+		};
 	}
 	get backendVersion() {
 		let e = this.panel?.config?.version;

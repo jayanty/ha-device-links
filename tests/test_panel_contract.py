@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
 import pytest
+from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 from zwave_js_server.model.association import AssociationAddress
 
 from custom_components.device_links.coordinator import RuleState
@@ -51,7 +52,7 @@ from custom_components.device_links.models import (
 from custom_components.device_links.serialize import Serializer, diagnostic
 from custom_components.device_links.storage import JobLinkResult, JobSummary, Snapshot
 from custom_components.device_links.websocket import COMMANDS, DEFERRED_COMMANDS
-from tests.conftest import CONTROLLER, LOBBY, a_profile, a_rule, activate
+from tests.conftest import CONTROLLER, LOBBY, MAIN_LIGHTS, a_profile, a_rule, activate
 from tests.factories import handle
 from tests.fakes.zwave import FakeDriver
 
@@ -457,3 +458,126 @@ def test_the_bundle_version_the_panel_compares_against_is_the_manifest_version()
     assert "manifest.json" in defines
     assert "__DL_BUNDLE_VERSION__" in defines
     assert manifest["version"]
+
+
+# --------------------------------------------------------------------------------------
+# The shapes the handlers assemble themselves
+# --------------------------------------------------------------------------------------
+#
+# `Serializer` does not produce these: `websocket.py` builds them around what it produces,
+# so nothing above would notice a key renamed there. They are checked over a real
+# WebSocket connection, which is also the only way to be sure the payload survives
+# `json.dumps` on the way out.
+
+
+@pytest.fixture
+async def client(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, loaded: MockConfigEntry
+) -> Any:
+    """An admin WebSocket client against an integration with an active profile."""
+    return await hass_ws_client(hass)
+
+
+async def call(client: Any, command: str, **data: Any) -> Any:
+    """Send one command and return its result, failing loudly if it was refused."""
+    await client.send_json_auto_id({"type": f"device_links/{command}", **data})
+    message = await client.receive_json()
+    assert message["success"], message
+    return message["result"]
+
+
+async def test_profiles_list_matches_the_profile_list_interface(client: Any) -> None:
+    assert_shape(await call(client, "profiles/list"), "ProfileList")
+
+
+async def test_profiles_get_matches_the_profile_detail_interface(client: Any) -> None:
+    assert_shape(await call(client, "profiles/get", profile_id="bedroom"), "ProfileDetail")
+
+
+async def test_profiles_export_matches_the_profile_export_interface(client: Any) -> None:
+    assert_shape(await call(client, "profiles/export"), "ProfileExport")
+
+
+async def test_profiles_import_matches_the_profile_import_interface(client: Any) -> None:
+    exported = await call(client, "profiles/export")
+    assert_shape(await call(client, "profiles/import", yaml=exported["yaml"]), "ProfileImport")
+
+
+async def test_profiles_activate_matches_the_profile_activation_interface(client: Any) -> None:
+    assert_shape(await call(client, "profiles/activate", profile_id="bedroom"), "ProfileActivation")
+
+
+async def test_rules_set_enabled_matches_the_rule_enabled_interface(client: Any) -> None:
+    result = await call(client, "rules/set_enabled", rule_id="bedroom-main", enabled=False)
+    assert_shape(result, "RuleEnabled")
+
+
+async def test_templates_list_matches_the_template_row_interface(client: Any) -> None:
+    for template in (await call(client, "templates/list"))["templates"]:
+        assert_shape(template, "TemplateRow")
+
+
+async def test_verify_matches_the_verify_result_interface(client: Any) -> None:
+    assert_shape(await call(client, "verify"), "VerifyResult")
+
+
+async def test_jobs_list_matches_the_job_list_interface(client: Any) -> None:
+    assert_shape(await call(client, "jobs/list"), "JobList")
+
+
+async def test_apply_and_its_job_match_the_started_and_job_interfaces(client: Any) -> None:
+    """The one that runs, so `JobStarted`, `JobProgress` and `Job` are all real payloads."""
+    plan = await call(client, "plan")
+    assert_shape(await call(client, "apply", plan_token=plan["token"]), "JobStarted")
+    listing = await call(client, "jobs/list")
+    assert_shape(listing, "JobList")
+    assert listing["jobs"], "the apply recorded no job, so nothing was checked"
+    assert_shape(await call(client, "jobs/get", job_id=listing["jobs"][-1]["id"]), "Job")
+
+
+async def test_a_job_progress_payload_matches_the_job_progress_interface(
+    hass: HomeAssistant, loaded: MockConfigEntry
+) -> None:
+    """Built by hand rather than raced for: what matters is the shape, not the timing."""
+    from custom_components.device_links.websocket import _progress  # noqa: PLC0415
+
+    runtime = loaded.runtime_data
+    assert _progress(runtime) is None, "no job should be running in a fresh fixture"
+    progress = {"id": "j1", "total": 4, "completed": 2, "devices_in_flight": ["zwave:1:36"]}
+    assert_shape(progress, "JobProgress")
+
+
+async def test_unmanaged_commands_match_their_interfaces(
+    client: Any, loaded: MockConfigEntry, zwave_driver: FakeDriver
+) -> None:
+    controller = zwave_driver.controller
+    await controller.async_add_associations(
+        AssociationAddress(controller, node_id=CONTROLLER, endpoint=0),
+        7,
+        [AssociationAddress(controller, node_id=MAIN_LIGHTS, endpoint=None)],
+    )
+    await loaded.runtime_data.coordinator.async_refresh()
+    plan = await call(client, "plan")
+    fingerprints = [
+        link["fingerprint"] for device in plan["devices"] for link in device["unmanaged"]
+    ]
+    assert fingerprints, "no unmanaged link was planned, so nothing was checked"
+    await call(client, "unmanaged/ignore", fingerprints=fingerprints, ignored=True)
+    assert_shape(await call(client, "unmanaged/remove", fingerprints=fingerprints), "JobStarted")
+
+
+async def test_snapshots_list_matches_the_snapshot_interface(client: Any) -> None:
+    plan = await call(client, "plan")
+    await call(client, "apply", plan_token=plan["token"])
+    for snapshot in (await call(client, "snapshots/list"))["snapshots"]:
+        assert_shape(snapshot, "Snapshot")
+
+
+async def test_a_job_event_matches_the_job_event_union(client: Any) -> None:
+    """`jobs/subscribe` answers immediately with the progress event the panel renders."""
+    await client.send_json_auto_id({"type": "device_links/jobs/subscribe"})
+    assert (await client.receive_json())["success"]
+    event = (await client.receive_json())["event"]
+    assert event["type"] == "progress"
+    if event["job"] is not None:
+        assert_shape(event["job"], "JobProgress")

@@ -141,6 +141,25 @@ describe("the shell", () => {
     expect(tabs.every((tab) => tab.tagName === "BUTTON")).toBe(true);
   });
 
+  it("moves the tab strip itself, so a router that does not answer is not a dead control", async () => {
+    const { panel } = await mount({ path: "/overview" });
+    const button = panel.shadowRoot?.querySelectorAll("nav.plain-tabs button")[1] as HTMLElement;
+    button.click();
+    await panel.updateComplete;
+    expect(panel.tab).toBe("rules");
+    expect(panel.shadowRoot?.querySelector("device-links-rules")).not.toBeNull();
+  });
+
+  it("opens a client again when the panel is re-attached rather than recreated", async () => {
+    const { panel, hass } = await mount({});
+    panel.remove();
+    expect(panel.api).toBeNull();
+    document.body.append(panel);
+    await panel.updateComplete;
+    expect(panel.api).not.toBeNull();
+    expect(panel.api?.hass).toBe(hass);
+  });
+
   it("ends every subscription when the panel leaves the document", async () => {
     const { panel, hass } = await mount({});
     panel.api?.subscribeJobs(() => undefined);
