@@ -426,6 +426,21 @@ class DeviceLinksCoordinator:
 
     # Reading.
 
+    async def async_relist(self) -> None:
+        """Ask every backend which devices are on its network, and take the answer whole.
+
+        The only path that can notice a device has **left**. A per-device read cannot: it
+        asks about a device we already know of, so a node that has been excluded reads as
+        one that did not answer. Asking for the listing again is what tells "unreachable"
+        from "gone", which is what E19 and the swap flow (FR-S3) are decided on.
+
+        Deliberately not on a timer. It re-reads every device on the network, so a schedule
+        would be radio traffic for a question whose answer changes when a person changes it;
+        `async_setup` asks it once, and an unscoped Verify asks it again, which is the
+        surface somebody uses precisely when they think the picture is out of date.
+        """
+        await self.async_refresh()
+
     async def async_refresh(
         self, handle: DeviceHandle | None = None, *, deep: bool = False
     ) -> ObservedDevice | None:

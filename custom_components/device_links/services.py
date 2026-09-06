@@ -378,6 +378,7 @@ async def _async_verify(call: ServiceCall) -> ServiceResponse:
     entry, runtime = _runtime(call.hass)
     scope = _validated_scope(call.hass, entry, call)
     coordinator = runtime.coordinator
+    await async_relist_if_unscoped(coordinator, scope)
     identities = sorted(coordinator.identities_in_scope(scope))
     for identity in identities:
         handle = coordinator.handle_for(identity)
@@ -390,6 +391,19 @@ async def _async_verify(call: ServiceCall) -> ServiceResponse:
         "devices": len(identities),
         "rules": {rule_id: str(state) for rule_id, state in sorted(states.items())},
     }
+
+
+async def async_relist_if_unscoped(coordinator: DeviceLinksCoordinator, scope: PlanScope) -> None:
+    """Ask the backends which devices exist, when the caller asked about all of them.
+
+    A verify of the whole network is somebody saying "tell me what is really there", and a
+    device that has been excluded since the last listing is part of that answer: without
+    this it reads as unreachable for the life of the process, and the swap flow FR-S3
+    offers for a device that has gone is never offered at all. A scoped verify names
+    devices it already knows, so it asks a narrower question and gets a narrower answer.
+    """
+    if not scope.rule_ids and not scope.device_identities:
+        await coordinator.async_relist()
 
 
 # --------------------------------------------------------------------------------------
@@ -810,6 +824,7 @@ __all__ = [
     "NOTHING_TO_DO",
     "RAW_SERVICES",
     "SERVICE_SCHEMAS",
+    "async_relist_if_unscoped",
     "async_setup_raw_services",
     "async_setup_services",
     "async_unload_raw_services",

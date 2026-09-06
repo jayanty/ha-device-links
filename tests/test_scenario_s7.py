@@ -212,6 +212,55 @@ async def test_s7_the_panel_offers_the_device_that_is_gone_even_with_no_lookalik
     assert issues == {"rules_missing_devices"}, "a swap with no candidate was volunteered"
 
 
+async def test_a_verify_of_the_whole_network_is_what_notices_a_device_has_left(
+    hass: HomeAssistant,
+    client: Any,
+    device_links_entry: MockConfigEntry,
+    zwave_driver: FakeDriver,
+) -> None:
+    """The path a person actually walks when a node has been excluded.
+
+    A per-device read cannot tell "gone" from "did not answer": it asks about a device we
+    already know of. Asking the backend for its listing again is the only thing that can,
+    and an unscoped Verify is where that belongs, because it is what somebody presses when
+    they think the picture is out of date. A scoped one names devices it already knows, so
+    it asks a narrower question and does not re-list.
+    """
+    from tests.factories import HOME_ID  # noqa: PLC0415
+
+    retired = f"zwave:{HOME_ID}:39"
+    await import_profile(
+        client,
+        Profile(
+            id="bedroom",
+            name="Bedroom",
+            rules=(
+                Rule(
+                    id="gone",
+                    name="A retired ZEN35 drives the lights",
+                    template=Template.REMOTE,
+                    backend=BackendId.ZWAVE,
+                    source=RuleSource(device=handle(39), endpoint=0, emitter_id="g2"),
+                    targets=(RuleTarget(device=handle(LIGHT), endpoint=None),),
+                    features=DIMMING,
+                ),
+            ),
+        ),
+        missing=[],
+    )
+    zwave_driver.controller.nodes.pop(39)
+
+    # A scoped verify reads one device deeply and leaves the listing alone.
+    await call(client, "verify", rule_ids=["gone"])
+    assert await call(client, "swap/candidates") == {"replacements": []}
+
+    await call(client, "verify")
+
+    candidates = await call(client, "swap/candidates")
+    assert [found["old"]["identity"] for found in candidates["replacements"]] == [retired]
+    assert device_links_entry.runtime_data.coordinator.handle_for(retired) is None
+
+
 async def test_a_device_with_a_lookalike_waiting_is_offered_unprompted(
     hass: HomeAssistant,
     client: Any,

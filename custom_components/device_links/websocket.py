@@ -62,7 +62,7 @@ from .models import (
 )
 from .rule_entity import async_handle_of_device
 from .serialize import Serializer
-from .services import NOTHING_TO_DO, refuse_unknown_devices
+from .services import NOTHING_TO_DO, async_relist_if_unscoped, refuse_unknown_devices
 from .swap import SwapProposal, find_replacements, propose
 from .yaml_io import (
     ProfileFormatError,
@@ -766,6 +766,7 @@ async def _verify(hass: HomeAssistant, connection: ActiveConnection, msg: dict[s
     entry, runtime = _runtime(hass)
     coordinator = runtime.coordinator
     scope = _scope(hass, entry, msg)
+    await async_relist_if_unscoped(coordinator, scope)
     identities = sorted(coordinator.identities_in_scope(scope))
     for identity in identities:
         handle = coordinator.handle_for(identity)

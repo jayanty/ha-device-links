@@ -15,3 +15,26 @@ All notable changes to this project are documented here. The format follows
   Zigbee2MQTT documentation and has never been performed against hardware
   (assumption A2, issue #6). The backend is built at config entry setup as of
   Phase 2A's last commit, over Home Assistant's own `mqtt` integration.
+- Device swap (Phase 2B, FR-S1 to FR-S3): choose the device that has gone and the
+  one that replaced it, map each control across (automatically when the ids or the
+  features settle it, by asking when they do not), and see every rule before and
+  after, everything that would be lost, and the whole plan, before anything is
+  written. A device that leaves the network with a same-model replacement waiting,
+  or that comes back answering as a different model, raises a Repairs issue
+  offering the flow. Reachable over the WebSocket API; the panel wizard is still
+  to come.
+- Snapshot rollback (Phase 2B, FR-P3): put a snapshot's devices back the way they
+  were, as a plan confirmed in the same dialog every other write goes through.
+  Removals that an enabled rule will write again are named before the plan is
+  applied, because a rollback restores devices and leaves the rules alone.
+- The YAML mirror (Phase 2B, FR-P2, Decision D8): off by default, on it writes
+  every profile to `<config>/device_links/profiles/` on change, so a configuration
+  directory kept in version control shows the rules changing in a diff. A copy in
+  one direction: files are never read back, and only files this integration wrote
+  are ever changed or deleted.
+
+### Fixed
+- A Zigbee device could not be opened, refreshed or chosen as a rule's source
+  anywhere in the panel, because only Z-Wave handles resolved to a Home Assistant
+  device id. Every backend now names its own devices, so a Zigbee rule can be
+  authored and its switch lands on that device's own page.
