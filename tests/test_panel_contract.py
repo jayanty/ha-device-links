@@ -429,6 +429,20 @@ def test_the_panel_never_sends_a_deliberately_deferred_command() -> None:
     assert not _commands_the_panel_sends() & deferred
 
 
+# Commands the backend serves that the panel deliberately does not call yet, each with the
+# reason. Named rather than allowed by loosening the assertion, so a command that is
+# uncalled by oversight still fails this test.
+UNCALLED_ON_PURPOSE = {
+    # The device swap wizard is three screens (choose the replacement, map each control,
+    # confirm the plan), and open item T59 is what tracks building it. The commands are
+    # complete, tested end to end in `tests/test_scenario_s7.py`, and reachable over the
+    # WebSocket API and through MCP meanwhile.
+    "device_links/swap/candidates",
+    "device_links/swap/preview",
+    "device_links/swap/apply",
+}
+
+
 def test_the_panel_uses_every_command_the_backend_implements() -> None:
     """A command with no caller is either a gap in the panel or dead code in the backend.
 
@@ -437,8 +451,9 @@ def test_the_panel_uses_every_command_the_backend_implements() -> None:
     loosening the assertion.
     """
     unused = {f"device_links/{command}" for command in COMMANDS} - _commands_the_panel_sends()
-    assert unused == set(), (
-        f"the backend implements commands the panel never calls: {sorted(unused)}"
+    assert unused == UNCALLED_ON_PURPOSE, (
+        f"the backend implements commands the panel never calls: "
+        f"{sorted(unused - UNCALLED_ON_PURPOSE)}"
     )
 
 

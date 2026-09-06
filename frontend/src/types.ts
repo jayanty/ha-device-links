@@ -361,6 +361,13 @@ export interface ProfileExport {
 export interface ProfileImport {
   profile: ProfileRow;
   is_active: boolean;
+  /**
+   * Devices the file names that are not on this network, which the import was allowed to
+   * keep. Empty unless `allow_missing_devices` was sent, because the import is refused
+   * otherwise (E38). A device swap starts here: the rules come in naming the switch that
+   * has gone, and the swap flow re-points them.
+   */
+  missing_devices: string[];
   plan?: Plan;
 }
 

@@ -32,7 +32,7 @@ its connection survives a reload and is the leak nobody finds.
 from __future__ import annotations
 
 from collections.abc import Callable, Coroutine
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import logging
 from typing import TYPE_CHECKING, Any, Final
 from uuid import uuid4
@@ -50,10 +50,11 @@ import voluptuous as vol
 from .const import DOMAIN, EVENT_JOB_FINISHED
 from .coordinator import PlanScope
 from .executor import JobRunningError
-from .models import Plan, PlanOp, Profile, Rule, Template
+from .models import DeviceHandle, Plan, PlanOp, Profile, Rule, Template
 from .rule_entity import async_handle_of_device
 from .serialize import Serializer
 from .services import NOTHING_TO_DO, refuse_unknown_devices
+from .swap import SwapProposal, find_replacements, propose
 from .yaml_io import (
     ProfileFormatError,
     devices_to_data,
@@ -64,13 +65,12 @@ from .yaml_io import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Iterable, Mapping
 
     from homeassistant.components.websocket_api.connection import ActiveConnection
 
     from . import DeviceLinksConfigEntry, DeviceLinksRuntimeData
     from .coordinator import DeviceLinksCoordinator
-    from .models import DeviceHandle
     from .storage import StoredState
 
 _LOGGER = logging.getLogger(__name__)
@@ -95,13 +95,8 @@ DEFERRED_COMMANDS: Final = frozenset(
         # Adopting an unmanaged link means writing a per-link ownership record, which is a
         # storage schema change and therefore a migration (open item T11).
         "unmanaged/adopt",
-        # Device swap is Phase 2 (FR-S1 to FR-S4), and there is no second backend to swap
-        # between yet.
-        "swap/candidates",
-        "swap/preview",
-        "swap/apply",
-        # Rollback re-applies a snapshot as a plan, which is Phase 2 alongside the swap
-        # flow that needs it. The snapshots themselves are taken and listed today.
+        # Rollback re-applies a snapshot as a plan. Landing in this phase, beside the swap
+        # flow above; the snapshots themselves are taken and listed today.
         "snapshots/rollback",
     }
 )
@@ -445,7 +440,10 @@ async def _profiles_export(
     )
 
 
-@_command("profiles/import", {vol.Required("yaml"): str})
+@_command(
+    "profiles/import",
+    {vol.Required("yaml"): str, vol.Optional("allow_missing_devices"): bool},
+)
 async def _profiles_import(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
@@ -461,7 +459,9 @@ async def _profiles_import(
     # exported, fingerprint included, and that record is what a later release compares
     # against to notice that a node id now answers as a different model (E20). Re-resolving
     # would quietly adopt whatever is at that address today and lose the difference.
-    refuse_unknown_devices(coordinator, profile)
+    missing = refuse_unknown_devices(
+        coordinator, profile, allow_missing=msg.get("allow_missing_devices", False)
+    )
     coordinator.async_update_state(
         replace(coordinator.state, profiles=_stored_with(coordinator.state, profile))
     )
@@ -470,7 +470,9 @@ async def _profiles_import(
     if is_active:
         runtime.pending_plan = await coordinator.async_plan()
         result["plan"] = Serializer(hass, entry).plan(runtime.pending_plan)
-    connection.send_result(msg["id"], {**result, "is_active": is_active})
+    connection.send_result(
+        msg["id"], {**result, "is_active": is_active, "missing_devices": list(missing)}
+    )
 
 
 def _saved(hass: HomeAssistant, entry: DeviceLinksConfigEntry, profile: Profile) -> dict[str, Any]:
@@ -972,6 +974,282 @@ async def _snapshots_list(
     )
 
 
+# --------------------------------------------------------------------------------------
+# Device swap
+# --------------------------------------------------------------------------------------
+
+
+@_command("swap/candidates")
+async def _swap_candidates(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """List the devices the active profile names that are not there, and what could replace them.
+
+    The same question the Repairs issue asks, with one difference: this one answers even
+    when nothing on the network looks like the device that has gone. Somebody who opened
+    this screen has already decided something is wrong, and the swap that really happened
+    on this network (node 13, a VZW31-SN, replaced by node 42, a VZW32-SN) is precisely one
+    that no same-model match would have volunteered. The unprompted Repairs issue keeps the
+    stricter bar; see `swap.find_replacements` for why.
+    """
+    entry, runtime = _runtime(hass)
+    coordinator = runtime.coordinator
+    profile = coordinator.active_profile
+    replacements = (
+        ()
+        if profile is None
+        else find_replacements(
+            rules=profile.rules,
+            listed=coordinator.devices,
+            answering=[
+                backend_id
+                for backend_id, available in coordinator.backend_availability.items()
+                if available
+            ],
+            require_candidate=False,
+        )
+    )
+    serializer = Serializer(hass, entry)
+    connection.send_result(
+        msg["id"],
+        {"replacements": [serializer.replacement(found) for found in replacements]},
+    )
+
+
+@_command(
+    "swap/preview",
+    {
+        vol.Required("old_identity"): str,
+        vol.Required("new_device_id"): str,
+        vol.Optional("mapping"): {str: str},
+    },
+)
+async def _swap_preview(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Return everything the swap would do, and do none of it (FR-S2).
+
+    Every rule before and after, the control mapping with the reason each was pre-filled,
+    what would be lost, and the full plan: the removals on the old device if it can still
+    be reached and the adds on the replacement. Nothing is stored and nothing is written.
+
+    This is the safety property the whole flow is arranged around. A swap rewrites a user's
+    entire configuration in one move, so there is no path that does it without this having
+    been asked first: `swap/apply` takes the plan token this answers with, and a token can
+    only come from here.
+    """
+    entry, _runtime_data = _runtime(hass)
+    swap = await _build_swap(hass, entry, msg)
+    connection.send_result(msg["id"], _swap_payload(hass, entry, swap))
+
+
+@_command(
+    "swap/apply",
+    {
+        vol.Required("old_identity"): str,
+        vol.Required("new_device_id"): str,
+        vol.Optional("mapping"): {str: str},
+        vol.Required("plan_token"): str,
+        vol.Optional("accept_lossy"): bool,
+    },
+)
+async def _swap_apply(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Rewrite the rules and apply the plan, once the user has confirmed what they saw.
+
+    In this order, and the order is the whole of it: refuse, verify the token, store the
+    rewritten rules, plan again from what is now stored, write. Storing first is not
+    optional. Ownership is derived from what the active profile compiles to (open item
+    T11), so the moment the rules point at the replacement, the links on the old device
+    stop being claimed by anything and become unmanaged. They are therefore carried into
+    the apply as an explicit per-link selection by fingerprint, which is exactly the opt-in
+    Decision D9 and CLAUDE.md Section 3 rule 5 require, and exactly the links the preview
+    showed as removals.
+    """
+    entry, runtime = _runtime(hass)
+    if runtime.runner.progress is not None:
+        raise JobRunningError(
+            "an apply is already running, so this swap was refused rather than queued "
+            "behind a plan that will be out of date by the time it runs",
+            translation_domain=DOMAIN,
+            translation_key="job_running",
+        )
+    swap = await _build_swap(hass, entry, msg)
+    _refuse_unapplicable(swap)
+    _check_token(swap.plan, msg["plan_token"])
+    if not msg.get("accept_lossy", False) and swap.proposal.is_lossy:
+        raise ServiceValidationError(
+            "this swap would leave some of what the rules asked for unwritten, so it was "
+            "not applied; look at what the preview says is lost and confirm it",
+            translation_domain=DOMAIN,
+            translation_key="swap_would_lose_work",
+            translation_placeholders={"rules": _lossy_rules(swap)},
+        )
+
+    coordinator = runtime.coordinator
+    profile = _active(coordinator)
+    updated = replace(profile, rules=swap.proposal.rules_after(profile.rules))
+    coordinator.async_update_state(
+        replace(coordinator.state, profiles=_stored_with(coordinator.state, updated))
+    )
+    plan = await coordinator.async_plan(swap.scope, remove_unmanaged=swap.stale)
+    if plan.is_empty:
+        connection.send_result(
+            msg["id"],
+            {"job_id": None, "status": NOTHING_TO_DO, "rules_rewritten": _rewritten(swap)},
+        )
+        return
+    job_id = uuid4().hex
+    entry.async_create_background_task(
+        hass,
+        _run_job(runtime, plan, swap.scope, swap.stale, job_id),
+        name=f"{DOMAIN} swap {job_id}",
+    )
+    connection.send_result(
+        msg["id"], {"job_id": job_id, "status": "running", "rules_rewritten": _rewritten(swap)}
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _Swap:
+    """One proposed swap, with the plan it would produce and the links it would take off."""
+
+    proposal: SwapProposal
+    plan: Plan
+    scope: PlanScope
+    stale: frozenset[str]
+
+
+async def _build_swap(
+    hass: HomeAssistant, entry: DeviceLinksConfigEntry, msg: Mapping[str, Any]
+) -> _Swap:
+    """Return the proposal and the plan for one swap, writing and storing nothing.
+
+    Built the same way for the preview and for the apply, from one function, because a
+    preview that was computed differently from what is applied is a preview of something
+    else. The apply's token check is what turns that into a guarantee.
+    """
+    coordinator = entry.runtime_data.coordinator
+    profile = _active(coordinator)
+    old = _referenced_handle(profile, msg["old_identity"])
+    new = _handle_of_device(hass, entry, msg["new_device_id"])
+    proposal = propose(
+        old=old,
+        new=new,
+        rules=profile.rules,
+        capabilities=coordinator.capabilities,
+        chosen=msg.get("mapping"),
+    )
+    after = proposal.rules_after(profile.rules)
+    stale = _link_fingerprints(coordinator, profile.rules) - _link_fingerprints(coordinator, after)
+    desired = [
+        link for rule in after if rule.enabled for link in coordinator.compile_rule(rule).links
+    ]
+    identities = {old.identity, new.identity} | {
+        link.source.identity
+        for rules in (profile.rules, after)
+        for rule in rules
+        for link in coordinator.compile_rule(rule.with_enabled(True)).links
+    }
+    scope = PlanScope(device_identities=frozenset(identities))
+    plan = await coordinator.async_plan(scope, remove_unmanaged=stale, desired=desired)
+    return _Swap(proposal=proposal, plan=plan, scope=scope, stale=stale)
+
+
+def _link_fingerprints(
+    coordinator: DeviceLinksCoordinator, rules: Iterable[Rule]
+) -> frozenset[str]:
+    """Return every link these rules claim, enabled or not.
+
+    Forced enabled, exactly as the coordinator's ownership index does it: a disabled rule
+    still owns what it wrote, so a swap has to carry its links across too rather than
+    orphaning them on a device that is being retired.
+    """
+    return frozenset(
+        link.fingerprint
+        for rule in rules
+        for link in coordinator.compile_rule(rule.with_enabled(True)).links
+    )
+
+
+def _referenced_handle(profile: Profile, identity: str) -> DeviceHandle:
+    """Return the handle the profile's rules know by this identity, or refuse.
+
+    The old device is named by identity rather than by Home Assistant device id, because
+    the usual reason for a swap is that it has no device id any more: it is gone from the
+    network and from the registry with it. What keeps that from being an address a caller
+    could invent is that it has to be one the active profile's own rules already name.
+    """
+    for rule in profile.rules:
+        for handle in (rule.source.device, *(target.device for target in rule.targets)):
+            if handle.identity == identity:
+                return handle
+    raise ServiceValidationError(
+        f"no rule of the active profile refers to the device {identity}",
+        translation_domain=DOMAIN,
+        translation_key="swap_unknown_old_device",
+        translation_placeholders={"device": identity},
+    )
+
+
+def _refuse_unapplicable(swap: _Swap) -> None:
+    """Refuse a swap that has not been decided yet, or that cannot be made at all."""
+    proposal = swap.proposal
+    if proposal.unmapped:
+        raise ServiceValidationError(
+            "this swap has controls with nothing chosen to take over from them, so it was "
+            "not applied",
+            translation_domain=DOMAIN,
+            translation_key="swap_mapping_incomplete",
+            translation_placeholders={"controls": ", ".join(proposal.unmapped)},
+        )
+    if not proposal.is_applicable:
+        raise ServiceValidationError(
+            "this swap cannot be made",
+            translation_domain=DOMAIN,
+            translation_key="swap_not_possible",
+            translation_placeholders={
+                "reasons": ", ".join(error.translation_key for error in proposal.errors)
+            },
+        )
+
+
+def _lossy_rules(swap: _Swap) -> str:
+    """Return the names of the rules this swap would leave doing less than they asked."""
+    return ", ".join(
+        sorted(rewrite.before.name for rewrite in swap.proposal.rewrites if rewrite.is_lossy)
+    )
+
+
+def _rewritten(swap: _Swap) -> list[str]:
+    """Return the ids of the rules this swap rewrote."""
+    return [rewrite.rule_id for rewrite in swap.proposal.rewrites]
+
+
+def _swap_payload(
+    hass: HomeAssistant, entry: DeviceLinksConfigEntry, swap: _Swap
+) -> dict[str, Any]:
+    """Return one swap as the wizard shows it: the proposal, the plan, and what is unread.
+
+    `old_reachable` is separate from the plan on purpose. FR-S2 removes the stale links on
+    the old device *if it is still reachable*, and a device that is gone simply has none of
+    its work in the plan. Without this flag that reads as a swap with nothing to clean up,
+    which is a different and much more comfortable claim than the true one: those entries
+    are still in a device somewhere, and nobody can take them off.
+    """
+    coordinator = entry.runtime_data.coordinator
+    serializer = Serializer(hass, entry)
+    old = swap.proposal.old
+    return {
+        "proposal": serializer.proposal(swap.proposal),
+        "plan": serializer.plan(swap.plan),
+        "old_listed": coordinator.handle_for(old.identity) is not None,
+        "old_reachable": coordinator.is_available(old.identity),
+        "removes": sorted(swap.stale),
+    }
+
+
 # Every handler, in the order they are defined above. Built once here rather than
 # collected by scanning the module, so a handler that is written and never registered is
 # a missing line rather than something that depends on how a decorator was spelled.
@@ -1003,6 +1281,9 @@ _HANDLERS: Final[tuple[_Handler, ...]] = (
     _unmanaged_ignore,
     _unmanaged_remove,
     _snapshots_list,
+    _swap_candidates,
+    _swap_preview,
+    _swap_apply,
 )
 
 __all__ = ["COMMANDS", "DEFERRED_COMMANDS", "async_register_commands"]

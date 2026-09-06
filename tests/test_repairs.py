@@ -41,9 +41,13 @@ from custom_components.device_links.repairs import (
 )
 from custom_components.device_links.storage import JobLinkResult, JobSummary
 from tests.conftest import a_profile, a_rule, activate
-from tests.factories import handle
+from tests.factories import CEILING_LIGHTS_OLD, handle
 
-MISSING_NODE = 222
+# The real dead node, "Ceiling Lights Old". Chosen rather than an invented node id because
+# it is the one device on this network whose model nothing else shares: a missing device
+# that some spare of the same model could replace is reported by the swap issue instead
+# (FR-S3), which is what `test_a_missing_device_with_a_replacement_waiting...` below pins.
+MISSING_NODE = CEILING_LIGHTS_OLD
 
 
 def issue(hass: HomeAssistant, issue_id: str) -> ir.IssueEntry | None:
@@ -255,6 +259,26 @@ async def test_a_rule_naming_a_device_that_is_not_on_the_network_raises_an_issue
     assert raised.translation_placeholders["rules"] == "stranded"
     assert raised.translation_placeholders["count"] == "1"
     assert handle(MISSING_NODE).name_at_authoring in raised.translation_placeholders["devices"]
+
+
+async def test_a_missing_device_with_a_replacement_waiting_is_offered_a_swap_instead(
+    hass: HomeAssistant, device_links_entry: MockConfigEntry
+) -> None:
+    """One device, one issue. FR-S3's offer says more than E19's report, so it wins.
+
+    Node 39 is a ZEN35 and so are nodes 30 and 36, so a rule naming a node 39 that is not
+    on the network has something that could take over. Reporting both issues would be two
+    things to read and one thing to do.
+    """
+    from custom_components.device_links.repairs import ISSUE_SWAP_CANDIDATE  # noqa: PLC0415
+
+    gone = handle(39)
+    device_links_entry.runtime_data.coordinator._handles.pop(gone.identity, None)
+    activate(device_links_entry, a_profile(a_rule("stranded", source_node=39)))
+    await hass.async_block_till_done()
+
+    assert issue(hass, f"{ISSUE_SWAP_CANDIDATE}_{gone.identity}") is not None
+    assert issue(hass, ISSUE_RULES_MISSING_DEVICES) is None
 
 
 async def test_the_missing_device_issue_goes_when_the_rule_does(

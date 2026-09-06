@@ -45,6 +45,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, STORAGE_KEY
+from .swap import find_replacements
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -63,6 +64,11 @@ ISSUE_PENDING_WAKEUP: Final = "pending_wakeup"
 # it where the instruction should be is worse than a sentence that does not promise one.
 ISSUE_PENDING_WAKEUP_INSTRUCTED: Final = "pending_wakeup_instructed"
 ISSUE_RULES_MISSING_DEVICES: Final = "rules_missing_devices"
+# FR-S3, and two keys for the same reason the pending-wake-up pair has two: a device
+# that left the network and a node that answers as a different model are different
+# sentences, and one message covering both would describe neither.
+ISSUE_SWAP_CANDIDATE: Final = "swap_candidate"
+ISSUE_SWAP_DEVICE_CHANGED: Final = "swap_device_changed"
 ISSUE_STORAGE_UNREADABLE: Final = "storage_unreadable"
 
 # E5 says 24 hours. A battery remote that has not been touched for a day is one where
@@ -121,7 +127,10 @@ def async_check_issues(hass: HomeAssistant, entry: DeviceLinksConfigEntry) -> No
     wanted: dict[str, _Issue] = {}
     _backends(runtime, wanted)
     _pending_wakeups(runtime, wanted)
-    _missing_devices(runtime, wanted)
+    # Before the missing-device report, which leaves out whatever this one has already
+    # taken: two issues about one device is two things to read and one thing to do.
+    replaced = _swap_candidates(runtime, wanted)
+    _missing_devices(runtime, wanted, replaced)
 
     registry = ir.async_get(hass)
     existing = {issue_id for (domain, issue_id) in list(registry.issues) if domain == DOMAIN}
@@ -263,7 +272,9 @@ def _pending_since(coordinator: DeviceLinksCoordinator) -> Mapping[str, datetime
     return since
 
 
-def _missing_devices(runtime: DeviceLinksRuntimeData, wanted: dict[str, _Issue]) -> None:
+def _missing_devices(
+    runtime: DeviceLinksRuntimeData, wanted: dict[str, _Issue], replaced: set[str]
+) -> None:
     """Add one issue naming every rule whose device is not on the network (E19).
 
     One issue for all of them, because the answer is the same for each: the swap flow,
@@ -293,6 +304,9 @@ def _missing_devices(runtime: DeviceLinksRuntimeData, wanted: dict[str, _Issue])
         for handle in (rule.source.device, *(target.device for target in rule.targets)):
             if not availability.get(handle.backend, False):
                 continue
+            if handle.identity in replaced:
+                # A swap has been offered for this one, which is the thing to do about it.
+                continue
             if coordinator.handle_for(handle.identity) is None:
                 rules.add(rule.id)
                 devices.add(handle.name_at_authoring)
@@ -307,3 +321,49 @@ def _missing_devices(runtime: DeviceLinksRuntimeData, wanted: dict[str, _Issue])
             "devices": ", ".join(sorted(devices)),
         },
     )
+
+
+def _swap_candidates(runtime: DeviceLinksRuntimeData, wanted: dict[str, _Issue]) -> set[str]:
+    """Offer the swap flow for each device that looks replaced (FR-S3).
+
+    Returns the identities it spoke for, so E19 does not report them a second time.
+
+    The judgment this issue lives or dies by is the trigger, and it is in
+    `swap.find_replacements` rather than here, because it is a question about rules and
+    devices rather than about Home Assistant. The short version: a device that is merely
+    unreachable never raises this, only one that has left its own network's device listing
+    or come back as a different model, and only when something with that model is sitting
+    unused on the network ready to take over. A Repairs issue that appeared every time a
+    battery remote went quiet for an hour would be the last one anybody read.
+
+    Not fixable in place. The flow is three decisions (which replacement, which control
+    takes over from which, and a plan to confirm), which is a wizard rather than a confirm
+    dialog, so the issue says where it is and the panel runs it.
+    """
+    coordinator = runtime.coordinator
+    profile = coordinator.active_profile
+    if profile is None:
+        return set()
+    replacements = find_replacements(
+        rules=profile.rules,
+        listed=coordinator.devices,
+        answering=[
+            backend_id
+            for backend_id, available in coordinator.backend_availability.items()
+            if available
+        ],
+    )
+    for replacement in replacements:
+        wanted[f"{ISSUE_SWAP_CANDIDATE}_{replacement.old.identity}"] = _Issue(
+            translation_key=(
+                ISSUE_SWAP_DEVICE_CHANGED if replacement.changed_in_place else ISSUE_SWAP_CANDIDATE
+            ),
+            severity=ir.IssueSeverity.WARNING,
+            placeholders={
+                "device": replacement.old.name_at_authoring,
+                "replacement": replacement.candidates[0].name_at_authoring,
+                "count": str(len(replacement.rule_ids)),
+                "rules": ", ".join(replacement.rule_ids),
+            },
+        )
+    return {replacement.old.identity for replacement in replacements}

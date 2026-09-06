@@ -84,6 +84,7 @@ ATTR_ENABLED: Final = "enabled"
 ATTR_REMOVE_UNMANAGED: Final = "remove_unmanaged"
 ATTR_APPLY: Final = "apply"
 ATTR_YAML: Final = "yaml"
+ATTR_ALLOW_MISSING_DEVICES: Final = "allow_missing_devices"
 ATTR_GROUP: Final = "group"
 ATTR_TARGET_DEVICE_ID: Final = "target_device_id"
 ATTR_TARGET_ENDPOINT: Final = "target_endpoint"
@@ -114,7 +115,12 @@ ACTIVATE_PROFILE_SCHEMA: Final = vol.Schema(
     {vol.Required(ATTR_PROFILE_ID): cv.string, vol.Optional(ATTR_APPLY, default=False): cv.boolean}
 )
 EXPORT_PROFILE_SCHEMA: Final = vol.Schema({vol.Optional(ATTR_PROFILE_ID): cv.string})
-IMPORT_PROFILE_SCHEMA: Final = vol.Schema({vol.Required(ATTR_YAML): cv.string})
+IMPORT_PROFILE_SCHEMA: Final = vol.Schema(
+    {
+        vol.Required(ATTR_YAML): cv.string,
+        vol.Optional(ATTR_ALLOW_MISSING_DEVICES, default=False): cv.boolean,
+    }
+)
 
 GET_ASSOCIATIONS_SCHEMA: Final = vol.Schema({vol.Required(CONF_DEVICE_ID): cv.string})
 ASSOCIATION_SCHEMA: Final = vol.Schema(
@@ -445,7 +451,9 @@ async def _async_import_profile(call: ServiceCall) -> ServiceResponse:
             translation_key="profile_invalid",
             translation_placeholders={"error": str(error)},
         ) from error
-    refuse_unknown_devices(coordinator, profile)
+    missing = refuse_unknown_devices(
+        coordinator, profile, allow_missing=call.data[ATTR_ALLOW_MISSING_DEVICES]
+    )
 
     stored = coordinator.state.profiles
     profiles = (
@@ -468,12 +476,15 @@ async def _async_import_profile(call: ServiceCall) -> ServiceResponse:
         "name": profile.name,
         "rules": len(profile.rules),
         "is_active": is_active,
+        "missing_devices": list(missing),
         "plan": None if plan is None else _plan_summary(plan),
     }
 
 
-def refuse_unknown_devices(coordinator: DeviceLinksCoordinator, profile: Profile) -> None:
-    """Refuse an import naming devices this network does not have (E38).
+def refuse_unknown_devices(
+    coordinator: DeviceLinksCoordinator, profile: Profile, *, allow_missing: bool = False
+) -> tuple[str, ...]:
+    """Refuse an import naming devices this network does not have (E38), or report them.
 
     Shared with the WebSocket API's own import, so a file refused in one place is refused
     in the other, for the same reason and with the same message.
@@ -481,6 +492,17 @@ def refuse_unknown_devices(coordinator: DeviceLinksCoordinator, profile: Profile
     Whole, not partially. The rules that could not be resolved are the ones somebody would
     go looking for later, so an import that kept the rest would report success about a
     profile that no longer says what the file says.
+
+    `allow_missing` is what makes a device swap possible at all, and it is opt-in rather
+    than the default for a reason. PRD scenario S7 imports a profile that names a device
+    which is **not** on the network, because that is the whole situation a swap is for: the
+    switch failed, it was replaced, and the rules that named it have to be brought in
+    before they can be re-pointed. Refusing every such file would leave the swap flow
+    unreachable for exactly the case it exists to serve, and accepting one silently would
+    lose E38, which is what stops a file from another house being imported as though it
+    described this one. So the refusal stands by default, names the devices and the rules,
+    and the caller can say it meant it. The identities are returned so a caller that did
+    can show which devices are waiting to be swapped.
     """
     missing: dict[str, set[str]] = {}
     for rule in profile.rules:
@@ -488,7 +510,16 @@ def refuse_unknown_devices(coordinator: DeviceLinksCoordinator, profile: Profile
             if coordinator.handle_for(handle.identity) is None:
                 missing.setdefault(handle.identity, set()).add(rule.id)
     if not missing:
-        return
+        return ()
+    if allow_missing:
+        _LOGGER.info(
+            "profile %s names %s device(s) that are not on this network, and was imported "
+            "anyway because the caller asked: %s",
+            profile.id,
+            len(missing),
+            ", ".join(sorted(missing)),
+        )
+        return tuple(sorted(missing))
     rules = sorted({rule_id for rule_ids in missing.values() for rule_id in rule_ids})
     raise ServiceValidationError(
         f"this profile names devices that are not on this network: {sorted(missing)}",

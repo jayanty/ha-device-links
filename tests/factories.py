@@ -47,6 +47,24 @@ ZEN35_FINGERPRINT = ZWaveFingerprint(
     manufacturer_id=634, product_type=28672, product_id=40984, firmware="1.40.0"
 )
 
+# Node 13, "Ceiling Lights Old", the swap fixture PRD scenario S7 is written around. It is
+# not in the Z2 capture and never could be: it was already dead and had been replaced by
+# node 42 before Stage 0 ran, which is exactly what makes it the real artifact to test
+# against. What is known about it is what PRD Section 3.1 recorded, an Inovelli VZW31-SN.
+# Inovelli's manufacturer id is from the capture; the product type and id are not, because
+# nothing on this network can be asked for them any more, so they are named here as unknown
+# rather than invented into a fixture that would look captured. Nothing in the swap depends
+# on the values: what matters is that they differ from node 42's VZW32-SN (798, 23, 1),
+# which is what makes this a different-model swap.
+UNKNOWN_PRODUCT: Final = 0
+CEILING_LIGHTS_OLD = 13
+CEILING_LIGHTS_OLD_FINGERPRINT = ZWaveFingerprint(
+    manufacturer_id=798,
+    product_type=UNKNOWN_PRODUCT,
+    product_id=UNKNOWN_PRODUCT,
+    firmware="1.0.0",
+)
+
 # A fingerprint no shipped profile entry claims, so a test can exercise the path where the
 # curated database says nothing and only the generic derivation is available.
 UNCURATED_FINGERPRINT = ZWaveFingerprint(
@@ -123,6 +141,15 @@ def _spec(node_id: int) -> _NodeSpec:
     if node_id in known:
         return known[node_id]
     zen35 = known[36]
+    if node_id == CEILING_LIGHTS_OLD:
+        # A dead node keeps the group layout its model had, which is the VZW32-SN's: the
+        # two are the same generation of the same Inovelli switch. Nothing reads these,
+        # because the device is gone; they are here so a handle for it can be built at all.
+        return _NodeSpec(
+            fingerprint=CEILING_LIGHTS_OLD_FINGERPRINT,
+            groups=known[42].groups,
+            name="Ceiling Lights Old",
+        )
     if node_id == UNCURATED_NODE_ID:
         return _NodeSpec(
             fingerprint=UNCURATED_FINGERPRINT, groups=zen35.groups, name="Uncurated Model"

@@ -43,6 +43,17 @@ class ZWaveFingerprint:
     product_id: int
     firmware: str
 
+    @property
+    def model_key(self) -> tuple[str, ...]:
+        """Return what identifies the model, without the firmware it happens to run.
+
+        Two devices of one model on different firmware are the same model, and a swap that
+        asked the user to re-map every control because a switch had been updated would be
+        asking a question with one answer (FR-S2). Firmware stays on the fingerprint,
+        because a curated profile entry may one day need to distinguish by it.
+        """
+        return (str(self.manufacturer_id), str(self.product_type), str(self.product_id))
+
 
 @dataclass(frozen=True, slots=True)
 class ZigbeeFingerprint:
@@ -51,6 +62,11 @@ class ZigbeeFingerprint:
     manufacturer: str
     model: str
 
+    @property
+    def model_key(self) -> tuple[str, ...]:
+        """Return what identifies the model. Zigbee2MQTT reports no firmware here."""
+        return (self.manufacturer, self.model)
+
 
 @dataclass(frozen=True, slots=True)
 class MatterFingerprint:
@@ -58,6 +74,11 @@ class MatterFingerprint:
 
     vendor: str
     product: str
+
+    @property
+    def model_key(self) -> tuple[str, ...]:
+        """Return what identifies the model, in the shape the other two answer with."""
+        return (self.vendor, self.product)
 
 
 type DeviceFingerprint = ZWaveFingerprint | ZigbeeFingerprint | MatterFingerprint

@@ -19,6 +19,7 @@ PURE_MODULES = (
     "models.py",
     "compiler.py",
     "planner.py",
+    "swap.py",
     "yaml_io.py",
     "profile_db.py",
     "backends/zwave_protocol.py",

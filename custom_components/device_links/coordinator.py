@@ -38,7 +38,7 @@ removed from it while we cannot see it (E1).
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
@@ -305,6 +305,15 @@ class DeviceLinksCoordinator:
         """Return what this device can do, as it was last read, or None if never read."""
         return self._capabilities.get(identity)
 
+    @property
+    def capabilities(self) -> Mapping[str, DeviceCapabilities]:
+        """Return what every device that has been read can do, by identity.
+
+        A copy, because this is what the compiler and the swap flow are handed and neither
+        may end up holding a view of a cache that moves under them mid-decision.
+        """
+        return dict(self._capabilities)
+
     def compiled_for(self, rule_id: str) -> CompiledRule | None:
         """Return what one rule of the active profile compiled to, disabled or not."""
         return self._compiled.get(rule_id)
@@ -455,6 +464,44 @@ class DeviceLinksCoordinator:
             for device in devices:
                 self._handles[device.handle.identity] = device.handle
                 await self._read_device(device.handle, deep=deep)
+            self._forget_unlisted(backend_id, {device.handle.identity for device in devices})
+
+    def _forget_unlisted(self, backend_id: BackendId, listed: set[str]) -> None:
+        """Drop what this backend no longer lists, so a removed device stops being current.
+
+        A device that has left the network is not the same as one that did not answer, and
+        this is the only place the difference is visible: the backend answered, with a list
+        that no longer has it in. Keeping it would leave a device that is physically gone
+        reading as merely unavailable for the life of the process, and FR-S3 (which offers
+        a swap when a device rules reference disappears) could never fire while Home
+        Assistant kept running.
+
+        **An empty listing never prunes.** Zigbee2MQTT republishes `bridge/devices` while it
+        restarts, and a momentarily empty list would otherwise take every Zigbee device off
+        this network at once, which is a mass event nobody caused. A backend that has
+        listed devices before and lists none now is treated as one that did not really
+        answer: the cache stands and the next listing settles it.
+
+        What is dropped is only the cache. The stored rules are untouched, so a rule
+        naming the device still exists and still says what the user wanted; it simply reads
+        as `unknown` rather than as `drift`, which is what E4 asks for.
+        """
+        known = {
+            identity for identity, handle in self._handles.items() if handle.backend is backend_id
+        }
+        gone = known - listed
+        if not listed or not gone:
+            return
+        _LOGGER.info(
+            "the %s backend no longer lists %s, so what was cached about them is dropped",
+            backend_id,
+            ", ".join(sorted(gone)),
+        )
+        for identity in gone:
+            self._handles.pop(identity, None)
+            self._capabilities.pop(identity, None)
+            self._observed.pop(identity, None)
+            self._unavailable.discard(identity)
 
     async def _read_device(self, handle: DeviceHandle, *, deep: bool) -> ObservedDevice | None:
         """Read one device, keeping what is cached when it does not answer.
@@ -601,6 +648,7 @@ class DeviceLinksCoordinator:
         scope: PlanScope | None = None,
         *,
         remove_unmanaged: frozenset[str] = frozenset(),
+        desired: Sequence[Link] | None = None,
     ) -> Plan:
         """Return what would happen if this scope were applied, from what was last read.
 
@@ -608,13 +656,24 @@ class DeviceLinksCoordinator:
         when a read is worth the radio time, and a plan whose token was computed from state
         the caller never saw is a plan they cannot reason about. The executor refreshes and
         then plans.
+
+        `desired` answers "what would happen if *this* were what the profile wanted", which
+        is what a device swap and a snapshot rollback both need: both propose a state that
+        is not stored yet, and both must be previewable in full before anything is written.
+        **Ownership is deliberately not overridden with it.** `managed_by` is a record of
+        what Device Links put on a device, not of what somebody now wants there, so the
+        stored profile keeps claiming its links and they are correctly planned for removal
+        when the proposed state no longer wants them. Overriding both halves would make a
+        proposal that claims links it never wrote, which is how a preview comes to offer to
+        delete somebody else's associations.
         """
         identities = self.identities_in_scope(scope)
         observed: list[ObservedLink] = []
         for identity in sorted(identities):
             observed.extend(self._observed[identity].links)
+        wanted = self._desired if desired is None else desired
         plan = build_plan(
-            desired=[link for link in self._desired if link.source.identity in identities],
+            desired=[link for link in wanted if link.source.identity in identities],
             observed=observed,
             capabilities=self._capabilities,
             remove_unmanaged=remove_unmanaged,

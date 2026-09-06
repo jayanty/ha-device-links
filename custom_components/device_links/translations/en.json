@@ -198,6 +198,39 @@
     "storage_version_too_new": {
       "message": "The stored profiles were written by a newer version of Device Links (schema version {found}; this one reads {supported}). Update Home Assistant, or restore the file from a backup."
     },
+    "swap_across_backends": {
+      "message": "A {old} device cannot be swapped for a {new} one. Every link a rule makes lives in one protocol, so the replacement would change the address of every link and which targets can be reached at all. Write the rules again for the new device."
+    },
+    "swap_device_not_referenced": {
+      "message": "No rule of the active profile refers to {device}, so a swap would change nothing."
+    },
+    "swap_duplicate_target_merged": {
+      "message": "The rule {rule} already sent to {device}, so the two are now one target."
+    },
+    "swap_feature_lost": {
+      "message": "{device} cannot carry {feature} for the rule {rule}, so that part of the rule stops working after the swap."
+    },
+    "swap_mapping_incomplete": {
+      "message": "Nothing has been chosen to take over from these controls: {controls}. Pick one for each before applying the swap."
+    },
+    "swap_not_possible": {
+      "message": "This swap cannot be made: {reasons}."
+    },
+    "swap_replacement_unreadable": {
+      "message": "{device} has not been read yet, so what it can do is unknown and nothing can be moved onto it. Refresh it and try again."
+    },
+    "swap_same_device": {
+      "message": "{device} is already the device the rules name, so there is nothing to swap it for."
+    },
+    "swap_target_endpoint_moved": {
+      "message": "The rule {rule} now sends to endpoint {endpoint} of {device}, which is where that device receives."
+    },
+    "swap_unknown_old_device": {
+      "message": "No rule of the active profile refers to the device {device}."
+    },
+    "swap_would_lose_work": {
+      "message": "This swap would leave part of these rules unwritten: {rules}. Look at what the preview says is lost, then confirm it."
+    },
     "system_link_protected": {
       "message": "Group {group} on {device} holds a system link, which Device Links never writes to, so the entry for {target} was left alone."
     },
@@ -315,6 +348,14 @@
     "storage_unreadable": {
       "title": "Device Links could not read its stored profiles",
       "description": "The file {path} could not be read: {error}. Device Links did not start, and the file was left exactly as it is, so nothing has been lost. Restore it from a backup, or move it aside and set your profiles up again. The links already on your devices are untouched either way."
+    },
+    "swap_candidate": {
+      "title": "{device} looks as though it has been replaced",
+      "description": "{device} is named by {count} rule(s) ({rules}) and is no longer on the network, and {replacement} is on the network with the same model and no rules pointing at it. That is what a replaced device looks like. Open Device Links, choose the device, and use Swap: it maps each control across, rewrites every rule that named the old device, and shows you the whole plan before anything is written. Nothing has been changed."
+    },
+    "swap_device_changed": {
+      "title": "{device} now answers as a different model",
+      "description": "The device at {device}'s address reports a different model than the {count} rule(s) that name it were written against ({rules}), which is what Z-Wave's replace-failed-node leaves behind. Its controls may not be the same ones, so the rules are not being applied to it. Open Device Links and use Swap to say which control on {replacement} takes over from which, and to see the whole plan before anything is written."
     }
   },
   "services": {
@@ -398,11 +439,15 @@
     },
     "import_profile": {
       "name": "Import a profile",
-      "description": "Store the profile this YAML describes and return the plan it implies. Nothing is written to a device. A file naming devices this network does not have is refused whole, so a half-imported profile is not possible.",
+      "description": "Store the profile this YAML describes and return the plan it implies. Nothing is written to a device. A file naming devices this network does not have is refused whole, so a half-imported profile is not possible; turn on \"Import even if devices are missing\" when that is what you meant, which is what a device swap starts with.",
       "fields": {
         "yaml": {
           "name": "Profile YAML",
           "description": "The text of an exported profile."
+        },
+        "allow_missing_devices": {
+          "name": "Import even if devices are missing",
+          "description": "Import the file even though some of the devices it names are not on this network. Off by default, because a file from another home would otherwise be imported as though it described this one. Turn it on when a device has been replaced: the rules come in naming the device that has gone, and the swap flow re-points them onto its replacement."
         }
       }
     },

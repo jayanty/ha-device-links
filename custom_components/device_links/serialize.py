@@ -47,6 +47,7 @@ if TYPE_CHECKING:
         SettingWrite,
     )
     from .storage import JobSummary, Snapshot
+    from .swap import EmitterMapping, Replacement, RuleRewrite, SwapProposal
 
 
 class Serializer:
@@ -290,6 +291,67 @@ class Serializer:
             "rules": len(profile.rules),
             "enabled_rules": sum(1 for rule in profile.rules if rule.enabled),
             "is_active": profile.id == active_profile_id,
+        }
+
+    # Swaps.
+
+    @callback
+    def replacement(self, replacement: Replacement) -> dict[str, Any]:
+        """Return one device that looks replaced, with what could take over from it."""
+        return {
+            "old": self.device(replacement.old),
+            "changed_in_place": replacement.changed_in_place,
+            "rule_ids": list(replacement.rule_ids),
+            "candidates": [self.device(handle) for handle in replacement.candidates],
+        }
+
+    @callback
+    def proposal(self, proposal: SwapProposal) -> dict[str, Any]:
+        """Return everything one swap would do, before any of it is done.
+
+        The whole of it, every rule before and after: a swap rewrites a user's entire
+        configuration in one move, and a summary would be asking them to confirm a count.
+        `is_lossy` and `is_applicable` are computed rather than left to the client, because
+        the same two answers gate `swap/apply` and a client deriving its own could offer a
+        button the backend will refuse.
+        """
+        return {
+            "old": self.device(proposal.old),
+            "new": self.device(proposal.new),
+            "same_model": proposal.same_model,
+            "is_lossy": proposal.is_lossy,
+            "is_applicable": proposal.is_applicable,
+            "unmapped": list(proposal.unmapped),
+            "errors": [diagnostic(error) for error in proposal.errors],
+            "mappings": [self._mapping(mapping) for mapping in proposal.mappings],
+            "rewrites": [self._rewrite(rewrite) for rewrite in proposal.rewrites],
+        }
+
+    @staticmethod
+    def _mapping(mapping: EmitterMapping) -> dict[str, Any]:
+        """Return one control on the old device and what would take over from it."""
+        return {
+            "old_emitter_id": mapping.old_emitter_id,
+            "new_emitter_id": mapping.new_emitter_id,
+            "new_label": mapping.new_label,
+            "new_endpoint": mapping.new_endpoint,
+            "basis": str(mapping.basis),
+            "features_needed": [str(feature) for feature in mapping.features_needed],
+            "features_carried": [str(feature) for feature in mapping.features_carried],
+        }
+
+    @callback
+    def _rewrite(self, rewrite: RuleRewrite) -> dict[str, Any]:
+        """Return one rule as it stands and as the swap would leave it."""
+        return {
+            "rule_id": rewrite.rule_id,
+            "name": rewrite.before.name,
+            "before": rule_to_data(rewrite.before),
+            "after": rule_to_data(rewrite.after),
+            "is_lossy": rewrite.is_lossy,
+            "losses": [diagnostic(loss) for loss in rewrite.losses],
+            "notes": [diagnostic(note) for note in rewrite.notes],
+            "errors": [diagnostic(error) for error in rewrite.errors],
         }
 
     # History.
