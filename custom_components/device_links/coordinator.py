@@ -143,6 +143,19 @@ class DeviceLinksCoordinator:
         self._pending: set[str] = set()
         self._flush_handle: CALLBACK_TYPE | None = None
 
+        # Whether each backend answered the last time it was asked, and what went wrong
+        # the last time something did not. Both are read by the Health sensor, which is
+        # the first entity anybody looks at when a system nobody can debug goes quiet.
+        # They start at "answering": nothing has failed yet, and reporting an outage
+        # before the first read would make a healthy start look like a fault.
+        self._backend_available: dict[BackendId, bool] = dict.fromkeys(self._backends, True)
+        self._last_error: dict[str, str] | None = None
+
+        # Entities, which are pushed to rather than polled (quality-scale rule
+        # parallel-updates). Held here rather than on the entities so that an entity that
+        # forgot to unsubscribe is visible as a count rather than as a leak nobody finds.
+        self._listeners: list[CALLBACK_TYPE] = []
+
         # Devices somebody else is in the middle of a conversation with, counted so that
         # two holders of the same device release it only when both have let go.
         self._held: Counter[str] = Counter()
@@ -171,6 +184,38 @@ class DeviceLinksCoordinator:
             unsubscribe()
         self._unsubscribes.clear()
         self._cancel_flush()
+
+    # Telling the entities.
+
+    @callback
+    def async_add_listener(self, update_callback: CALLBACK_TYPE) -> CALLBACK_TYPE:
+        """Call this back whenever anything an entity displays may have changed.
+
+        Returns the unsubscribe callable, which an entity calls from
+        `async_will_remove_from_hass` (quality-scale rule entity-event-setup). A listener
+        that outlives its entity fires at an object Home Assistant has already torn down
+        and survives a reload, which is the leak nobody finds; `listener_count` exists so
+        a test can see one rather than waiting for the second reload to.
+        """
+        self._listeners.append(update_callback)
+
+        @callback
+        def _remove() -> None:
+            if update_callback in self._listeners:
+                self._listeners.remove(update_callback)
+
+        return _remove
+
+    @property
+    def listener_count(self) -> int:
+        """Return how many entities are currently subscribed."""
+        return len(self._listeners)
+
+    @callback
+    def async_update_listeners(self) -> None:
+        """Tell every subscribed entity to write its state again."""
+        for update_callback in list(self._listeners):
+            update_callback()
 
     # What is known.
 
@@ -201,6 +246,46 @@ class DeviceLinksCoordinator:
     def is_available(self, identity: str) -> bool:
         """Say whether this device answered the last time it was asked."""
         return identity in self._observed and identity not in self._unavailable
+
+    @property
+    def available(self) -> bool:
+        """Say whether anything at all can be read right now.
+
+        One backend answering is enough: the Zigbee half of a house being unreachable does
+        not make the Z-Wave half unknowable, and taking every entity away because one
+        protocol dropped would hide the state that is still true.
+        """
+        return any(self._backend_available.values())
+
+    @property
+    def backend_availability(self) -> Mapping[BackendId, bool]:
+        """Return whether each backend answered the last time it was asked."""
+        return dict(self._backend_available)
+
+    @property
+    def last_error(self) -> Mapping[str, str] | None:
+        """Return what last went wrong reading a device, without any network identifier.
+
+        The backend and the exception type, and no message: this is a state attribute,
+        which is world-readable, ends up in the recorder, and gets screenshotted into
+        issue reports. The full text is in the log, which is where a person triaging one
+        of these is already looking.
+        """
+        return None if self._last_error is None else dict(self._last_error)
+
+    def pending_link_fingerprints(self) -> frozenset[str]:
+        """Return the links whose last job left them queued at a sleeping node (E5).
+
+        The latest job to mention a fingerprint is the one that counts: a later apply that
+        landed answers an earlier one that was queued. What this cannot see is a node that
+        woke up and took the write without a job of ours running, which is why the count
+        is described as what the last job left rather than as what is on the devices.
+        """
+        latest: dict[str, bool] = {}
+        for job in self._state.jobs:
+            for result in job.results:
+                latest[result.fingerprint] = result.status == "pending_wakeup"
+        return frozenset(fingerprint for fingerprint, waiting in latest.items() if waiting)
 
     def backend_for(self, handle: DeviceHandle) -> Backend | None:
         """Return the adapter that speaks this device's protocol, if it is loaded."""
@@ -267,15 +352,11 @@ class DeviceLinksCoordinator:
         for backend_id, backend in self._backends.items():
             try:
                 devices = await backend.async_devices()
-            except Exception:
-                _LOGGER.warning(
-                    "the %s backend did not answer, so its devices are marked unavailable "
-                    "and their last known state is kept",
-                    backend_id,
-                    exc_info=True,
-                )
+            except Exception as error:  # an adapter may raise anything its client raises
+                self._note_backend_lost(backend_id, error)
                 self._mark_backend_unavailable(backend_id)
                 continue
+            self._note_backend_answering(backend_id)
             for device in devices:
                 self._handles[device.handle.identity] = device.handle
                 await self._read_device(device.handle, deep=deep)
@@ -293,13 +374,19 @@ class DeviceLinksCoordinator:
         try:
             capabilities = await backend.async_capabilities(handle)
             observed = await backend.async_observed(handle, deep)
-        except Exception:  # an adapter may raise anything its client raises
-            _LOGGER.warning(
-                "%s did not answer, so its last known state is kept and it is marked "
-                "unavailable rather than empty",
-                handle.identity,
-                exc_info=True,
-            )
+        except Exception as error:  # an adapter may raise anything its client raises
+            # Logged once per device rather than once per refresh: a node that has been
+            # unreachable for a week would otherwise fill the log with the same line every
+            # two seconds, and a line that appears that often is one nobody reads
+            # (quality-scale rule log-when-unavailable).
+            if handle.identity not in self._unavailable:
+                _LOGGER.warning(
+                    "%s did not answer, so its last known state is kept and it is marked "
+                    "unavailable rather than empty",
+                    handle.identity,
+                    exc_info=True,
+                )
+            self._note_error(str(handle.backend), error)
             self._unavailable.add(handle.identity)
             return None
         self._handles[handle.identity] = handle
@@ -307,6 +394,35 @@ class DeviceLinksCoordinator:
         self._observed[handle.identity] = observed
         self._unavailable.discard(handle.identity)
         return observed
+
+    def _note_backend_lost(self, backend_id: BackendId, error: Exception) -> None:
+        """Record that a backend stopped answering, and say so exactly once.
+
+        Once, because the alternative is one warning per refresh for as long as the
+        add-on is down, and a log line that repeats every two seconds is one a user
+        scrolls past on the way to the one that matters (quality-scale rule
+        log-when-unavailable). The recovery below is logged once for the same reason and
+        at INFO, because coming back is not a fault.
+        """
+        self._note_error(str(backend_id), error)
+        if self._backend_available.get(backend_id, True):
+            _LOGGER.warning(
+                "the %s backend stopped answering, so its devices are marked unavailable "
+                "and their last known state is kept",
+                backend_id,
+                exc_info=error,
+            )
+        self._backend_available[backend_id] = False
+
+    def _note_backend_answering(self, backend_id: BackendId) -> None:
+        """Record that a backend answered, and say so once if it had stopped."""
+        if not self._backend_available.get(backend_id, True):
+            _LOGGER.info("the %s backend is answering again", backend_id)
+        self._backend_available[backend_id] = True
+
+    def _note_error(self, backend_id: str, error: Exception) -> None:
+        """Keep what last went wrong, without keeping anything that identifies a network."""
+        self._last_error = {"backend": backend_id, "error": type(error).__name__}
 
     def _mark_backend_unavailable(self, backend_id: BackendId) -> None:
         """Mark every device of a backend that has stopped answering, keeping the cache.
@@ -333,6 +449,11 @@ class DeviceLinksCoordinator:
             self._observed[identity] = replace(
                 device, links=tuple(self._owned(link) for link in device.links)
             )
+        # Every path that changes what an entity would say ends here: a read, a stored
+        # state change, a debounced refresh. Notifying from one place rather than from
+        # three is what makes "the entity is stale" impossible to introduce by adding a
+        # fourth.
+        self.async_update_listeners()
 
     def _compile_active_profile(
         self,

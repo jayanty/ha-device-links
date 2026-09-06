@@ -1,1 +1,20 @@
-{}
+{
+  "entity": {
+    "sensor": {
+      "health": {
+        "default": "mdi:heart-pulse"
+      },
+      "active_profile_status": {
+        "default": "mdi:playlist-check"
+      },
+      "pending_links": {
+        "default": "mdi:sleep"
+      }
+    },
+    "binary_sensor": {
+      "drift": {
+        "default": "mdi:alert-decagram"
+      }
+    }
+  }
+}

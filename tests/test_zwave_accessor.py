@@ -33,6 +33,7 @@ from custom_components.device_links.backends.zwave_accessor import (
     ZWaveAccessorError,
     async_get_driver,
     async_get_node,
+    async_get_server_version,
 )
 
 if TYPE_CHECKING:
@@ -161,7 +162,9 @@ def test_async_get_driver_annotations_are_pinned() -> None:
 
 
 @pytest.mark.parametrize(
-    "func", [async_get_driver, async_get_node], ids=["async_get_driver", "async_get_node"]
+    "func",
+    [async_get_driver, async_get_node, async_get_server_version],
+    ids=["async_get_driver", "async_get_node", "async_get_server_version"],
 )
 def test_accessor_functions_are_still_callbacks(func: Callable[..., Any]) -> None:
     """@callback is a promise to callers, so nothing may quietly drop it."""
@@ -281,6 +284,21 @@ def test_async_get_driver_returns_the_entry_driver() -> None:
     assert async_get_driver(zwave_js_entry) is sentinel
 
 
+def test_async_get_server_version_returns_what_the_client_reports() -> None:
+    zwave_js_entry = MagicMock()
+    zwave_js_entry.runtime_data.client.version.server_version = "1.44.0"
+
+    assert async_get_server_version(zwave_js_entry) == "1.44.0"
+
+
+def test_async_get_server_version_is_none_before_the_client_has_connected() -> None:
+    """A version that is not known yet is not a reason to refuse to set up."""
+    zwave_js_entry = MagicMock()
+    zwave_js_entry.runtime_data.client.version = None
+
+    assert async_get_server_version(zwave_js_entry) is None
+
+
 def test_async_get_driver_raises_a_typed_error_when_the_client_has_no_driver() -> None:
     zwave_js_entry = MagicMock()
     zwave_js_entry.runtime_data.client.driver = None
@@ -359,4 +377,5 @@ def test_module_exports_only_the_supported_surface() -> None:
         "ZWaveAccessorError",
         "async_get_driver",
         "async_get_node",
+        "async_get_server_version",
     ]
