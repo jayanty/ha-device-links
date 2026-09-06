@@ -62,9 +62,13 @@ from tests.fakes.zwave import FakeDriver, build_driver_from_fixture
 
 TEST_DEBOUNCE = 0.05
 
-# Short enough that the one test which waits it out costs nothing, long enough that a fake
-# whose refresh lands immediately always lands inside it.
-TEST_DEEP_VERIFY_TIMEOUT = 0.05
+# One test deliberately waits this out, so it is short. The others need a fake whose refresh
+# lands immediately to land inside it, and that is a scheduling race on a loaded machine
+# rather than a real wait, so there is an order of magnitude of headroom over the zero delay
+# the fake actually takes. Both directions of flakiness are bounded: this is a quarter of a
+# second of suite time at worst, and a machine slow enough to miss it would fail loudly
+# rather than pass by accident.
+TEST_DEEP_VERIFY_TIMEOUT = 0.25
 
 
 @pytest.fixture(autouse=True)
